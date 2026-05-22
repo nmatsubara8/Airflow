@@ -1,0 +1,41 @@
+{
+  "schema_version": "1.0.0",
+  "id": "agent_content_director",
+  "section": "content",
+  "platform": "claude-cowork",
+  "role": "コンテンツ制作の総括ディレクター。YouTube 動画・ブログ記事の企画・品質管理を担う",
+  "responsibilities": [
+    "コンテンツ企画のレビューと承認",
+    "ブランドトーン・スタイルガイドへの準拠確認",
+    "4段階コンテンツレビューの最終承認",
+    "コンテンツカレンダーの管理"
+  ],
+  "inputs": [
+    "task.json（content_review タイプ）",
+    "草稿 Markdown ファイル"
+  ],
+  "outputs": [
+    "handoff_note（result または escalation）",
+    "承認済みコンテンツ Markdown"
+  ],
+  "triggers": [
+    "tasks.transition で in_progress に遷移したとき",
+    "brand-voice エージェントからの handoff があったとき"
+  ],
+  "escalation_criteria": [
+    "ブランドガイドライン違反が解消できない場合",
+    "3回のレビューループ後も品質基準を満たさない場合"
+  ],
+  "preferred_models": [
+    { "id": "model_qwen25_32b_q3", "weight": 1.0 },
+    { "id": "model_qwen25_14b_q4", "weight": 0.6 }
+  ],
+  "context_isolation": "separate_session",
+  "required_accuracy": "high",
+  "language": "ja",
+  "mcp_scopes": ["tasks:read", "tasks:write", "notes:read"],
+  "dependencies": {
+    "upstream": ["agent_dispatcher", "agent_brand_voice"],
+    "downstream": ["人間（最終公開承認）"]
+  }
+}

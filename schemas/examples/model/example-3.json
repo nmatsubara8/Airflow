@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0.0",
+  "id": "model_bge_m3",
+  "name": "BGE-M3 Embedding",
+  "provider": "ollama",
+  "vram_gb": 1.0,
+  "quantization": null,
+  "context_length": 8192,
+  "strengths": ["japanese", "english", "embedding"],
+  "avg_latency_ms_per_100tok": 50,
+  "avg_load_time_ms": 1200,
+  "kv_cache_per_request_gb": 0.05,
+  "cost_per_1k_tokens": 0.0,
+  "endpoint": "http://localhost:11434"
+}

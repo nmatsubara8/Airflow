@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://airflow.local/schemas/agent/v1.0.0",
+  "title": "Agent",
+  "type": "object",
+  "required": ["schema_version", "id", "section", "platform", "role"],
+  "properties": {
+    "schema_version": { "type": "string", "pattern": "^1\\." },
+    "id": { "type": "string", "pattern": "^agent_[a-z0-9_-]+$" },
+    "section": {
+      "type": "string",
+      "enum": ["orchestration", "engineering", "content", "business"]
+    },
+    "platform": {
+      "type": "string",
+      "enum": ["claude-code", "claude-cowork", "hermes-agent", "custom"]
+    },
+    "role": { "type": "string" },
+    "responsibilities": { "type": "array", "items": { "type": "string" } },
+    "inputs": { "type": "array", "items": { "type": "string" } },
+    "outputs": { "type": "array", "items": { "type": "string" } },
+    "triggers": { "type": "array", "items": { "type": "string" } },
+    "escalation_criteria": { "type": "array", "items": { "type": "string" } },
+    "preferred_models": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "weight"],
+        "properties": {
+          "id": { "type": "string" },
+          "weight": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    },
+    "context_isolation": {
+      "type": "string",
+      "enum": ["subagent", "separate_session", "shared"]
+    },
+    "required_accuracy": { "type": "string", "enum": ["low", "medium", "high"] },
+    "language": { "type": "string", "enum": ["ja", "en", "code", "mixed"] },
+    "mcp_scopes": { "type": "array", "items": { "type": "string" } },
+    "dependencies": {
+      "type": "object",
+      "properties": {
+        "upstream": { "type": "array", "items": { "type": "string" } },
+        "downstream": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

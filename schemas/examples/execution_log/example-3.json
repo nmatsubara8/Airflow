@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0.0",
+  "id": "log_f0e1d2c3b4a59687",
+  "timestamp": "2026-05-22T00:44:55Z",
+  "task_id": "task_e5f6a7b8c9d0e1f2",
+  "agent_id": "agent_tech_lead",
+  "model_id": "model_qwen25_32b_q3",
+  "features_snapshot": {
+    "task_type": "review",
+    "language": "mixed",
+    "input_size_tokens": 8000,
+    "expected_output_size_tokens": 1500,
+    "required_accuracy": "high",
+    "latency_sensitivity": "none"
+  },
+  "latency_ms": 95000,
+  "input_tokens": 8120,
+  "output_tokens": 1480,
+  "success": true,
+  "retry_count": 0,
+  "schema_valid": true,
+  "auto_score": 0.92,
+  "human_feedback": "accepted",
+  "error": null,
+  "audit_id": "01HX5R9T6KLMNOPQRST0123456",
+  "parent_audit_id": null,
+  "notes": "夜間バッチ実行。4並列レビュー集約タスク。人間フィードバック accepted。KNNフィードバックループに反映済み。"
+}

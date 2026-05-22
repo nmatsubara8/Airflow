@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0.0",
+  "timestamp": "2026-05-22T23:30:00Z",
+  "level": "warn",
+  "event": "scheduler.starvation_detected",
+  "audit_id": "01HX5Z9W8VUTSR0QPONM123456",
+  "parent_audit_id": null,
+  "component": "scheduler",
+  "task_id": "task_99aabb00cc11dd22",
+  "agent_id": null,
+  "model_id": "model_qwen25_14b_q4",
+  "duration_ms": null,
+  "error": null,
+  "data": {
+    "wait_seconds": 650,
+    "starvation_flag_added": "aged",
+    "effective_priority_before": 5.0,
+    "effective_priority_after": 8.5,
+    "aging_boost_applied": 3.5
+  }
+}

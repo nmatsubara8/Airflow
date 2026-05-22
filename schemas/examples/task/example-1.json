@@ -1,0 +1,41 @@
+{
+  "schema_version": "1.0.0",
+  "id": "task_a1b2c3d4e5f6a7b8",
+  "created_at": "2026-05-22T09:00:00Z",
+  "updated_at": "2026-05-22T09:00:05Z",
+  "title": "Vault inbox ノートの要約タスク",
+  "description": "Inbox/airflow-overview.md を読み込み、要点を 200 字以内で要約する",
+  "status": "inbox",
+  "owner": {
+    "type": "agent",
+    "id": "agent_dispatcher"
+  },
+  "priority": 5,
+  "deadline": null,
+  "tags": ["summarize", "vault", "inbox"],
+  "section": "engineering",
+  "features": {
+    "task_type": "summarize",
+    "language": "ja",
+    "input_size_tokens": 1200,
+    "expected_output_size_tokens": 300,
+    "required_accuracy": "medium",
+    "latency_sensitivity": "batch"
+  },
+  "scheduling": {
+    "enqueued_at": "2026-05-22T09:00:05Z",
+    "selected_model_id": null,
+    "effective_priority": 5.0,
+    "starvation_flags": []
+  },
+  "source": {
+    "kind": "inbox_note",
+    "ref": "note_f1e2d3c4b5a697800102030405060708"
+  },
+  "lock": {
+    "version": 0,
+    "etag": "sha256:aabbcc0000000000000000000000000000000000000000000000000000000001"
+  },
+  "handoff_notes": [],
+  "chain": []
+}

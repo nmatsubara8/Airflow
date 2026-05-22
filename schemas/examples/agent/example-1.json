@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0.0",
+  "id": "agent_code_reviewer",
+  "section": "engineering",
+  "platform": "claude-code",
+  "role": "コードレビュー担当。Pull Request のコード品質・セキュリティ・パフォーマンスを審査する",
+  "responsibilities": [
+    "PR の差分コードのセキュリティ脆弱性チェック",
+    "コーディング規約への準拠確認",
+    "パフォーマンスボトルネックの指摘",
+    "テストカバレッジの確認"
+  ],
+  "inputs": ["task.json（review タイプ）", "対象コードファイルのパス"],
+  "outputs": ["handoff_note（result）", "レビューコメント Markdown"],
+  "triggers": ["tasks.transition で in_progress に遷移したとき"],
+  "escalation_criteria": [
+    "CVSS 7.0 以上の脆弱性を発見した場合",
+    "テストカバレッジが 50% 未満で PR が機能追加を含む場合"
+  ],
+  "preferred_models": [
+    { "id": "model_qwen25_coder_32b_q3", "weight": 1.0 },
+    { "id": "model_qwen25_32b_q3", "weight": 0.7 }
+  ],
+  "context_isolation": "subagent",
+  "required_accuracy": "high",
+  "language": "mixed",
+  "mcp_scopes": ["tasks:read", "tasks:write", "notes:read"],
+  "dependencies": {
+    "upstream": ["agent_dispatcher"],
+    "downstream": ["agent_tech_lead", "人間（最終承認）"]
+  }
+}

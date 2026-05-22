@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0.0",
+  "snapshot_at": "2026-05-22T09:00:00Z",
+  "total_vram_gb": 16.0,
+  "used_vram_gb": 1.0,
+  "free_vram_gb": 15.0,
+  "loaded_models": [
+    {
+      "model_id": "model_bge_m3",
+      "vram_gb": 1.0,
+      "loaded_at": "2026-05-22T08:30:00Z",
+      "last_used_at": "2026-05-22T08:59:55Z",
+      "pending_tasks": 0
+    }
+  ],
+  "active_profile": "single_large"
+}

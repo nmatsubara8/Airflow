@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0.0",
+  "id": "log_a1b2c3d4e5f6a7b8",
+  "timestamp": "2026-05-22T10:35:00Z",
+  "task_id": "task_a1b2c3d4e5f6a7b8",
+  "agent_id": "agent_docs_writer",
+  "model_id": "model_qwen25_14b_q4",
+  "features_snapshot": {
+    "task_type": "summarize",
+    "language": "ja",
+    "input_size_tokens": 1200,
+    "expected_output_size_tokens": 300,
+    "required_accuracy": "medium",
+    "latency_sensitivity": "batch"
+  },
+  "latency_ms": 12400,
+  "input_tokens": 1250,
+  "output_tokens": 285,
+  "success": true,
+  "retry_count": 0,
+  "schema_valid": true,
+  "auto_score": 0.87,
+  "human_feedback": null,
+  "error": null,
+  "audit_id": "01HX5K3P2QRSTUVWXYZ0123456",
+  "parent_audit_id": null,
+  "notes": null
+}

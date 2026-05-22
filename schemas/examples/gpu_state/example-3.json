@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0.0",
+  "snapshot_at": "2026-05-22T23:15:00Z",
+  "total_vram_gb": 16.0,
+  "used_vram_gb": 15.0,
+  "free_vram_gb": 1.0,
+  "loaded_models": [
+    {
+      "model_id": "model_qwen25_32b_q3",
+      "vram_gb": 14.0,
+      "loaded_at": "2026-05-22T23:00:00Z",
+      "last_used_at": "2026-05-22T23:14:45Z",
+      "pending_tasks": 3
+    },
+    {
+      "model_id": "model_bge_m3",
+      "vram_gb": 1.0,
+      "loaded_at": "2026-05-22T22:00:00Z",
+      "last_used_at": "2026-05-22T23:10:00Z",
+      "pending_tasks": 0
+    }
+  ],
+  "active_profile": "single_large"
+}
