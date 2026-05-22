@@ -111,7 +111,7 @@ else:
   swap_cost_ms = INFINITY  (現プロファイルでは実行不可)
 ```
 
-`load_time_ms` は GpuState の各モデルメタに過去計測値を保持（DDD-01 Model スキーマに `avg_latency_ms_per_100tok` と並列で `avg_load_time_ms` を追加）。
+`load_time_ms` は **Model registry**（`.airflow/models/registry.json`）の `avg_load_time_ms` フィールドを参照する（DDD-01 §2.3 Model スキーマ）。実測ベースで更新され、GpuState ではなく Model エンティティに保持される。
 
 ### 3.3 再ルート時の親和性無視
 

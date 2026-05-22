@@ -18,7 +18,7 @@ outputs:
   - "戦略ブリーフ"
 
 triggers:
-  - "schedule: 毎週月曜 09:00"
+  - "schedule: 火・金 09:00（schedules.yaml: business_briefing）"
 
 escalation_criteria:
   - "大きな方向転換提案 → 人間レビュー必須"

@@ -532,6 +532,13 @@ schedules:
           targets: [agent_security]
           tasks: [type: "scan_dependencies"]
 
+  - name: eng_director_briefing
+    cron: "0 9 * * 1"   # 毎週月曜 09:00
+    actions:
+      - dispatch:
+          targets: [agent_eng_director]
+          tasks: [type: "weekly_engineering_review"]
+
   - name: morning_brainstorm
     cron: "0 7 * * *"
     actions:

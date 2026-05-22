@@ -296,7 +296,17 @@ ULID 採用理由：時系列ソート可能 + UUID 並みの一意性。
     "agent_id": { "type": ["string", "null"] },
     "model_id": { "type": ["string", "null"] },
     "duration_ms": { "type": ["integer", "null"] },
-    "error": { "type": ["object", "null"], "description": "§2.2 のエラーレスポンス構造" },
+    "error": {
+      "type": ["object", "null"],
+      "description": "DDD-03 §2.2 のエラーレスポンス構造（サマリーフィールド）",
+      "properties": {
+        "class": { "type": "string", "enum": ["recoverable", "escalate", "fatal"] },
+        "code": { "type": "string", "description": "§2.4 で定義するエラーコード" },
+        "message": { "type": "string" },
+        "retry_after_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "audit_id": { "type": ["string", "null"], "description": "元の audit_id（§5）" }
+      }
+    },
     "data": { "type": "object", "description": "イベント固有のペイロード" }
   }
 }

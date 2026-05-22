@@ -24,7 +24,14 @@
     "duration_ms": { "type": ["integer", "null"] },
     "error": {
       "type": ["object", "null"],
-      "description": "§2.2 のエラーレスポンス構造"
+      "description": "DDD-03 §2.2 のエラーレスポンス構造（サマリーフィールド）",
+      "properties": {
+        "class": { "type": "string", "enum": ["recoverable", "escalate", "fatal"] },
+        "code": { "type": "string", "description": "DDD-03 §2.4 で定義するエラーコード" },
+        "message": { "type": "string" },
+        "retry_after_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "audit_id": { "type": ["string", "null"], "description": "元の audit_id（DDD-03 §5）" }
+      }
     },
     "data": {
       "type": "object",
