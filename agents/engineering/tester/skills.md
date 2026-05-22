@@ -38,4 +38,8 @@ mcp_scopes:
   - tasks:write
   - notes:read
   - models:execute
+
+dependencies:
+  upstream: ["agent_frontend", "agent_backend", "agent_mobile"]
+  downstream: ["agent_qa", "agent_reviewer"]
 ---

@@ -72,7 +72,7 @@ OSS の Hermes Agent（Nous Research 製）は `platform: hermes-agent` で参�
     "title", "status", "owner", "priority"
   ],
   "properties": {
-    "schema_version": { "type": "string", "const": "1.0.0" },
+    "schema_version": { "type": "string", "pattern": "^1\\." },
     "id": { "type": "string", "pattern": "^task_[a-f0-9]{8,}$" },
     "created_at": { "type": "string", "format": "date-time" },
     "updated_at": { "type": "string", "format": "date-time" },
@@ -233,7 +233,7 @@ OSS の Hermes Agent（Nous Research 製）は `platform: hermes-agent` で参�
   "type": "object",
   "required": ["schema_version", "id", "section", "platform", "role"],
   "properties": {
-    "schema_version": { "type": "string", "const": "1.0.0" },
+    "schema_version": { "type": "string", "pattern": "^1\\." },
     "id": { "type": "string", "pattern": "^agent_[a-z0-9_-]+$" },
     "section": {
       "type": "string",
@@ -280,7 +280,7 @@ OSS の Hermes Agent（Nous Research 製）は `platform: hermes-agent` で参�
     "schema_version", "id", "name", "provider", "vram_gb"
   ],
   "properties": {
-    "schema_version": { "type": "string", "const": "1.0.0" },
+    "schema_version": { "type": "string", "pattern": "^1\\." },
     "id": { "type": "string", "pattern": "^model_[a-z0-9._-]+$" },
     "name": { "type": "string" },
     "provider": {
@@ -323,7 +323,7 @@ OSS の Hermes Agent（Nous Research 製）は `platform: hermes-agent` で参�
   "type": "object",
   "required": ["schema_version", "snapshot_at", "total_vram_gb", "used_vram_gb"],
   "properties": {
-    "schema_version": { "type": "string", "const": "1.0.0" },
+    "schema_version": { "type": "string", "pattern": "^1\\." },
     "snapshot_at": { "type": "string", "format": "date-time" },
     "total_vram_gb": { "type": "number" },
     "used_vram_gb": { "type": "number" },
@@ -360,7 +360,7 @@ OSS の Hermes Agent（Nous Research 製）は `platform: hermes-agent` で参�
     "model_id", "success"
   ],
   "properties": {
-    "schema_version": { "type": "string", "const": "1.0.0" },
+    "schema_version": { "type": "string", "pattern": "^1\\." },
     "id": { "type": "string", "pattern": "^log_[a-f0-9]{8,}$" },
     "timestamp": { "type": "string", "format": "date-time" },
     "task_id": { "type": "string" },
@@ -412,7 +412,7 @@ OSS の Hermes Agent（Nous Research 製）は `platform: hermes-agent` で参�
   "type": "object",
   "required": ["schema_version", "id", "absolute_path", "content_hash", "last_indexed"],
   "properties": {
-    "schema_version": { "type": "string", "const": "1.0.0" },
+    "schema_version": { "type": "string", "pattern": "^1\\." },
     "id": { "type": "string", "pattern": "^note_[a-f0-9]{16,}$" },
     "absolute_path": { "type": "string" },
     "relative_path": { "type": "string" },
@@ -624,7 +624,7 @@ Phase 2 MVP の実データ検証完了後（4 週目）に `v1.0.0` を凍結�
 | `schemas/gpu_state.schema.json` | GpuState |
 | `schemas/execution_log.schema.json` | ExecutionLog |
 | `schemas/note.schema.json` | Note |
-| `schemas/handoff_note.schema.json` | HandoffNote（Task から `$ref`） |
+| ~~`schemas/handoff_note.schema.json`~~ | HandoffNote は Task 内 `$defs/HandoffNote` で定義（別ファイル化しない） |
 
 各ファイルは独立した `$id` を持ち、相互に `$ref` で参照可能。
 

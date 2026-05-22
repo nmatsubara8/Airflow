@@ -788,9 +788,17 @@ CLI コマンドが対応する MCP ツールの一覧。同一機能の名前�
 | `airflow doctor` | （内部）起動時自己診断（DDD-05 §4.2） |
 | `airflow lockdown` | （内部）緊急ロックダウン（DDD-08 §9.4） |
 | `airflow gpu reset` | （内部）GPU 完全再初期化（DDD-08 §9.3） |
-| `airflow task feedback` | `model.feedback` |
-| `airflow ingest *` | （内部）Ingester 制御（DDD-04 §9.1） |
-| `airflow model *` | 各種 model.* + 内部管理コマンド |
+| `airflow ingest start/stop/status` | （内部）Ingester 制御（DDD-04 §9.1） |
+| `airflow ingest add-path` | （内部）監視パス追加（DDD-04 §9.1） |
+| `airflow ingest reindex` | （内部）再インデックス（DDD-04 §9.1） |
+| `airflow notes reindex` | （内部）DDD-04 §7.2 同等 |
+| `airflow taskboard repair` | （内部）ロックファイル等の清掃（DDD-04 §3.3） |
+| `airflow model register/add/list/ps/stats/coverage` | （内部）モデル管理 + 各種 model.* MCP |
+| `airflow status` | （内部）統合ダッシュボード（DDD-08 §5.1） |
+| `airflow auth rotate` | （内部）トークンローテーション（DDD-08 §4.6） |
+| `airflow ops memcheck` | （内部）メモリリーク検出（DDD-08 §8.3） |
+| `airflow scheduler dashboard` | （内部）スケジューラダッシュボード（DDD-07 §11.2） |
+| `airflow cleanup run` | （内部）Cleaner Agent 手動実行 |
 
 > CLI は **複数形** に統一（`task` → `tasks` への移行は Phase 5）。Phase 1〜4 は両方受け付ける（alias）。
 > 「（内部）」マークの CLI は MCP ツールに対応せず、CLI から直接実装を呼ぶ（運用者ローカル操作のみ）。

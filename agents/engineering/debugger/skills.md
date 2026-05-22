@@ -40,4 +40,8 @@ mcp_scopes:
   - tasks:write
   - notes:read
   - models:execute
+
+dependencies:
+  upstream: ["agent_qa（regression エスカレーション）"]
+  downstream: ["agent_backend", "agent_frontend"]
 ---

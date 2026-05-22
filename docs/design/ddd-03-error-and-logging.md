@@ -285,7 +285,7 @@ ULID 採用理由：時系列ソート可能 + UUID 並みの一意性。
   "type": "object",
   "required": ["timestamp", "level", "event", "audit_id", "component"],
   "properties": {
-    "schema_version": { "type": "string", "const": "1.0.0" },
+    "schema_version": { "type": "string", "pattern": "^1\\." },
     "timestamp": { "type": "string", "format": "date-time" },
     "level": { "type": "string", "enum": ["debug", "info", "warn", "error", "critical"] },
     "event": { "type": "string", "description": "ドット区切りイベント名 例: task.created, model.executed" },

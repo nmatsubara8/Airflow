@@ -37,4 +37,8 @@ mcp_scopes:
   - tasks:write
   - notes:read
   - models:execute
+
+dependencies:
+  upstream: []
+  downstream: ["agent_marketing_director", "人間（戦略承認）"]
 ---

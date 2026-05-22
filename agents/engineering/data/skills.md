@@ -37,4 +37,8 @@ mcp_scopes:
   - tasks:write
   - notes:read
   - models:execute
+
+dependencies:
+  upstream: ["agent_architect（スキーマ設計依頼時）"]
+  downstream: ["agent_qa", "agent_reviewer"]
 ---

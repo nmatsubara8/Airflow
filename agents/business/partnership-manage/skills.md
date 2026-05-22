@@ -36,6 +36,10 @@ mcp_scopes:
   - tasks:write
   - notes:read
   - models:execute
+
+dependencies:
+  upstream: []
+  downstream: ["人間（grey zone は判断委譲）"]
 ---
 
 # Filter Criteria

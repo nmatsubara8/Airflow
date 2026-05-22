@@ -40,6 +40,10 @@ mcp_scopes:
   - tasks:write
   - notes:read
   - models:execute
+
+dependencies:
+  upstream: ["agent_tech_lead（PR マージ後の hook）"]
+  downstream: []
 ---
 
 # Role

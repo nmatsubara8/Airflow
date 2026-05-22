@@ -38,4 +38,8 @@ mcp_scopes:
   - tasks:write
   - notes:read
   - models:execute
+
+dependencies:
+  upstream: ["agent_business_strategy"]
+  downstream: ["人間（施策承認）"]
 ---

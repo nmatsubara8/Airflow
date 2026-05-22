@@ -38,6 +38,10 @@ mcp_scopes:
   - tasks:read
   - notes:read
   - models:execute
+
+dependencies:
+  upstream: ["agent_dispatcher（タスク投入時呼出）"]
+  downstream: []
 ---
 
 # Role

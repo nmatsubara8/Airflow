@@ -35,6 +35,10 @@ mcp_scopes:
   - tasks:write
   - notes:read
   - models:execute
+
+dependencies:
+  upstream: []
+  downstream: ["人間（弁護士確認、必須）"]
 ---
 
 # Constraints

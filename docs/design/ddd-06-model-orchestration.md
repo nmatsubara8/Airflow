@@ -668,7 +668,7 @@ Phase 3 完了時：
 | `swap_cost_ms` の実装（並列化前提） | DDD-07 |
 | 候補モデル絞り込み（candidate_models 活用） | DDD-07 |
 | 学習データの decay_factor 実装 | Phase 5 |
-| 二重実行の温度バリエーション最適化 | Phase 5 |
+| 二重実行の温度バリエーション最適化 | Phase 3（本 DDD §7.2 の延長で実装） |
 
 ---
 

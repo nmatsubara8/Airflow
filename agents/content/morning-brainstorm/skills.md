@@ -38,6 +38,10 @@ mcp_scopes:
   - tasks:write
   - notes:read
   - models:execute
+
+dependencies:
+  upstream: []
+  downstream: ["agent_content_director", "人間（企画選定）"]
 ---
 
 # Process
