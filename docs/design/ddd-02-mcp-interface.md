@@ -139,6 +139,10 @@ MCP のエラーは DDD-03 のエラー分類と直結：
 | `tasks.claim` | エージェントが自分にアサイン | `tasks:write` |
 | `tasks.add_handoff_note` | コメント追加 | `tasks:write` |
 | `tasks.subscribe` | 状態変化通知（SSE） | `tasks:read` |
+| `tasks.assign` | タスクの owner を人間が override 設定（要件 F-08） | `tasks:write` |
+| `tasks.join` | 親子タスクの集約待機を宣言（DDD-08 §3.2） | `tasks:write` |
+| `audit.trace` | `audit_id` 起点で関連イベント全件取得（DDD-03 §8.2） | `tasks:read` |
+| `audit.query` | 構造化フィルタによるログ検索 | `tasks:read` |
 
 ### 3.2 個別仕様（抜粋）
 
@@ -237,6 +241,125 @@ cancelled    → (終端)
 #### `tasks.subscribe`
 
 状態変化のストリーミング通知（SSE）。Phase 4 でリアルタイム性が必要になった時に有効化。Phase 1〜3 は **ポーリング前提**。
+
+#### `tasks.assign`
+
+要件 F-08「人間が割り振り結果を上書きできる」の実装。CLI `airflow task assign <id> --owner <agent_id>` のバックエンド。
+
+```json
+{
+  "name": "tasks.assign",
+  "inputSchema": {
+    "type": "object",
+    "required": ["task_id", "new_owner"],
+    "properties": {
+      "task_id": { "type": "string" },
+      "new_owner": {
+        "type": "object",
+        "required": ["type", "id"],
+        "properties": {
+          "type": { "type": "string", "enum": ["agent", "human"] },
+          "id": { "type": "string" }
+        }
+      },
+      "reason": { "type": "string" }
+    }
+  }
+}
+```
+
+サーバー側：現在の owner が in_progress 中ならエラー、inbox/needs_human 状態のみ受付。
+
+#### `tasks.join`
+
+複数の子タスクの完了を待ち、親タスクへ集約する（DDD-08 §3.2 の PR レビュー並列集約）。
+
+```json
+{
+  "name": "tasks.join",
+  "description": "親タスクが指定 join_policy で子タスク群を待機・集約",
+  "inputSchema": {
+    "type": "object",
+    "required": ["parent_id", "child_ids"],
+    "properties": {
+      "parent_id": { "type": "string" },
+      "child_ids": { "type": "array", "items": { "type": "string" } },
+      "join_policy": {
+        "type": "string",
+        "enum": ["all_done", "any_done", "majority"],
+        "default": "all_done"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "ready": { "type": "boolean", "description": "policy 満たした時 true" },
+      "completed_children": { "type": "array", "items": { "type": "string" } },
+      "pending_children": { "type": "array", "items": { "type": "string" } }
+    }
+  }
+}
+```
+
+呼出は冪等：parent タスクの `join` フィールド（DDD-01 §2.1）に状態を保存し、子タスクの状態変化をポーリング or `tasks.subscribe` で監視。
+
+#### `audit.trace`
+
+```json
+{
+  "name": "audit.trace",
+  "description": "audit_id 起点で全派生イベントを階層構造で取得",
+  "inputSchema": {
+    "type": "object",
+    "required": ["audit_id"],
+    "properties": {
+      "audit_id": { "type": "string" },
+      "depth": { "type": "integer", "default": 5 }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "root": { "type": "string" },
+      "events": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "audit_id": { "type": "string" },
+            "parent_audit_id": { "type": ["string", "null"] },
+            "event": { "type": "string" },
+            "timestamp": { "type": "string" },
+            "component": { "type": "string" },
+            "data": { "type": "object" }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+#### `audit.query`
+
+```json
+{
+  "name": "audit.query",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "event": { "type": "string", "description": "ドット区切りパターン。* 可" },
+      "task_id": { "type": "string" },
+      "agent_id": { "type": "string" },
+      "level": { "type": "array", "items": { "type": "string" } },
+      "since": { "type": "string", "format": "date-time" },
+      "until": { "type": "string", "format": "date-time" },
+      "limit": { "type": "integer", "default": 100 }
+    }
+  }
+}
+```
 
 ---
 
@@ -369,6 +492,31 @@ Obsidian `[[内部リンク]]` を辿って関連ノートを返す。
 }
 ```
 
+### 5.2.1 `model.feedback`
+
+```json
+{
+  "name": "model.feedback",
+  "description": "実行結果に対する人間フィードバックを登録（DDD-06 §5.3）",
+  "inputSchema": {
+    "type": "object",
+    "required": ["task_id", "human_feedback"],
+    "properties": {
+      "task_id": { "type": "string" },
+      "execution_log_id": { "type": ["string", "null"], "description": "特定の実行ログに紐付ける場合。null なら task_id 最新の実行" },
+      "human_feedback": { "type": "string", "enum": ["accepted", "modified", "rejected"] },
+      "comment": { "type": ["string", "null"] }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "updated_log_ids": { "type": "array", "items": { "type": "string" } }
+    }
+  }
+}
+```
+
 ### 5.3 `model.execute`
 
 **重要**：MCP は **薄いラッパー** に徹し、実際の推論は Ollama/vLLM に委譲。
@@ -470,9 +618,39 @@ Obsidian `[[内部リンク]]` を辿って関連ノートを返す。
 | `agents.list` | 登録済みエージェント一覧 |
 | `agents.get` | ID 指定で skills.md 取得 |
 | `agents.find_for_task` | タスク特徴から担当候補を推定 |
+| `agents.extract_features` | タスクから特徴ベクトルを自動抽出（DDD-06 §3.2） |
 | `agents.register` | エージェント新規登録 |
 
-### 7.2 `agents.find_for_task`
+### 7.2 `agents.extract_features`
+
+タスクの特徴ベクトルを自動抽出（DDD-06 §3.2 の実装窓口）。
+
+```json
+{
+  "name": "agents.extract_features",
+  "description": "Task オブジェクトから features を推定して返す（明示指定があればそれを優先）",
+  "inputSchema": {
+    "type": "object",
+    "required": ["task"],
+    "properties": {
+      "task": { "$ref": "task.schema.json" }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "features": { "$ref": "task.schema.json#/properties/features" },
+      "inferred_fields": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "どのフィールドが自動推定されたか（明示指定でないもの）"
+      }
+    }
+  }
+}
+```
+
+### 7.3 `agents.find_for_task`
 
 タスクディスパッチが利用。タスク特徴・タグから担当エージェント候補を返す。
 
@@ -573,11 +751,39 @@ Phase 1 完了時点で以下を満たすこと：
 | 課題 | 検討するフェーズ |
 |------|--------------|
 | HTTP/SSE モードの詳細実装 | Phase 4 |
-| `audit_id` の自動採番ルール | DDD-03 |
-| エラーコード列挙の完全化 | DDD-03 |
-| ベクトル検索バックエンド（Qdrant vs Chroma）の選定 | DDD-04 |
-| `model.execute` の構造化出力強制実装 | DDD-05 |
-| トークンローテーション運用 | Phase 5 |
+| `audit_id` の自動採番ルール | DDD-03（§5 で確定済み） |
+| エラーコード列挙の完全化 | DDD-03（§2.4 で確定済み） |
+| ベクトル検索バックエンド（Qdrant vs Chroma）の選定 | DDD-04 §13（Phase 2 実装中に最終判断） |
+| トークンローテーション運用 | Phase 5 → DDD-08 §4.6 で実装 |
+
+> 注：「`model.execute` の構造化出力強制実装」は DDD-05 §6 で実装済みのため削除。
+> 「HTTP/SSE モードの詳細実装」「ストリーミング出力」は DDD-05 §16 で扱うため重複削除。
+
+### 11.1 CLI ↔ MCP マッピング表
+
+CLI コマンドが対応する MCP ツールの一覧。同一機能の名前不一致を避けるため明示：
+
+| CLI コマンド | MCP ツール |
+|------------|----------|
+| `airflow task list` | `tasks.list` |
+| `airflow task show <id>` | `tasks.get` |
+| `airflow task create` | `tasks.create` |
+| `airflow task transition` | `tasks.transition` |
+| `airflow task assign` | `tasks.assign` |
+| `airflow task feedback` | `model.feedback` |
+| `airflow notes search` | `notes.search` |
+| `airflow notes show` | `notes.get` |
+| `airflow model recommend` | `model.recommend` |
+| `airflow model exec` | `model.execute` |
+| `airflow model load/unload` | `gpu.reserve` / `gpu.release` |
+| `airflow gpu status` | `gpu.state` |
+| `airflow scheduler status` | `scheduler.queue_status` |
+| `airflow profile switch` | `scheduler.profile_switch` |
+| `airflow scheduler degrade` | `scheduler.degrade` |
+| `airflow logs trace` | `audit.trace` |
+| `airflow logs query` | `audit.query` |
+
+> CLI は **複数形** に統一（`task` → `tasks` への移行は Phase 5）。Phase 1〜4 は両方受け付ける（alias）。
 
 ---
 

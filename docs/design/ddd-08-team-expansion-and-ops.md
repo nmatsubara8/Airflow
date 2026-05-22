@@ -34,9 +34,9 @@
 ```
 .airflow/agents/
 ├── orchestration/
-│   ├── dispatcher/skills.md
-│   ├── cleaner-agent/skills.md
-│   └── feature-extractor/skills.md
+│   ├── dispatcher/skills.md          # agent_dispatcher
+│   ├── cleaner/skills.md             # agent_cleaner（要件 NF-11 旧称 "Hermes Agent"。DDD-01 §1.2.1 用語統一参照）
+│   └── feature-extractor/skills.md   # agent_feature_extractor
 ├── engineering/                 # §01
 │   ├── tech-lead/skills.md
 │   ├── eng-director/skills.md
@@ -64,6 +64,28 @@
     ├── partnership-manage/skills.md
     └── legal-review/skills.md
 ```
+
+### 2.1.1 ID とディレクトリの対応表
+
+DDD-01 §1.2 の命名規約に従い、エージェント ID（underscore）とディレクトリ名（hyphen）を明確に対応させる：
+
+| エージェント ID | ディレクトリ | セクション |
+|--------------|----------|----------|
+| `agent_dispatcher` | `orchestration/dispatcher/` | orchestration |
+| `agent_cleaner` | `orchestration/cleaner/` | orchestration |
+| `agent_feature_extractor` | `orchestration/feature-extractor/` | orchestration |
+| `agent_tech_lead` | `engineering/tech-lead/` | engineering |
+| `agent_eng_director` | `engineering/eng-director/` | engineering |
+| `agent_qa` | `engineering/qa/` | engineering |
+| `agent_content_director` | `content/content-director/` | content |
+| `agent_brand_voice` | `content/brand-voice/` | content |
+| `agent_root_cause` | `content/root-cause/` | content |
+| `agent_anti_ai_slop` | `content/anti-ai-slop/` | content |
+| `agent_morning_brainstorm` | `content/morning-brainstorm/` | content |
+| `agent_marketing_director` | `business/marketing-director/` | business |
+| `agent_business_strategy` | `business/business-strategy/` | business |
+| `agent_partnership_manage` | `business/partnership-manage/` | business |
+| `agent_legal_review` | `business/legal-review/` | business |
 
 ### 2.2 `skills.md` 雛形
 
@@ -221,7 +243,7 @@ anti-ai-slop 完了
    handoff_note(kind=result, body="最終原稿"), transition(done)
 ```
 
-タスクスキーマには連鎖を追跡する `chain` フィールドを追加（DDD-01 v1.1 で拡張）：
+タスクスキーマの `chain` フィールド（DDD-01 §2.1 で定義済み）で連鎖を追跡：
 
 ```yaml
 chain:
@@ -246,24 +268,9 @@ tech-lead が集約
    ↓ 承認 or needs_human
 ```
 
-並列タスクの集約には新規 MCP ツール `tasks.join`：
+並列タスクの集約には MCP ツール `tasks.join`（DDD-02 §3.2 で定義済み）を使用。
 
-```json
-{
-  "name": "tasks.join",
-  "inputSchema": {
-    "type": "object",
-    "required": ["parent_id", "child_ids"],
-    "properties": {
-      "parent_id": { "type": "string" },
-      "child_ids": { "type": "array", "items": { "type": "string" } },
-      "join_policy": { "type": "string", "enum": ["all_done", "any_done", "majority"] }
-    }
-  }
-}
-```
-
-`all_done` で全子タスクが done になったら親タスクが起動。
+`all_done` で全子タスクが done になったら親タスクが起動。状態は Task の `join` フィールド（DDD-01 §2.1）に保存される。
 
 ---
 
@@ -689,6 +696,9 @@ Phase 5 完了時 = **本番運用可能**：
 | マルチホスト分散運用 | v2.0 |
 | Web ダッシュボードのフル機能化 | v2.0 |
 | クラウド API ハイブリッド運用 | v2.0 |
+| ノートからの要件定義生成（要件 F-L29〜L31） | v2.0（`airflow generate requirements --from <vault>` を予定） |
+| F-M15 ハルシネーション簡易検出 | v2.0（DDD-06 §5 のフィードバック源として組込） |
+| F-P26/P27 タスク中断・チェックポイント | v2.0（DDD-07 §16 で先送り済み） |
 | 多言語対応（en/zh のエージェント） | 必要時 |
 | エージェント間メモリ共有（ベクトル化） | v2.0 |
 | 自動 A/B テスト（モデル比較） | v2.0 |

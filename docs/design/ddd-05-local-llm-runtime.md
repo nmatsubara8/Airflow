@@ -520,7 +520,7 @@ DDD-04 §11 で示した MVP 検証シナリオの **LLM 部分** を本 DDD で
 | VRAM 不足 | nvidia-smi で検出 | `GPU_INSUFFICIENT_VRAM` recoverable（Phase 2 は単純待機） |
 | 推論が JSON を返さない | パース失敗 | `MODEL_STRUCTURED_OUTPUT_INVALID` 2 回まで再試行 |
 | 推論が極端に長い | タイムアウト | `INTERNAL_TIMEOUT` recoverable、3 回リトライ |
-| ExecutionLog SQLite ロック | sqlite3.OperationalError | 短時間バックオフ、5 回リトライ後 escalate |
+| ExecutionLog SQLite ロック | sqlite3.OperationalError | `INTERNAL_TIMEOUT` recoverable、`retry_max_attempts=5` を応答に明示（DDD-03 §3.2.1） |
 | Ollama がモデルを勝手にアンロード | 次回呼出で再ロード（120秒） | warn ログ、`keep_alive: -1` を再設定 |
 
 ---

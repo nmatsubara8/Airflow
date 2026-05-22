@@ -80,6 +80,7 @@ DDD-02 §2.3 で示した形式をここで完成させる：
 | `TASK_INVALID_TRANSITION` | fatal | 不正なステータス遷移要求 |
 | `TASK_ALREADY_CLAIMED` | recoverable | 他エージェントが既に claim 済み |
 | `TASK_SCOPE_VIOLATION` | escalate | エージェントがスコープ外判断を要求された |
+| `TASK_CORRUPT` | fatal | タスクファイルが不正な JSON（DDD-04 §10）。`_corrupt/` 隔離 |
 
 #### MODEL_*
 | コード | クラス | 意味 |
@@ -88,6 +89,7 @@ DDD-02 §2.3 で示した形式をここで完成させる：
 | `MODEL_EXECUTION_FAILED` | recoverable | 推論実行失敗（タイムアウト含む） |
 | `MODEL_STRUCTURED_OUTPUT_INVALID` | recoverable | JSON Schema 不適合 |
 | `MODEL_LOW_CONFIDENCE` | escalate | 推奨信頼度が閾値未満 |
+| `MODEL_REROUTE_EXHAUSTED` | escalate | fallback_chain を使い切っても auto_score < 閾値（DDD-06 §7.3） |
 
 #### GPU_*
 | コード | クラス | 意味 |
@@ -102,6 +104,7 @@ DDD-02 §2.3 で示した形式をここで完成させる：
 | `NOTE_NOT_FOUND` | escalate | 指定 ID のノートが存在しない |
 | `NOTE_PARSE_ERROR` | recoverable | YAML フロントマター解析失敗 |
 | `NOTE_CONFIDENTIAL_ACCESS_DENIED` | fatal | confidential ノートへの不正アクセス |
+| `INGEST_PATH_MISSING` | fatal | 監視対象 Vault パスが消失（DDD-04 §10） |
 
 #### AUTH_*
 | コード | クラス | 意味 |
@@ -109,6 +112,7 @@ DDD-02 §2.3 で示した形式をここで完成させる：
 | `AUTH_TOKEN_MISSING` | fatal | トークン未指定 |
 | `AUTH_TOKEN_INVALID` | fatal | トークン不正 |
 | `AUTH_SCOPE_INSUFFICIENT` | fatal | 必要スコープ不足 |
+| `AUTH_RATE_LIMITED` | recoverable | レート制限超過。`retry_after_ms` 必須（DDD-08 §4.2） |
 
 #### SCHEMA_*
 | コード | クラス | 意味 |
@@ -136,7 +140,7 @@ DDD-02 §2.3 で示した形式をここで完成させる：
 
 ### 3.2 エラーごとのオーバーライド
 
-エラーレスポンスの `retry_after_ms` と `retry_max_attempts` が指定されていれば優先：
+エラーレスポンスの `retry_after_ms` と `retry_max_attempts` が指定されていれば **既定値より優先される**：
 
 ```json
 {
@@ -146,6 +150,21 @@ DDD-02 §2.3 で示した形式をここで完成させる：
   "retry_max_attempts": 5
 }
 ```
+
+#### 3.2.1 既知のリトライオーバーライド一覧
+
+各 DDD で必要なリトライ回数の差異を **必ずエラーレスポンスの `retry_max_attempts` で表現**する（コード側ハードコードしない）：
+
+| 発生箇所 | エラーコード | retry_max_attempts | 根拠 DDD |
+|---------|----------|-----------------|--------|
+| 通常 recoverable | 任意 | 3（既定） | 本 DDD §3.1 |
+| ExecutionLog SQLite ロック | `INTERNAL_TIMEOUT` | 5 | DDD-05 §13（書き込み耐障害性） |
+| Qdrant 接続エラー | `INTERNAL_TIMEOUT` | 5 | DDD-04 §10 |
+| GPU VRAM 不足 | `GPU_INSUFFICIENT_VRAM` | 5 + 各回 5 秒バックオフ | DDD-07 §9 (LRU 退避待ち) |
+| MCP レート制限 | `AUTH_RATE_LIMITED` | サーバー指定の `retry_after_ms` に従う | DDD-08 §4.2 |
+| 構造化出力不正 | `MODEL_STRUCTURED_OUTPUT_INVALID` | 2（DDD-05 §7.2 の修正プロンプト適用） | DDD-05 §7 |
+
+> **方針**：各サブシステムは「最大 3 回」のデフォルトに従わない場合、必ず `retry_max_attempts` をレスポンスに含めること。これによりクライアント側のリトライロジックは統一実装が可能。
 
 ### 3.3 全試行失敗時の振る舞い
 
@@ -325,10 +344,12 @@ ULID 採用理由：時系列ソート可能 + UUID 並みの一意性。
 - 構造化ログ：日次ローテーション、`gzip` 圧縮、90 日後に削除（設定変更可）
 - ExecutionLog DB：無期限保持。サイズが 1GB を超えたら古いデータをパーティション分離
 
-### 7.3 改ざん耐性（Phase 5 で詳細化）
+### 7.3 改ざん耐性
 
-- 監査要件が出た場合、日次ログのハッシュチェーンを別途記録
-- Phase 1〜3 では実装しない
+- 日次ログのハッシュチェーンを `.airflow/logs/integrity/<date>.hash` に保存
+- **実装は DDD-08 §4.5 で確定**（Phase 5 で導入）
+- Phase 1〜3 では実装せず、Phase 4 の運用評価後に有効化判断
+- 破断検出時の挙動は DDD-08 §9.4 障害対応プレイブック参照
 
 ---
 
@@ -419,11 +440,10 @@ Phase 1 完了時点で以下を満たすこと：
 
 | 課題 | 検討するフェーズ |
 |------|--------------|
-| 通知チャンネル（Slack/メール）統合 | Phase 5 |
-| ログのハッシュチェーン改ざん耐性 | Phase 5（監査要件発生時） |
+| 通知チャンネル（Slack/メール）統合 | Phase 5 → DDD-08 §6 で実装 |
 | トレース可視化 UI（OpenTelemetry 連携） | Phase 5 |
-| 二重実行の類似度計算方法詳細 | DDD-06 |
-| エスカレーション解決後の再開フロー | DDD-08 |
+| 二重実行の類似度計算方法詳細 | DDD-06 §7（実装済み） |
+| エスカレーション解決後の再開フロー | DDD-08 §9.1 で実装 |
 
 ---
 

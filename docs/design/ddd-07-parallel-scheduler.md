@@ -363,6 +363,19 @@ degradation:
 
 回復時：両方が 30 秒間閾値を下回ったら OFF（ヒステリシス）。
 
+### 8.1.1 手動トグル
+
+運用者は CLI から強制的にデグラデーションを ON/OFF できる（緊急時の対応用）：
+
+```bash
+airflow scheduler degrade --on             # 強制 ON（自動解除はされない）
+airflow scheduler degrade --off            # 強制 OFF
+airflow scheduler degrade --auto           # 自動判定に戻す
+airflow scheduler degrade --status         # 現状確認
+```
+
+対応 MCP：`scheduler.degrade`（DDD-02 §6.1）の `mode: on|off|auto` パラメータで実装。
+
 ### 8.2 デグラデーション ON 時の動作変更
 
 | 設定項目 | 通常時 | デグラデーション時 |

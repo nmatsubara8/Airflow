@@ -496,6 +496,7 @@ airflow task list [--status inbox]
 airflow task create --title "..." --section engineering
 airflow task show <task_id>
 airflow task transition <task_id> --to done --note "完了"
+airflow task assign <task_id> --owner agent_qa --reason "..."   # F-08: 人間 override
 
 # Ingester 制御
 airflow ingest start [--daemon]
@@ -528,9 +529,9 @@ Environment="AIRFLOW_MCP_TOKEN=..."
 | シナリオ | 検出 | 対応 |
 |---------|------|------|
 | ingester 異常終了 | systemd Restart=on-failure | 自動再起動 + 初回スキャン |
-| Qdrant ダウン | search 時に接続エラー | recoverable リトライ、5回失敗で fatal |
-| Vault フォルダごと消失 | 起動時 stat 失敗 | fatal ログ、設定確認を促す |
-| タスクファイル破損（不正 JSON） | バリデーション失敗 | `tasks/_corrupt/` に隔離、ログに記録 |
+| Qdrant ダウン | search 時に接続エラー | `INTERNAL_TIMEOUT` recoverable、`retry_max_attempts=5` を応答に明示（DDD-03 §3.2.1） |
+| Vault フォルダごと消失 | 起動時 stat 失敗 | `INGEST_PATH_MISSING` fatal、設定確認を促す（DDD-03 §2.4） |
+| タスクファイル破損（不正 JSON） | バリデーション失敗 | `TASK_CORRUPT` fatal、`tasks/_corrupt/` に隔離、ログに記録（DDD-03 §2.4） |
 | ロックファイル残留（プロセス強制終了） | 30 秒経過 + PID 不在 | 起動時クリーンアップで削除 |
 | Inbox ノートのフロントマター不正 | YAML パース失敗 | NOTE_PARSE_ERROR ログ、本文のみ取り込み + タスク化はスキップ |
 
