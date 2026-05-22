@@ -216,7 +216,9 @@ OSS の Hermes Agent（Nous Research 製）は `platform: hermes-agent` で参�
 
 **preferred_models の weight 解釈規約**：
 - 配列は降順優先で評価（先頭が第 1 候補）
-- `weight` は **絶対値ではなく相対値**（合計が 1.0 を超えても可）
+- `weight` の **個別値は 0.0〜1.0 の範囲**（JSON Schema 制約）
+- 配列全体の **合計値は 1.0 を超えても可**（正規化を強制しない）
+- 例：`[{id: A, weight: 1.0}, {id: B, weight: 0.5}]` → A 第1候補、B フォールバック扱い
 - KNN モデル選択時の参照優先度として利用（DDD-06 §4.3）
 - 同一 task_type で複数候補が同点の場合、`weight` 高位を優先
 
@@ -367,7 +369,7 @@ OSS の Hermes Agent（Nous Research 製）は `platform: hermes-agent` で参�
 
     "features_snapshot": {
       "description": "実行時のタスク特徴（Task.features と同形式）",
-      "$ref": "task.json#/properties/features"
+      "$ref": "task.schema.json#/properties/features"
     },
 
     "latency_ms": { "type": "integer", "minimum": 0 },

@@ -479,10 +479,13 @@ accuracy_compensation:
 
 reroute:
   enabled: true
+  skip_for:
+    - latency_sensitivity: interactive   # §7.5 と一致：interactive は reroute せず即 escalate
   fallback_chain:
     model_qwen25_14b_q4: [model_qwen25_32b_q3]
     model_qwen25_32b_q3: []
   max_reroute_attempts: 1
+  estimated_overhead_sec_p50: 50         # シリアル前提でのアンロード+ロード+再推論の目安（§7.5）
 ```
 
 ---
