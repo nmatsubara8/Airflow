@@ -75,6 +75,56 @@
 | F-P08 | タスク投入時に **deadline / priority** を指定可能 |
 | F-P09 | 同モデルタスクの連続実行数に上限を設け、スターベーション防止（例：最大 10 件で次モデルへ譲る） |
 
+### 3.2.1 スターベーション防止の詳細
+
+> **スターベーション**：あるタスクがキューに入っているのに、親和性優先・バッチ集約の副作用で実行順が永久に回ってこない状態。
+
+| # | 要件 |
+|---|------|
+| F-P09-1 | **連続実行上限**：同一モデルで `max_consecutive_same_model` 件処理したら、強制的に別モデルキューに譲る |
+| F-P09-2 | **待機時間ブースト（Aging）**：タスクの待機時間に応じて優先度を上昇させる。`effective_priority = base_priority + (wait_seconds / 60) × aging_factor` |
+| F-P09-3 | **デッドライン強制実行**：`deadline` 到来が閾値（例：5分前）に達したタスクは、親和性スコア・スワップコストを無視して **最優先実行** |
+| F-P09-4 | **公平性チェック**：スケジューラは一定間隔（例：30秒）で全キューをスキャンし、待機時間が異常に長いタスクを検出してアラート |
+| F-P09-5 | **最大待機時間 SLA**：いかなるタスクも `max_wait_seconds`（例：3600秒）を超えて待機させない。超過時はスワップコストを 0 として強制実行 |
+| F-P09-6 | **モデル別フェアシェア**：高負荷時、各モデルキューに最低 X% の GPU 時間を保証（例：32B キューに 30%、14B に 50%、8B に 20%） |
+| F-P09-7 | スターベーション防止が発動した場合は **理由ログ** を残し、後でチューニング可能にする |
+
+#### 飢餓検知アルゴリズム
+
+```
+30秒ごとに実行:
+  for task in all_queues:
+    wait_time = now - task.enqueued_at
+
+    if wait_time > max_wait_seconds:
+      → 強制実行フラグを立てる（最優先）
+
+    elif wait_time > max_wait_before_boost:
+      → effective_priority を再計算（aging 適用）
+      → スケジューラが次回判断時に上位に来る
+
+    elif task.deadline - now < deadline_threshold:
+      → デッドライン迫りフラグを立てる（強制実行）
+```
+
+#### 設定例
+
+```yaml
+starvation_prevention:
+  max_consecutive_same_model: 10          # 同モデル連続実行上限
+  max_wait_before_boost_seconds: 600      # 10分待機で優先度上昇開始
+  aging_factor: 0.1                       # 1分あたり priority +0.1
+  max_wait_seconds: 3600                  # 絶対上限 1時間
+  deadline_threshold_seconds: 300         # 締切5分前で強制実行
+  fairness_check_interval_seconds: 30     # 飢餓チェック間隔
+  fair_share:
+    enabled_on_high_load: true
+    minimum_gpu_time_pct:
+      "32b": 30
+      "14b": 50
+      "8b":  20
+```
+
 ### 3.3 モデル親和性スコア
 
 | # | 要件 |
