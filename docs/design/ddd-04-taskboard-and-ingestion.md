@@ -34,6 +34,7 @@
 .airflow/
 └── tasks/
     ├── _index.json                # 全タスク一覧（高速参照用）
+    ├── _corrupt/                  # 破損タスク隔離（DDD-04 §10、DDD-01 §4）
     ├── inbox/
     │   └── task_<ulid>.json
     ├── in_progress/

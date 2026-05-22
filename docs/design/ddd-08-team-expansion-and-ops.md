@@ -560,6 +560,7 @@ schedules:
 
   - name: audit_hash
     cron: "0 3 * * *"
+    # airflow-scheduler.service が直接実行（エージェント不要）
     actions:
       - audit: { mode: "chain_hash" }
 ```

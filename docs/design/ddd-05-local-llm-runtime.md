@@ -354,7 +354,11 @@ DDD-03 §3.4 で定義したルールの実装。
 
 ### 8.1 起動条件
 
-タスクの `features.required_accuracy = "high"` かつ `mode != manual` の場合、`model.execute` は内部で 2 回実行する。
+以下の条件をすべて満たす場合、`model.execute` は内部で 2 回実行する：
+
+- `features.required_accuracy = "high"`
+- `mode != manual`
+- `features.latency_sensitivity != "interactive"`（interactive タスクはユーザー体感優先のため除外。DDD-06 §7.2 `skip_for` と一致）
 
 ### 8.2 実装
 

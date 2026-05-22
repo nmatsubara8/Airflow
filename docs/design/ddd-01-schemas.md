@@ -176,7 +176,7 @@ OSS の Hermes Agent（Nous Research 製）は `platform: hermes-agent` で参�
       "description": "楽観的ロック",
       "properties": {
         "version": { "type": "integer", "minimum": 0 },
-        "etag": { "type": "string" }
+        "etag": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
       }
     }
   },
@@ -455,7 +455,10 @@ OSS の Hermes Agent（Nous Research 製）は `platform: hermes-agent` で参�
     "title": { "type": ["string", "null"] },
     "category": { "type": ["string", "null"] },
     "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
-    "review_status": { "type": ["string", "null"] },
+    "review_status": {
+      "type": ["string", "null"],
+      "enum": ["verified", "auto_accepted", "draft", "pending", null]
+    },
     "last_verified": { "type": ["string", "null"], "format": "date" },
     "last_indexed": { "type": "string", "format": "date-time" },
     "content_hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },

@@ -23,7 +23,7 @@
   "human_feedback": null,
   "error": {
     "class": "escalate",
-    "code": "MODEL_SCHEMA_INVALID",
+    "code": "MODEL_STRUCTURED_OUTPUT_INVALID",
     "message": "モデル出力が JSON Schema に不適合。3回リトライ後も同症状。エスカレーション。"
   },
   "audit_id": "01HX5M7Q4ABCDEFGHIJ0123456",
