@@ -8,14 +8,20 @@
 
 ## 1. 共通設計原則
 
-### 1.1 全スキーマに必須のメタフィールド
+### 1.1 スキーマ種別と必須メタフィールド
 
-| フィールド | 型 | 必須 | 説明 |
-|-----------|---|:---:|------|
-| `schema_version` | string (semver) | ✓ | 例 `"1.0.0"`、`"1.2.0"` 等。MINOR/PATCH の追加変更を許容するため、各スキーマでは `pattern: "^1\\."` で MAJOR 番号のみを固定する（`const` ではない） |
-| `id` | string (UUID v4 or hash) | ✓ | エンティティの一意識別子 |
-| `created_at` | string (RFC3339) | ✓ | 作成時刻（UTC） |
-| `updated_at` | string (RFC3339) | ✓ | 最終更新時刻（UTC） |
+スキーマは性質によって 3 種別に分類し、それぞれ必須フィールドが異なる。
+
+| 種別 | 対象スキーマ | `schema_version` | `id` | `created_at` / `updated_at` | 時刻フィールド |
+|------|------------|:----------------:|:----:|:--------------------------:|--------------|
+| **Entity 型** | Task, Agent, Model, Note | ✓ | ✓ | ✓ | `created_at` + `updated_at` |
+| **Runtime 型** | GpuState | ✓ | — | — | `snapshot_at`（スナップショット時刻） |
+| **Event 型** | ExecutionLog, LogEvent | ✓（ExecutionLog のみ required） | ✓（ExecutionLog のみ） | — | `timestamp`（イベント発生時刻） |
+
+**補足**：
+- `schema_version` は全スキーマ共通で `pattern: "^1\\."` を適用する（`const` ではない）。LogEvent は optional フィールドだが、書き込み時は必ず付与すること（MCP サーバー側で補完）。
+- GpuState は揮発性の実行時スナップショットであり、Git 管理対象外のため `id`・`created_at`・`updated_at` は不要。
+- ExecutionLog の `id` は SQLite の主キーに対応し、`timestamp` が作成時刻を兼ねるため `created_at`・`updated_at` は不要。
 
 ### 1.2 命名規約
 
@@ -211,7 +217,8 @@ OSS の Hermes Agent（Nous Research 製）は `platform: hermes-agent` で参�
 
 **フィールドの required / optional 区分**：
 - **required**：`schema_version`, `id`, `section`, `platform`, `role`
-- **optional**：`responsibilities`, `inputs`, `outputs`, `triggers`, `escalation_criteria`, `preferred_models`, `prompt_templates`, `dependencies`, `mcp_scopes`, `context_isolation`, `required_accuracy`, `language`
+- **optional**：`responsibilities`, `inputs`, `outputs`, `triggers`, `escalation_criteria`, `preferred_models`, `mcp_scopes`, `dependencies`, `context_isolation`, `required_accuracy`, `language`
+- `prompt_templates` は Phase 2 以降に詳細化予定（現スキーマには未定義）。
 - skills.md 雛形（agents/ 配下）でフィールドが省略されているのは optional 扱いを許容する設計。
 
 **preferred_models の weight 解釈規約**：
@@ -229,7 +236,9 @@ OSS の Hermes Agent（Nous Research 製）は `platform: hermes-agent` で参�
 
 ```json
 {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://airflow.local/schemas/agent/v1.0.0",
+  "title": "Agent",
   "type": "object",
   "required": ["schema_version", "id", "section", "platform", "role"],
   "properties": {
@@ -265,7 +274,15 @@ OSS の Hermes Agent（Nous Research 製）は `platform: hermes-agent` で参�
       "enum": ["subagent", "separate_session", "shared"]
     },
     "required_accuracy": { "type": "string", "enum": ["low", "medium", "high"] },
-    "language": { "type": "string", "enum": ["ja", "en", "code", "mixed"] }
+    "language": { "type": "string", "enum": ["ja", "en", "code", "mixed"] },
+    "mcp_scopes": { "type": "array", "items": { "type": "string" } },
+    "dependencies": {
+      "type": "object",
+      "properties": {
+        "upstream": { "type": "array", "items": { "type": "string" } },
+        "downstream": { "type": "array", "items": { "type": "string" } }
+      }
+    }
   }
 }
 ```
@@ -274,7 +291,9 @@ OSS の Hermes Agent（Nous Research 製）は `platform: hermes-agent` で参�
 
 ```json
 {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://airflow.local/schemas/model/v1.0.0",
+  "title": "Model",
   "type": "object",
   "required": [
     "schema_version", "id", "name", "provider", "vram_gb"
@@ -319,7 +338,9 @@ OSS の Hermes Agent（Nous Research 製）は `platform: hermes-agent` で参�
 
 ```json
 {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://airflow.local/schemas/gpu_state/v1.0.0",
+  "title": "GpuState",
   "type": "object",
   "required": ["schema_version", "snapshot_at", "total_vram_gb", "used_vram_gb"],
   "properties": {
@@ -353,7 +374,9 @@ OSS の Hermes Agent（Nous Research 製）は `platform: hermes-agent` で参�
 
 ```json
 {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://airflow.local/schemas/execution_log/v1.0.0",
+  "title": "ExecutionLog",
   "type": "object",
   "required": [
     "schema_version", "id", "timestamp", "task_id", "agent_id",
@@ -368,8 +391,19 @@ OSS の Hermes Agent（Nous Research 製）は `platform: hermes-agent` で参�
     "model_id": { "type": "string" },
 
     "features_snapshot": {
-      "description": "実行時のタスク特徴（Task.features と同形式）",
-      "$ref": "task.schema.json#/properties/features"
+      "description": "実行時のタスク特徴（Task.features と同形式。$ref を避けてインライン展開）",
+      "type": "object",
+      "properties": {
+        "task_type": {
+          "type": "string",
+          "enum": ["code_gen", "review", "summarize", "classify", "extract", "chat", "test", "document"]
+        },
+        "language": { "type": "string", "enum": ["ja", "en", "code", "mixed"] },
+        "input_size_tokens": { "type": "integer", "minimum": 0 },
+        "expected_output_size_tokens": { "type": "integer", "minimum": 0 },
+        "required_accuracy": { "type": "string", "enum": ["low", "medium", "high"] },
+        "latency_sensitivity": { "type": "string", "enum": ["none", "batch", "interactive"] }
+      }
     },
 
     "latency_ms": { "type": "integer", "minimum": 0 },
@@ -408,7 +442,9 @@ OSS の Hermes Agent（Nous Research 製）は `platform: hermes-agent` で参�
 
 ```json
 {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://airflow.local/schemas/note/v1.0.0",
+  "title": "Note",
   "type": "object",
   "required": ["schema_version", "id", "absolute_path", "content_hash", "last_indexed"],
   "properties": {
@@ -616,15 +652,16 @@ Phase 2 MVP の実データ検証完了後（4 週目）に `v1.0.0` を凍結�
 
 ## 8. JSON Schema ファイル配置
 
-| パス | 内容 |
-|------|------|
-| `schemas/task.schema.json` | Task |
-| `schemas/agent.schema.json` | Agent |
-| `schemas/model.schema.json` | Model |
-| `schemas/gpu_state.schema.json` | GpuState |
-| `schemas/execution_log.schema.json` | ExecutionLog |
-| `schemas/note.schema.json` | Note |
-| ~~`schemas/handoff_note.schema.json`~~ | HandoffNote は Task 内 `$defs/HandoffNote` で定義（別ファイル化しない） |
+| パス | 内容 | 種別 |
+|------|------|------|
+| `schemas/task.schema.json` | Task | Entity |
+| `schemas/agent.schema.json` | Agent | Entity |
+| `schemas/model.schema.json` | Model | Entity |
+| `schemas/gpu_state.schema.json` | GpuState | Runtime |
+| `schemas/execution_log.schema.json` | ExecutionLog | Event |
+| `schemas/note.schema.json` | Note | Entity |
+| `schemas/log_event.schema.json` | LogEvent（DDD-03 §6.1 定義） | Event |
+| ~~`schemas/handoff_note.schema.json`~~ | HandoffNote は Task 内 `$defs/HandoffNote` で定義（別ファイル化しない） | — |
 
 各ファイルは独立した `$id` を持ち、相互に `$ref` で参照可能。
 
