@@ -782,8 +782,18 @@ CLI コマンドが対応する MCP ツールの一覧。同一機能の名前�
 | `airflow scheduler degrade` | `scheduler.degrade` |
 | `airflow logs trace` | `audit.trace` |
 | `airflow logs query` | `audit.query` |
+| `airflow audit verify` | （内部）監査ハッシュ検証（DDD-08 §4.5） |
+| `airflow test load` | （内部）負荷試験ハーネス（test-strategy §2.3） |
+| `airflow test soak` | （内部）24h soak テスト（test-strategy §8） |
+| `airflow doctor` | （内部）起動時自己診断（DDD-05 §4.2） |
+| `airflow lockdown` | （内部）緊急ロックダウン（DDD-08 §9.4） |
+| `airflow gpu reset` | （内部）GPU 完全再初期化（DDD-08 §9.3） |
+| `airflow task feedback` | `model.feedback` |
+| `airflow ingest *` | （内部）Ingester 制御（DDD-04 §9.1） |
+| `airflow model *` | 各種 model.* + 内部管理コマンド |
 
 > CLI は **複数形** に統一（`task` → `tasks` への移行は Phase 5）。Phase 1〜4 は両方受け付ける（alias）。
+> 「（内部）」マークの CLI は MCP ツールに対応せず、CLI から直接実装を呼ぶ（運用者ローカル操作のみ）。
 
 ---
 

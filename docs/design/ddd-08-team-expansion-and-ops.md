@@ -65,27 +65,50 @@
     └── legal-review/skills.md
 ```
 
-### 2.1.1 ID とディレクトリの対応表
+### 2.1.1 ID とディレクトリの対応表（全 26 エージェント）
 
 DDD-01 §1.2 の命名規約に従い、エージェント ID（underscore）とディレクトリ名（hyphen）を明確に対応させる：
 
-| エージェント ID | ディレクトリ | セクション |
-|--------------|----------|----------|
-| `agent_dispatcher` | `orchestration/dispatcher/` | orchestration |
-| `agent_cleaner` | `orchestration/cleaner/` | orchestration |
-| `agent_feature_extractor` | `orchestration/feature-extractor/` | orchestration |
-| `agent_tech_lead` | `engineering/tech-lead/` | engineering |
-| `agent_eng_director` | `engineering/eng-director/` | engineering |
-| `agent_qa` | `engineering/qa/` | engineering |
-| `agent_content_director` | `content/content-director/` | content |
-| `agent_brand_voice` | `content/brand-voice/` | content |
-| `agent_root_cause` | `content/root-cause/` | content |
-| `agent_anti_ai_slop` | `content/anti-ai-slop/` | content |
-| `agent_morning_brainstorm` | `content/morning-brainstorm/` | content |
-| `agent_marketing_director` | `business/marketing-director/` | business |
-| `agent_business_strategy` | `business/business-strategy/` | business |
-| `agent_partnership_manage` | `business/partnership-manage/` | business |
-| `agent_legal_review` | `business/legal-review/` | business |
+| # | エージェント ID | ディレクトリ | セクション |
+|---|--------------|----------|----------|
+| 1 | `agent_dispatcher` | `orchestration/dispatcher/` | orchestration |
+| 2 | `agent_cleaner` | `orchestration/cleaner/` | orchestration |
+| 3 | `agent_feature_extractor` | `orchestration/feature-extractor/` | orchestration |
+| 4 | `agent_tech_lead` | `engineering/tech-lead/` | engineering |
+| 5 | `agent_eng_director` | `engineering/eng-director/` | engineering |
+| 6 | `agent_qa` | `engineering/qa/` | engineering |
+| 7 | `agent_frontend` | `engineering/frontend/` | engineering |
+| 8 | `agent_backend` | `engineering/backend/` | engineering |
+| 9 | `agent_security` | `engineering/security/` | engineering |
+| 10 | `agent_devops` | `engineering/devops/` | engineering |
+| 11 | `agent_architect` | `engineering/architect/` | engineering |
+| 12 | `agent_mobile` | `engineering/mobile/` | engineering |
+| 13 | `agent_data` | `engineering/data/` | engineering |
+| 14 | `agent_reviewer` | `engineering/reviewer/` | engineering |
+| 15 | `agent_tester` | `engineering/tester/` | engineering |
+| 16 | `agent_debugger` | `engineering/debugger/` | engineering |
+| 17 | `agent_docs` | `engineering/docs/` | engineering |
+| 18 | `agent_content_director` | `content/content-director/` | content |
+| 19 | `agent_brand_voice` | `content/brand-voice/` | content |
+| 20 | `agent_root_cause` | `content/root-cause/` | content |
+| 21 | `agent_anti_ai_slop` | `content/anti-ai-slop/` | content |
+| 22 | `agent_morning_brainstorm` | `content/morning-brainstorm/` | content |
+| 23 | `agent_marketing_director` | `business/marketing-director/` | business |
+| 24 | `agent_business_strategy` | `business/business-strategy/` | business |
+| 25 | `agent_partnership_manage` | `business/partnership-manage/` | business |
+| 26 | `agent_legal_review` | `business/legal-review/` | business |
+
+**内訳**：調整層 3 + Engineering 14 + Content 5 + Business 4 = **26 エージェント**
+
+### 2.1.2 リポジトリ位置とデプロイ位置の関係
+
+| 用途 | パス |
+|------|------|
+| **リポジトリ管理（雛形・正本）** | `agents/<section>/<name>/skills.md` |
+| **ランタイム（実行時の参照先）** | `.airflow/agents/<section>/<name>/skills.md` |
+
+デプロイ時に `agents/` → `.airflow/agents/` へコピー（または symlink）する。
+ランタイム側で個別エージェントごとの override が必要な場合は、`.airflow/agents/<section>/<name>/overrides.md` を追加で配置（雛形には反映しない）。
 
 ### 2.2 `skills.md` 雛形
 
@@ -761,7 +784,7 @@ airflow/
 │   │   ├── ingester/     # Vault 取り込み
 │   │   ├── cli/          # airflow コマンド
 │   │   └── web/          # Web ダッシュボード
-│   └── agents/           # 23 エージェントの skills.md
+│   └── agents/           # 26 エージェントの skills.md
 ├── tests/
 ├── deploy/
 │   └── systemd/          # unit ファイル

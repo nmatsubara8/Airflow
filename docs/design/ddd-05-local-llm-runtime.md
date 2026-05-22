@@ -55,17 +55,50 @@ Phase 2 MVP の前提：**1 度に 1 モデルだけがロードされ、シリ�
 
 ### 3.1 利用モデルの確定（VRAM 16GB）
 
-DDD-05 では以下を **MVP 必須セット** として登録：
+#### 3.1.1 MVP 必須セット（Phase 2 で DL 必須）
 
-| ID | Ollama tag | VRAM | 用途 |
-|----|-----------|------|------|
-| `model_qwen25_14b_q4` | `qwen2.5:14b-instruct-q4_K_M` | ~9GB | MVP デフォルト（高速・中精度） |
-| `model_qwen25_32b_q3` | `qwen2.5:32b-instruct-q3_K_M` | ~14GB | 高精度タスク用 |
-| `model_bge_m3` | `bge-m3` | ~1GB | 埋め込み（Vault Ingestion 用） |
+| ID | Ollama tag | VRAM | 量子化 | 用途 |
+|----|-----------|------|------|------|
+| `model_qwen25_14b_q4` | `qwen2.5:14b-instruct-q4_K_M` | ~9GB | Q4_K_M | **MVP デフォルト**（高速・中精度・日本語） |
+| `model_qwen25_32b_q3` | `qwen2.5:32b-instruct-q3_K_M` | ~14GB | Q3_K_M | 高精度タスク用（reroute fallback、§02/§03 既定） |
+| `model_bge_m3` | `bge-m3` | ~1GB | FP16 | 埋め込み（Vault Ingestion + 二重実行類似度） |
 
-**Phase 2 MVP は `qwen2.5:14b-q4` をデフォルトに**する：
+**Phase 2 MVP は `qwen2.5:14b-q4` をデフォルトに**：
 - 32B Q3 より精度は落ちるが、ロード時間・推論速度の安定性を優先
 - VRAM 余裕があるため、bge-m3 と同居可能（埋め込みと推論の同時並行）
+
+#### 3.1.2 拡張セット（Phase 3-4 で DL）
+
+| ID | Ollama tag | VRAM | 量子化 | 用途 |
+|----|-----------|------|------|------|
+| `model_qwen25_coder_32b_q3` | `qwen2.5-coder:32b-instruct-q3_K_M` | ~14GB | Q3_K_M | コード生成・レビュー専用（§01 主力） |
+| `model_qwen25_coder_14b_q4` | `qwen2.5-coder:14b-instruct-q4_K_M` | ~9GB | Q4_K_M | コード軽量タスク（高負荷時の coder fallback） |
+| `model_llama31_8b_q4` | `llama3.1:8b-instruct-q4_K_M` | ~5GB | Q4_K_M | 軽量分類・要約（並列起動用） |
+| `model_qwen25_7b_q4` | `qwen2.5:7b-instruct-q4_K_M` | ~5GB | Q4_K_M | 軽量日本語タスク（dual-7b/8b プロファイル用） |
+
+> **Phase 2 MVP では拡張セットは DL 不要**。Phase 3 で `model_qwen25_coder_32b_q3` から段階的に追加。
+> Phase 4 で `model_llama31_8b_q4` / `model_qwen25_7b_q4` を追加し、`14b-plus-8b` / `dual-7b-plus-emb` 等のプロファイル運用を有効化。
+
+#### 3.1.3 モデル登録手順
+
+Phase 2 のとき：
+
+```bash
+# 必須モデル DL（10-30分）
+ollama pull qwen2.5:14b-instruct-q4_K_M
+ollama pull qwen2.5:32b-instruct-q3_K_M
+ollama pull bge-m3
+
+# レジストリに登録
+airflow model register --config models/registry-mvp.json
+```
+
+Phase 3 以降：
+
+```bash
+ollama pull qwen2.5-coder:32b-instruct-q3_K_M
+airflow model register --id model_qwen25_coder_32b_q3 --ollama-tag qwen2.5-coder:32b-instruct-q3_K_M
+```
 
 ### 3.2 Modelfile によるカスタマイズ
 
@@ -95,6 +128,16 @@ PARAMETER stop "<<END>>"
 ```bash
 ollama create airflow-qwen25-14b -f .airflow/models/Modelfile.qwen25-14b
 ```
+
+同様の Modelfile を全モデルに用意（命名規則 `Modelfile.<model_id短縮形>`）：
+
+| Modelfile | 対応 model_id | 主な差別化 |
+|----|----|----|
+| `Modelfile.qwen25-14b` | `model_qwen25_14b_q4` | 標準。日本語向け system prompt |
+| `Modelfile.qwen25-32b` | `model_qwen25_32b_q3` | 高精度タスク向け、temperature=0.2 |
+| `Modelfile.qwen25-coder-32b` | `model_qwen25_coder_32b_q3` | コード向け、num_ctx=16384、コード規約 system prompt |
+| `Modelfile.llama31-8b` | `model_llama31_8b_q4` | 軽量、分類タスク向けに temperature=0.1 |
+| `Modelfile.qwen25-7b` | `model_qwen25_7b_q4` | 並列起動向け軽量設定 |
 
 ### 3.3 モデルレジストリへの登録
 

@@ -47,17 +47,22 @@ mcp_scopes:
   - tasks:write
   - notes:read
   - agents:read
-  - models:execute
+  # NOTE: models:execute は付与しない（DDD-08 §4.3 権限境界）。
+  # 特徴抽出は agents.extract_features 経由で agent_feature_extractor に委譲。
 ---
 
 # Role
 Vault Inbox に追加されたノートを構造化タスクに変換し、適切なエージェントに割り振る。
 判断不能な場合は owner=null のまま inbox に置き、人間レビューを待つ。
 
+**重要な権限境界**：dispatcher は LLM を直接実行しない。特徴抽出は agents.extract_features
+（feature-extractor エージェント）に委譲し、判断結果のみを受け取る。これにより
+LLM 実行コストの集中管理と監査性を確保。
+
 # Process
 1. ingester から新規 Note 通知を受信
 2. notes.get で Note 全文取得
-3. agents.extract_features で特徴ベクトル生成
+3. agents.extract_features を呼出（feature-extractor が内部で models.execute）
 4. category → section マッピング（dispatch.yaml 参照）
 5. agents.find_for_task で担当候補取得
 6. 信頼度 >= 0.7 なら owner 自動設定、未満なら null

@@ -372,6 +372,33 @@ Phase 4 で並列化が入ると、再ルートは「親和性 vs 精度」の�
 本 DDD では再ルート発動時は **親和性を無視して fallback model を使う** とのみ規定。
 コスト計算は DDD-07 §3.3 で詳細化。
 
+### 7.5 Phase 3 シリアル前提でのスワップコスト
+
+Phase 3 は DDD-07 並列スケジューラ未実装。reroute 発動時のモデル切替は **逐次的に発生**：
+
+| ステップ | 所要時間（実測ベース） |
+|---------|------------------|
+| 1. 現モデル（14B）アンロード | ~1-2 秒（`keep_alive: 0`） |
+| 2. fallback モデル（32B）ロード | ~30-60 秒（コールド時） |
+| 3. fallback モデル推論 | 5-15 秒（出力長依存） |
+| **合計レイテンシ** | **~40-80 秒** |
+
+> Phase 3 で reroute を `latency_sensitivity: interactive` タスクに適用すると、ユーザー体感が悪化する。
+> 設定上以下のルールを既定とする：
+
+```yaml
+reroute:
+  enabled: true
+  skip_for:
+    - latency_sensitivity: interactive   # interactive は reroute せず escalate
+  fallback_chain:
+    model_qwen25_14b_q4: [model_qwen25_32b_q3]
+  max_reroute_attempts: 1
+  estimated_overhead_sec_p50: 50         # 監視・タイムアウト設計の前提値
+```
+
+Phase 4 で並列スケジューラと投機的プリロード（DDD-07 §7）が動くと、fallback model を予めロードしておくことが可能になり、上記オーバーヘッドが大幅削減される。Phase 3 では reroute 件数を実測し、**全体タスクの 20% 以下** に抑える（要件目標）。
+
 ---
 
 ## 8. `model.recommend` の実装詳細

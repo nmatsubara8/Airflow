@@ -572,6 +572,18 @@ Phase 2 完了判定のための end-to-end テスト：
   - 全工程が 30 秒以内に完了
   - ログに critical/error なし
   - タスクボードと Vault が整合
+
+[30秒の内訳（参考値、qwen2.5:14b-q4 + 中規模ノート想定）]
+  - ingester 検知～Note 取り込み:     ~1 秒（fsnotify + bge-m3 埋め込み）
+  - dispatcher（特徴抽出 + 割当）:    ~3-5 秒（feature-extractor の LLM 1 回）
+  - agent_docs claim → in_progress:   ~1 秒（ファイル移動 + ロック）
+  - model.execute（要約生成）:        ~5-8 秒（入力 2000 tok / 出力 200 tok）
+  - handoff_note 追加 + transition:   ~1 秒（ファイル移動 + index 更新）
+  - 余裕（バッチ遅延・GC など）:      ~15 秒
+  = 合計: 26-31 秒
+
+  本値は Phase 2 完了時点で実測し、docs/baseline/phase2-mvp.md に記録。
+  実測が想定を超える場合は agent_docs を 14b → 8b にダウングレード可能。
 ```
 
 ---

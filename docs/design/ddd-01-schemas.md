@@ -209,6 +209,22 @@ OSS の Hermes Agent（Nous Research 製）は `platform: hermes-agent` で参�
 
 `skills.md` の YAML フロントマターに対応。
 
+**フィールドの required / optional 区分**：
+- **required**：`schema_version`, `id`, `section`, `platform`, `role`
+- **optional**：`responsibilities`, `inputs`, `outputs`, `triggers`, `escalation_criteria`, `preferred_models`, `prompt_templates`, `dependencies`, `mcp_scopes`, `context_isolation`, `required_accuracy`, `language`
+- skills.md 雛形（agents/ 配下）でフィールドが省略されているのは optional 扱いを許容する設計。
+
+**preferred_models の weight 解釈規約**：
+- 配列は降順優先で評価（先頭が第 1 候補）
+- `weight` は **絶対値ではなく相対値**（合計が 1.0 を超えても可）
+- KNN モデル選択時の参照優先度として利用（DDD-06 §4.3）
+- 同一 task_type で複数候補が同点の場合、`weight` 高位を優先
+
+**dependencies フィールドの値**：
+- `upstream` / `downstream` の各要素は **agent_id** または **役割名のフリーテキスト**（例：`"人間（レビュー）"`）を許容
+- agent_id は `agent_<name>` パターン
+- ドキュメント目的のフィールドで、実行時の参照には使わない
+
 ```json
 {
   "$id": "https://airflow.local/schemas/agent/v1.0.0",
@@ -516,7 +532,10 @@ GpuState
     ├── model-config.yaml           # DDD-06
     ├── ingester.yaml               # DDD-04
     ├── dispatch.yaml               # DDD-04 §6.4（category→section マッピング）
-    └── schedules.yaml              # DDD-08 §7.1（cron 定義）
+    ├── schedules.yaml              # DDD-08 §7.1（cron 定義）
+    ├── auth.yaml                   # DDD-08 §4（JWT + レート制限）
+    ├── cleaner.yaml                # Cleaner Agent 個別設定
+    └── notifications.yaml          # DDD-08 §6（Slack/メール通知ルール）
 ```
 
 ### 4.1 設定ファイルのキー所在マップ
@@ -530,6 +549,10 @@ GpuState
 | `ingester.yaml` | Vault 取り込み | `watch_paths`, `exclude`, `vector_db`, `schema_keys`, `stability`, `confidential_access` |
 | `dispatch.yaml` | タスクディスパッチ | `category_to_section`, `auto_assign_rules` |
 | `schedules.yaml` | 夜間バッチ | `schedules[]`（cron + actions） |
+| `auth.yaml` | 認証・レート制限 | `auth.modes`, `auth.jwt`, `rate_limit.default_limits`, `rate_limit.per_agent_overrides` |
+| `cleaner.yaml` | Cleaner Agent | `cleaner.dedupe_threshold`, `cleaner.exclude_recent_hours`, `cleaner.max_delete_per_day` |
+| `notifications.yaml` | 通知ルール | `channels.slack`, `channels.email`, `rules[]` |
+| `<agent_id>/overrides.md` | エージェント個別 override | 個別 skills.md フィールドの上書き |
 
 タスクは **ステータスごとにフォルダ分離** することで、ファイルシステム監視で状態遷移を検知可能にする（Phase 2 で詳細化）。
 
