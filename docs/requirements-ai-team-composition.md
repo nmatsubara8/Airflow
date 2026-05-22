@@ -2,6 +2,20 @@
 
 > Rio の AI チーム構成（調整層 + §01 エンジニアリング + §02 コンテンツ + §03 ビジネス）を、エージェント単位の責任範囲・入出力・トリガー・エスカレーション基準まで詳細化したもの。
 
+## プラットフォーム確認事項
+
+| プラットフォーム | 正式名称 | 提供元 | 用途 |
+|---------------|---------|--------|------|
+| **Claude Code** | Claude Code | Anthropic | 開発者向け。ターミナル・コードベース操作。§01 Engineering に使用 |
+| **Cowork** | **Claude Cowork** | Anthropic | 非エンジニア向けデスクトップエージェント。ローカルファイル・アプリ横断の知識労働を自律実行。§02 Content / §03 Business に使用 |
+
+### Claude Cowork の特徴（要件定義への影響）
+- **動作環境**：Claude Desktop アプリ（macOS。Windows は計画中）。Max プラン以上で利用可能
+- **操作対象**：ローカルフォルダ・ファイル・デスクトップアプリ（非ターミナル）
+- **動作モデル**：「目標を渡せば残りは自律実行」— プロンプト応答型ではなくアウトカム駆動
+- **Claude Code との違い**：Claude Code はコード生成・実行（開発者向け）、Claude Cowork はドキュメント整理・データ抽出・ワークフロー自動化（知識労働者向け）
+- **人間監視**：重大な意思決定はユーザー確認を維持（Anthropic の安全設計）
+
 ---
 
 ## 0. 全体構成
@@ -15,7 +29,8 @@
      ┌─────▼─────┐  ┌────▼─────┐  ┌────▼──────┐
      │ §01       │  │ §02      │  │ §03       │
      │ Engineering│  │ Content  │  │ Business  │
-     │(Claude Code)│  │(Cowork) │  │(Cowork)   │
+     │(Claude Code)│  │(Claude  │  │(Claude    │
+     │           │  │ Cowork) │  │ Cowork)   │
      └───────────┘  └──────────┘  └───────────┘
 ```
 
@@ -23,8 +38,8 @@
 |---------|------------------|---------|
 | 調整層 | タスクボード基盤 + MCP | 全エージェントが共有する記憶・タスク管理 |
 | §01 Engineering | Claude Code（サブエージェント） | コード実装・QA・セキュリティ |
-| §02 Content | Cowork | 原稿生成・4 段レビュー |
-| §03 Business | Cowork | 戦略ブリーフ・案件管理・契約レビュー |
+| §02 Content | Claude Cowork（デスクトップエージェント） | 原稿生成・4 段レビュー |
+| §03 Business | Claude Cowork（デスクトップエージェント） | 戦略ブリーフ・案件管理・契約レビュー |
 
 ---
 
@@ -337,7 +352,7 @@ anti-ai-slop (AI 臭除去)                  ─┘
 ---
 agent_id: <unique-id>
 section: §01 | §02 | §03 | orchestration
-platform: claude-code | cowork
+platform: claude-code | claude-cowork
 model: claude-sonnet-4-6 | claude-opus-4-7 | claude-haiku-4-5
 context_isolation: subagent | separate-session
 ---
