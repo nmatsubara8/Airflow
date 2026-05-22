@@ -10,7 +10,7 @@
 | **Cowork** | **Claude Cowork** | Anthropic | 非エンジニア向けデスクトップエージェント。ローカルファイル・アプリ横断の知識労働を自律実行。§02 Content / §03 Business に使用 |
 
 ### Claude Cowork の特徴（要件定義への影響）
-- **動作環境**：Claude Desktop アプリ（macOS。Windows は計画中）。Max プラン以上で利用可能
+- **利用プラン**：Pro・Max・Team・Enterprise（無料プランは対象外）
 - **操作対象**：ローカルフォルダ・ファイル・デスクトップアプリ（非ターミナル）
 - **動作モデル**：「目標を渡せば残りは自律実行」— プロンプト応答型ではなくアウトカム駆動
 - **Claude Code との違い**：Claude Code はコード生成・実行（開発者向け）、Claude Cowork はドキュメント整理・データ抽出・ワークフロー自動化（知識労働者向け）
