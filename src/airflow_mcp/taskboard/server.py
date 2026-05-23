@@ -17,6 +17,7 @@ from mcp.server.stdio import stdio_server
 
 from ..common.audit import log_event, new_audit_id, now_iso
 from ..common.auth import get_token_from_env, require_scope
+from ..common.rate_limiter import check_rate_limit
 from ..common.errors import (
     AirflowError,
     TaskInvalidTransition,
@@ -206,7 +207,7 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["audit_id"],
                 "properties": {
                     "audit_id": {"type": "string"},
-                    "depth": {"type": "integer", "default": 5},
+                    "depth": {"type": "integer", "default": 5, "maximum": 20},
                 },
             },
         ),
@@ -231,6 +232,7 @@ async def list_tools() -> list[types.Tool]:
 @server.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
     token = get_token_from_env()
+    check_rate_limit(token)
     try:
         if name == "tasks.list":
             return await _tasks_list(arguments, token)
@@ -414,17 +416,19 @@ async def _tasks_join(args: dict[str, Any], token: str | None) -> list[types.Tex
 async def _audit_trace(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "tasks:read")
     root_id = args["audit_id"]
-    depth = args.get("depth", 5)
+    depth = min(args.get("depth", 5), 20)  # clamp to prevent DoS
 
     by_parent: dict[str | None, list[dict]] = defaultdict(list)
     for entry in _audit_log:
         by_parent[entry.get("parent_audit_id")].append(entry)
 
     events: list[dict] = []
+    visited: set[str] = set()  # cycle guard
 
     def collect(aid: str, current_depth: int) -> None:
-        if current_depth > depth:
+        if current_depth > depth or aid in visited:
             return
+        visited.add(aid)
         for entry in _audit_log:
             if entry["audit_id"] == aid:
                 events.append(entry)
@@ -441,8 +445,9 @@ async def _audit_query(args: dict[str, Any], token: str | None) -> list[types.Te
     results = list(_audit_log)
 
     if event_filter := args.get("event"):
-        pattern = event_filter.replace(".", r"\.").replace("*", ".*")
-        results = [e for e in results if re.match(pattern, e.get("event", ""))]
+        # fnmatch を使ってReDoSを回避（re.match の代わり）
+        import fnmatch
+        results = [e for e in results if fnmatch.fnmatch(e.get("event", ""), event_filter)]
     if task_id := args.get("task_id"):
         results = [e for e in results if e.get("task_id") == task_id]
     if agent_id := args.get("agent_id"):

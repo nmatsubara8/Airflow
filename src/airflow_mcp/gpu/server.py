@@ -17,6 +17,7 @@ from mcp.server.stdio import stdio_server
 
 from ..common.audit import log_event, new_audit_id, now_iso
 from ..common.auth import get_token_from_env, require_scope
+from ..common.rate_limiter import check_rate_limit
 from ..common.errors import AirflowError, GpuBusy
 from ..scheduler.profile import get_profile_models, select_best_profile
 from ..scheduler.queue import QueueEntry, SchedulerQueue
@@ -166,6 +167,7 @@ async def list_tools() -> list[types.Tool]:
 @server.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
     token = get_token_from_env()
+    check_rate_limit(token)
     try:
         if name == "gpu.state":
             return await _gpu_state(arguments, token)

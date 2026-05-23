@@ -21,6 +21,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -29,6 +30,18 @@ from typing import Any, Generator
 
 from ..common.audit import new_audit_id, now_iso
 from ..common.errors import TaskAlreadyClaimed, TaskInvalidTransition, TaskLockConflict, TaskNotFound
+
+# task_id は必ずこのパターンに一致する必要がある（パストラバーサル防止）
+_TASK_ID_RE = re.compile(r"^task_[a-z0-9]{16,32}$")
+_STATUS_ALLOWLIST = frozenset(
+    ("inbox", "in_progress", "done", "needs_human", "blocked", "cancelled", "_corrupt")
+)
+
+
+def _validate_task_id(task_id: str) -> None:
+    """task_id がパス安全なパターンに合致するか検証する。"""
+    if not _TASK_ID_RE.match(task_id):
+        raise TaskNotFound(task_id)  # 不正 ID は存在しないものとして扱う
 
 _TRANSITIONS: dict[str, set[str]] = {
     "inbox":       {"in_progress", "cancelled"},
@@ -58,6 +71,9 @@ class TaskStore:
 
     # ── パス解決 ───────────────────────────────────────────
     def _task_path(self, task_id: str, status: str) -> Path:
+        _validate_task_id(task_id)
+        if status not in _STATUS_ALLOWLIST:
+            raise ValueError(f"Invalid status: {status}")
         if status == "done":
             month = datetime.now(timezone.utc).strftime("%Y-%m")
             path = self.base / "done" / month
@@ -66,6 +82,7 @@ class TaskStore:
         return self.base / status / f"{task_id}.json"
 
     def _find_task_path(self, task_id: str) -> Path | None:
+        _validate_task_id(task_id)
         for status in ("inbox", "in_progress", "done", "needs_human", "blocked", "cancelled"):
             direct = self.base / status / f"{task_id}.json"
             if direct.exists():
@@ -81,6 +98,7 @@ class TaskStore:
     @contextmanager
     def _lock(self, task_id: str) -> Generator[None, None, None]:
         """L2: .lock ファイルによるプロセス間排他（DDD-04 §3.2）。"""
+        _validate_task_id(task_id)
         lock_path = self.base / f"{task_id}.json.lock"
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         with open(lock_path, "w") as fh:

@@ -1,18 +1,27 @@
 """DDD-02 §2.2 / DDD-08 §4 に準拠した認証・認可。
 
 Phase 2 MVP: AIRFLOW_MCP_TOKEN 環境変数による API Key 認証。
-localhost_bypass が有効なためローカル stdio 運用では実質スキップ可能。
+本番環境では AIRFLOW_AUTH_LOCALHOST_BYPASS=false を必ず設定すること。
 """
 from __future__ import annotations
 
+import hmac
 import json
+import logging
 import os
 from pathlib import Path
 
 from .errors import AuthScopeInsufficient, AuthTokenInvalid, AuthTokenMissing
 
-# Phase 2: ローカル stdio のため localhost_bypass=true が実質デフォルト
-_LOCALHOST_BYPASS = os.environ.get("AIRFLOW_AUTH_LOCALHOST_BYPASS", "true").lower() == "true"
+logger = logging.getLogger(__name__)
+
+# 本番では必ず false に設定する（デフォルト false に変更: DDD-08 §4.1）
+_LOCALHOST_BYPASS = os.environ.get("AIRFLOW_AUTH_LOCALHOST_BYPASS", "false").lower() == "true"
+
+if _LOCALHOST_BYPASS:
+    logger.warning(
+        "AIRFLOW_AUTH_LOCALHOST_BYPASS=true: 認証が無効化されています。本番環境では使用しないこと。"
+    )
 
 # tokens.json のパス（存在しない場合は bypass または環境変数のみ）
 _TOKENS_FILE = Path(os.environ.get("AIRFLOW_TOKENS_FILE", ".airflow/auth/tokens.json"))
@@ -40,7 +49,7 @@ def require_scope(token_env: str | None, scope: str) -> None:
     if token_env not in tokens:
         # 環境変数から直接トークンを取得する場合
         env_token = os.environ.get("AIRFLOW_MCP_TOKEN")
-        if env_token != token_env:
+        if not hmac.compare_digest(env_token, token_env):
             raise AuthTokenInvalid()
         # 環境変数トークンはすべてのスコープを持つ（Phase 2 MVP 簡略化）
         return
