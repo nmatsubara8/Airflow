@@ -144,3 +144,127 @@ def test_gpu_busy_has_retry_and_recoverable():
     err = GpuBusy(retry_after_ms=10000)
     assert err.retry_after_ms == 10000
     assert err.error_class == "recoverable"
+
+
+# ── 追加エラークラス（DDD-03 定義分）────────────────────────
+
+def test_task_scope_violation_mcp_result():
+    from airflow_mcp.common.errors import TaskScopeViolation
+    e = TaskScopeViolation("task_abc1234567890123")
+    r = e.to_mcp_result()
+    assert r[0].type == "text"
+    import json; d = json.loads(r[0].text)
+    assert d["error"]["code"] == "TASK_SCOPE_VIOLATION"
+    assert d["error"]["class"] == "escalate"
+
+def test_task_corrupt_mcp_result():
+    from airflow_mcp.common.errors import TaskCorrupt
+    e = TaskCorrupt("task_abc1234567890123")
+    r = e.to_mcp_result()
+    import json; d = json.loads(r[0].text)
+    assert d["error"]["code"] == "TASK_CORRUPT"
+    assert d["error"]["class"] == "fatal"
+
+def test_model_execution_failed_mcp_result():
+    from airflow_mcp.common.errors import ModelExecutionFailed
+    e = ModelExecutionFailed("model_qwen25_32b", "timeout")
+    r = e.to_mcp_result()
+    import json; d = json.loads(r[0].text)
+    assert d["error"]["code"] == "MODEL_EXECUTION_FAILED"
+    assert d["error"]["class"] == "recoverable"
+    assert "retry_after_ms" in d["error"]
+
+def test_model_low_confidence_mcp_result():
+    from airflow_mcp.common.errors import ModelLowConfidence
+    import pytest
+    e = ModelLowConfidence("model_qwen25_14b", 0.62)
+    r = e.to_mcp_result()
+    import json; d = json.loads(r[0].text)
+    assert d["error"]["code"] == "MODEL_LOW_CONFIDENCE"
+    assert d["data"]["score"] == pytest.approx(0.62)
+
+def test_model_reroute_exhausted_mcp_result():
+    from airflow_mcp.common.errors import ModelRerouteExhausted
+    e = ModelRerouteExhausted("model_qwen25_32b")
+    r = e.to_mcp_result()
+    import json; d = json.loads(r[0].text)
+    assert d["error"]["code"] == "MODEL_REROUTE_EXHAUSTED"
+
+def test_note_parse_error_mcp_result():
+    from airflow_mcp.common.errors import NoteParseError
+    e = NoteParseError("Inbox/note.md", "invalid YAML")
+    r = e.to_mcp_result()
+    import json; d = json.loads(r[0].text)
+    assert d["error"]["code"] == "NOTE_PARSE_ERROR"
+    assert d["error"]["class"] == "recoverable"
+
+def test_note_confidential_access_denied_mcp_result():
+    from airflow_mcp.common.errors import NoteConfidentialAccessDenied
+    e = NoteConfidentialAccessDenied("note_xyz")
+    r = e.to_mcp_result()
+    import json; d = json.loads(r[0].text)
+    assert d["error"]["code"] == "NOTE_CONFIDENTIAL_ACCESS_DENIED"
+    assert d["error"]["class"] == "fatal"
+
+def test_gpu_insufficient_vram_mcp_result():
+    from airflow_mcp.common.errors import GpuInsufficientVram
+    import pytest
+    e = GpuInsufficientVram(24.0, 8.5)
+    r = e.to_mcp_result()
+    import json; d = json.loads(r[0].text)
+    assert d["error"]["code"] == "GPU_INSUFFICIENT_VRAM"
+    assert d["data"]["required_gb"] == pytest.approx(24.0)
+    assert d["data"]["free_gb"] == pytest.approx(8.5)
+
+def test_gpu_reserve_timeout_mcp_result():
+    from airflow_mcp.common.errors import GpuReserveTimeout
+    e = GpuReserveTimeout("model_qwen25_32b", 60000)
+    r = e.to_mcp_result()
+    import json; d = json.loads(r[0].text)
+    assert d["error"]["code"] == "GPU_RESERVE_TIMEOUT"
+
+def test_gpu_oom_mcp_result():
+    from airflow_mcp.common.errors import GpuOom
+    e = GpuOom("model_qwen25_32b")
+    r = e.to_mcp_result()
+    import json; d = json.loads(r[0].text)
+    assert d["error"]["code"] == "GPU_OOM"
+    assert d["error"]["class"] == "fatal"
+
+def test_ingest_path_missing_mcp_result():
+    from airflow_mcp.common.errors import IngestPathMissing
+    e = IngestPathMissing("/mnt/vault")
+    r = e.to_mcp_result()
+    import json; d = json.loads(r[0].text)
+    assert d["error"]["code"] == "INGEST_PATH_MISSING"
+    assert d["error"]["class"] == "fatal"
+
+def test_schema_validation_failed_mcp_result():
+    from airflow_mcp.common.errors import SchemaValidationFailed
+    e = SchemaValidationFailed("missing required field: title")
+    r = e.to_mcp_result()
+    import json; d = json.loads(r[0].text)
+    assert d["error"]["code"] == "SCHEMA_VALIDATION_FAILED"
+
+def test_schema_version_unsupported_mcp_result():
+    from airflow_mcp.common.errors import SchemaVersionUnsupported
+    e = SchemaVersionUnsupported("2.0.0")
+    r = e.to_mcp_result()
+    import json; d = json.loads(r[0].text)
+    assert d["error"]["code"] == "SCHEMA_VERSION_UNSUPPORTED"
+
+def test_internal_timeout_mcp_result():
+    from airflow_mcp.common.errors import InternalTimeout
+    e = InternalTimeout("execution_log.write", 5000)
+    r = e.to_mcp_result()
+    import json; d = json.loads(r[0].text)
+    assert d["error"]["code"] == "INTERNAL_TIMEOUT"
+    assert d["error"]["class"] == "recoverable"
+
+def test_internal_unexpected_mcp_result():
+    from airflow_mcp.common.errors import InternalUnexpected
+    e = InternalUnexpected("something went wrong")
+    r = e.to_mcp_result()
+    import json; d = json.loads(r[0].text)
+    assert d["error"]["code"] == "INTERNAL_UNEXPECTED"
+    assert d["error"]["class"] == "fatal"

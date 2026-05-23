@@ -112,3 +112,93 @@ def test_run_due_schedules_triggers_matching(monkeypatch):
     results = run_due_schedules(now=now)
     assert len(results) == 1
     assert results[0]["name"] == "nightly"
+
+
+# ── _load_schedules ───────────────────────────────────
+
+def test_load_schedules_returns_empty_when_no_file(monkeypatch):
+    import airflow_mcp.ops.batch_scheduler as bs
+    from pathlib import Path
+    monkeypatch.setattr(bs, "_SCHEDULES_PATH", Path("/nonexistent/schedules.yaml"))
+    from airflow_mcp.ops.batch_scheduler import _load_schedules
+    assert _load_schedules() == []
+
+
+def test_load_schedules_normalizes_dict_format(tmp_path, monkeypatch):
+    import airflow_mcp.ops.batch_scheduler as bs
+    f = tmp_path / "schedules.yaml"
+    f.write_text("schedules:\n  nightly:\n    cron: '0 2 * * *'\n    agents: [agent_docs]\n")
+    monkeypatch.setattr(bs, "_SCHEDULES_PATH", f)
+    from airflow_mcp.ops.batch_scheduler import _load_schedules
+    schedules = _load_schedules()
+    assert len(schedules) == 1
+    assert schedules[0]["name"] == "nightly"
+
+
+def test_load_schedules_returns_list_format(tmp_path, monkeypatch):
+    import airflow_mcp.ops.batch_scheduler as bs
+    import yaml
+    f = tmp_path / "schedules.yaml"
+    f.write_text(yaml.dump({"schedules": [{"name": "daily", "cron": "0 9 * * *"}]}))
+    monkeypatch.setattr(bs, "_SCHEDULES_PATH", f)
+    from airflow_mcp.ops.batch_scheduler import _load_schedules
+    schedules = _load_schedules()
+    assert schedules[0]["name"] == "daily"
+
+
+# ── _parse_cron comma/wildcard edge cases ─────────────
+
+def test_parse_cron_comma_minute():
+    from airflow_mcp.ops.batch_scheduler import _parse_cron
+    now = datetime(2026, 5, 25, 9, 30, tzinfo=timezone.utc)
+    assert _parse_cron("0,30 9 * * *", now) is True
+
+
+# ── _run_dispatch_action ──────────────────────────────
+
+def test_run_dispatch_action_creates_tasks(tmp_path):
+    from airflow_mcp.taskboard.store import TaskStore
+    store = TaskStore(base_dir=tmp_path)
+    import unittest.mock as mock
+    with mock.patch("airflow_mcp.taskboard.store.TaskStore", return_value=store):
+        from airflow_mcp.ops.batch_scheduler import _run_dispatch_action
+        action = {"dispatch": {"tasks": ["qa_review"], "targets": ["agent_qa"], "tag": "nightly"}}
+        created = _run_dispatch_action(action, "nightly_batch")
+    assert created == 1
+
+
+# ── _run_schedule_agents ──────────────────────────────
+
+def test_run_schedule_agents_creates_tasks_per_agent(tmp_path):
+    from airflow_mcp.taskboard.store import TaskStore
+    store = TaskStore(base_dir=tmp_path)
+    import unittest.mock as mock
+    with mock.patch("airflow_mcp.taskboard.store.TaskStore", return_value=store):
+        from airflow_mcp.ops.batch_scheduler import _run_schedule_agents
+        schedule = {
+            "name": "nightly",
+            "agents": ["agent_docs", "agent_qa"],
+            "task_template": "review",
+            "category": "engineering",
+        }
+        created = _run_schedule_agents(schedule)
+    assert created == 2
+
+
+# ── run_schedule with agents format ──────────────────
+
+def test_run_schedule_agents_format(tmp_path):
+    from airflow_mcp.taskboard.store import TaskStore
+    store = TaskStore(base_dir=tmp_path)
+    import unittest.mock as mock
+    with mock.patch("airflow_mcp.taskboard.store.TaskStore", return_value=store):
+        from airflow_mcp.ops.batch_scheduler import run_schedule
+        schedule = {
+            "name": "weekly_review",
+            "cron": "0 9 * * 1",
+            "agents": ["agent_docs"],
+            "task_template": "weekly_review",
+        }
+        result = run_schedule(schedule)
+    assert result["name"] == "weekly_review"
+    assert result["success"] >= 1

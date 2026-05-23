@@ -346,3 +346,162 @@ def test_process_task_no_reroute_when_max_attempts_zero(
 
     # fallback モデルの tag が呼ばれていないこと
     assert not any("32b" in c for c in calls), f"fallback が呼ばれた: {calls}"
+
+
+# ── load_model_config / _load_registry ───────────────
+
+def test_load_model_config_returns_empty_when_no_file():
+    from airflow_mcp.runner.main import load_model_config
+    assert load_model_config("/nonexistent/config.yaml") == {}
+
+
+def test_load_model_config_reads_existing_yaml(tmp_path):
+    from airflow_mcp.runner.main import load_model_config
+    cfg = tmp_path / "model-config.yaml"
+    cfg.write_text("knn:\n  k: 5\n")
+    result = load_model_config(str(cfg))
+    assert result["knn"]["k"] == 5
+
+
+def test_load_registry_returns_empty_when_no_file():
+    from airflow_mcp.runner.main import _load_registry
+    assert _load_registry("/nonexistent/registry.json") == {}
+
+
+def test_load_registry_reads_existing_json(tmp_path):
+    import json
+    from airflow_mcp.runner.main import _load_registry
+    reg = tmp_path / "registry.json"
+    reg.write_text(json.dumps({"models": [{"id": "model_test", "ollama_tag": "test:latest"}]}))
+    result = _load_registry(str(reg))
+    assert "model_test" in result
+
+
+# ── _call_ollama non-stub paths ───────────────────────
+
+def test_call_ollama_json_decode_error(monkeypatch):
+    import os, json as _json
+    from unittest.mock import MagicMock, patch
+    os.environ["OLLAMA_STUB"] = "false"
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"message": {"content": "not json {"}}
+    mock_resp.raise_for_status = lambda: None
+    schema = {"type": "object", "required": ["summary"],
+              "properties": {"summary": {"type": "string"}}}
+    messages = [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}]
+    with patch("airflow_mcp.runner.main.httpx.post", return_value=mock_resp):
+        content, parsed, valid = _call_ollama(
+            "http://localhost:11434", "model", messages, schema, 0.3, 512, 0
+        )
+    assert valid is False
+    assert parsed is None
+
+
+def test_call_ollama_schema_mismatch(monkeypatch):
+    import os, json as _json
+    from unittest.mock import MagicMock, patch
+    os.environ["OLLAMA_STUB"] = "false"
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"message": {"content": _json.dumps({"wrong": "field"})}}
+    mock_resp.raise_for_status = lambda: None
+    schema = {"type": "object", "required": ["summary"],
+              "properties": {"summary": {"type": "string"}}}
+    messages = [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}]
+    with patch("airflow_mcp.runner.main.httpx.post", return_value=mock_resp):
+        content, parsed, valid = _call_ollama(
+            "http://localhost:11434", "model", messages, schema, 0.3, 512, 0
+        )
+    assert valid is False
+
+
+# ── _execute_with_retry ───────────────────────────────
+
+def test_execute_with_retry_http_error_exhausts_retries():
+    import os
+    from unittest.mock import patch
+    import httpx
+    os.environ["OLLAMA_STUB"] = "false"
+    messages = [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}]
+    schema = {"type": "object", "required": ["summary"],
+              "properties": {"summary": {"type": "string"}}}
+    with patch("airflow_mcp.runner.main.httpx.post",
+               side_effect=httpx.ConnectError("refused")), \
+         patch("airflow_mcp.runner.main.time.sleep"):
+        content, parsed, valid, retries = _execute_with_retry(
+            "http://bad-host", "model", messages, schema
+        )
+    assert valid is False
+
+
+# ── run_once ─────────────────────────────────────────
+
+def test_run_once_processes_owned_in_progress_tasks(task_store, sample_task_fields):
+    import os
+    os.environ["OLLAMA_STUB"] = "true"
+    task = task_store.create(sample_task_fields)
+    task_store.claim(task["id"], "agent_docs")
+    n = run_once(task_store, {}, {}, "agent_docs", "http://localhost:11434")
+    assert n >= 1
+
+
+def test_run_once_skips_tasks_owned_by_other_agent(task_store, sample_task_fields):
+    import os
+    os.environ["OLLAMA_STUB"] = "true"
+    task = task_store.create(sample_task_fields)
+    task_store.claim(task["id"], "agent_other")
+    n = run_once(task_store, {}, {}, "agent_docs", "http://localhost:11434")
+    assert n == 0
+
+
+def test_run_once_returns_zero_with_empty_store(task_store):
+    n = run_once(task_store, {}, {}, "agent_docs", "http://localhost:11434")
+    assert n == 0
+
+
+# ── _get_fallback_model ───────────────────────────────
+
+def test_get_fallback_model_returns_first_in_chain():
+    config = {"reroute": {"fallback_chain": {"model_a": ["model_b", "model_c"]}}}
+    assert _get_fallback_model("model_a", config) == "model_b"
+
+
+def test_get_fallback_model_returns_none_when_not_in_chain():
+    assert _get_fallback_model("model_unknown", {}) is None
+
+
+def test_call_ollama_non_stub_valid_schema(monkeypatch):
+    """非 stub で schema 適合 JSON を返す場合 schema_valid=True になること（line 143）。"""
+    import os, json as _json
+    from unittest.mock import MagicMock, patch
+    os.environ["OLLAMA_STUB"] = "false"
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"message": {"content": _json.dumps({"summary": "ok"})}}
+    mock_resp.raise_for_status = lambda: None
+    schema = {"type": "object", "required": ["summary"],
+              "properties": {"summary": {"type": "string"}}}
+    messages = [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}]
+    with patch("airflow_mcp.runner.main.httpx.post", return_value=mock_resp):
+        content, parsed, valid = _call_ollama(
+            "http://localhost:11434", "model", messages, schema, 0.3, 512, 0
+        )
+    assert valid is True
+    assert parsed["summary"] == "ok"
+
+
+def test_process_task_execution_log_failure_still_completes(
+    task_store, sample_task_fields
+):
+    """execution_log の書き込み失敗でもタスク処理が完了すること（lines 232-234）。"""
+    import os
+    from unittest.mock import patch
+    os.environ["OLLAMA_STUB"] = "true"
+    task = task_store.create(sample_task_fields)
+    task_store.claim(task["id"], "agent_docs")
+    task_in_progress = task_store.get(task["id"])
+
+    with patch("airflow_mcp.runner.main.append_execution_log",
+               side_effect=IOError("disk full")):
+        result = process_task(task_in_progress, task_store, {}, {}, "agent_docs", "http://localhost")
+
+    assert result is True
+    assert task_store.get(task["id"])["status"] == "done"

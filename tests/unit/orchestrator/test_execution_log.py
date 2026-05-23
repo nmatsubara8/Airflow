@@ -161,3 +161,66 @@ def test_update_feedback_reflected_in_next_load_history(log_dir: Path):
     history = load_history(log_dir=log_dir)
     record = next(r for r in history if r["task_id"] == "task_knn")
     assert record["auto_score"] == pytest.approx(0.8)
+
+
+# ── エッジケース追加 ──────────────────────────────────
+
+def test_load_history_skips_unreadable_file(log_dir: Path):
+    """OSError が発生する .jsonl は無視して残りを返すこと（lines 173-174）。"""
+    # 正常ファイルを先に書く
+    _append(log_dir, task_id="task_ok", schema_valid=True, retry_count=0)
+    # 読み取り不可ファイルを追加
+    bad = log_dir / "bad.jsonl"
+    bad.write_bytes(b"")
+    bad.chmod(0o000)
+    try:
+        from airflow_mcp.orchestrator.execution_log import load_history
+        history = load_history(log_dir=log_dir)
+        assert any(r["task_id"] == "task_ok" for r in history)
+    finally:
+        bad.chmod(0o644)
+
+
+def test_load_history_skips_empty_lines(log_dir: Path):
+    """空行を含む .jsonl でも正しくレコードを返すこと（lines 165-166）。"""
+    import json as _json
+    from airflow_mcp.orchestrator.execution_log import load_history
+    import datetime, uuid
+    log_dir.mkdir(parents=True, exist_ok=True)
+    jsonl = log_dir / f"{datetime.date.today()}.jsonl"
+    record = {"id": "log_abc", "task_id": "task_empty_line", "timestamp": "2026-05-23T00:00:00Z",
+              "schema_valid": True, "retry_count": 0, "auto_score": 0.5}
+    # 空行を挟んで書き込む
+    jsonl.write_text("\n" + _json.dumps(record) + "\n\n", encoding="utf-8")
+    history = load_history(log_dir=log_dir)
+    assert any(r["task_id"] == "task_empty_line" for r in history)
+
+
+def test_update_feedback_skips_unreadable_file(log_dir: Path):
+    """OSError の .jsonl は無視して None を返すこと（update_feedback lines 113-114）。"""
+    log_dir.mkdir(parents=True, exist_ok=True)
+    bad = log_dir / "bad.jsonl"
+    bad.write_bytes(b"")
+    bad.chmod(0o000)
+    try:
+        from airflow_mcp.orchestrator.execution_log import update_feedback
+        result = update_feedback("any_task", "accepted", log_dir=log_dir)
+        assert result is None
+    finally:
+        bad.chmod(0o644)
+
+
+def test_update_feedback_skips_corrupt_json_line(log_dir: Path):
+    """破損 JSON 行は無視して正常レコードを見つけること（lines 126-128）。"""
+    import json as _json
+    from airflow_mcp.orchestrator.execution_log import update_feedback
+    import datetime
+    log_dir.mkdir(parents=True, exist_ok=True)
+    jsonl = log_dir / f"{datetime.date.today()}.jsonl"
+    record = {"id": "log_x", "task_id": "task_corrupt_line",
+              "timestamp": "2026-05-23T00:00:00Z", "schema_valid": True,
+              "retry_count": 0, "auto_score": 0.5}
+    jsonl.write_text("{ bad json }\n" + _json.dumps(record) + "\n", encoding="utf-8")
+    result = update_feedback("task_corrupt_line", "accepted", log_dir=log_dir)
+    assert result is not None
+    assert result["human_feedback"] == "accepted"
