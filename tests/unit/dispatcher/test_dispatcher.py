@@ -130,3 +130,66 @@ def test_dispatch_once_writes_section_when_missing(task_store):
     # in_progress になったタスクに section が設定されていること
     in_prog = task_store.list_by_status("in_progress")
     assert len(in_prog) == 1
+
+
+# ── run_loop ───────────────────────────────────────────
+
+def test_run_loop_runs_and_handles_results(task_store, monkeypatch):
+    """run_loop が dispatch_once を呼び n>0 のときログを出力すること（lines 103-111）。"""
+    call_count = {"n": 0}
+
+    def fake_dispatch_once(store, config):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return 1  # n>0 → logger.info branch
+        raise SystemExit(0)
+
+    monkeypatch.setattr("airflow_mcp.dispatcher.main.dispatch_once", fake_dispatch_once)
+    monkeypatch.setattr("airflow_mcp.dispatcher.main.time.sleep", lambda s: None)
+
+    from airflow_mcp.dispatcher.main import run_loop
+    with pytest.raises(SystemExit):
+        run_loop(task_store, {}, poll_interval_s=0.001)
+
+    assert call_count["n"] == 2
+
+
+def test_run_loop_catches_exception(task_store, monkeypatch):
+    """run_loop が dispatch_once の例外を catch してループを継続すること（lines 109-110）。"""
+    call_count = {"n": 0}
+
+    def fake_dispatch_once(store, config):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise RuntimeError("store error")
+        raise SystemExit(0)
+
+    monkeypatch.setattr("airflow_mcp.dispatcher.main.dispatch_once", fake_dispatch_once)
+    monkeypatch.setattr("airflow_mcp.dispatcher.main.time.sleep", lambda s: None)
+
+    from airflow_mcp.dispatcher.main import run_loop
+    with pytest.raises(SystemExit):
+        run_loop(task_store, {})
+
+    assert call_count["n"] == 2
+
+
+# ── _cli ───────────────────────────────────────────────
+
+def test_cli_entry_point(tmp_path, monkeypatch):
+    """_cli が TaskStore と load_config を呼んで run_loop に渡すこと（lines 115-121）。"""
+    call_args = {}
+
+    def fake_run_loop(store, config):
+        call_args["store"] = store
+        call_args["config"] = config
+        raise SystemExit(0)
+
+    monkeypatch.setattr("airflow_mcp.dispatcher.main.run_loop", fake_run_loop)
+    monkeypatch.setenv("AIRFLOW_TASKBOARD_DIR", str(tmp_path))
+
+    from airflow_mcp.dispatcher.main import _cli
+    with pytest.raises(SystemExit):
+        _cli()
+
+    assert "store" in call_args
