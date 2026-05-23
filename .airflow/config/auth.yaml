@@ -6,11 +6,12 @@ auth:
   token_header: "X-Airflow-Token"
 
   # API keys are stored in environment variables, not this file.
+  # Token format: airflow_<env>_<24 byte random> (DDD-02 §2.2)
   # Expected env vars:
-  #   AIRFLOW_API_KEY_ADMIN
-  #   AIRFLOW_API_KEY_AGENT
-  #   AIRFLOW_API_KEY_READONLY
-  key_env_prefix: "AIRFLOW_API_KEY_"
+  #   AIRFLOW_MCP_TOKEN_ADMIN
+  #   AIRFLOW_MCP_TOKEN_AGENT
+  #   AIRFLOW_MCP_TOKEN_READONLY
+  key_env_prefix: "AIRFLOW_MCP_TOKEN_"
 
   roles:
     admin:

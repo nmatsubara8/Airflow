@@ -12,13 +12,13 @@ knn:
   weights:
     task_type: 2.0
     language: 1.5
-    input_size_tokens: 1.0
-    expected_output_size_tokens: 1.0
-    required_accuracy: 2.0
-    latency_sensitivity: 1.5
+    required_accuracy: 1.0
+    latency_sensitivity: 0.5
+    input_size_tokens: 0.3
+    expected_output_size_tokens: 0.3
 
 dual_execution:
-  enabled: false                 # enable in Phase 3 after baseline is set
+  enabled: false                 # Phase 2 MVP: OFF. Enable in Phase 3 per DDD-06 §7.2
   conditions:
     required_accuracy: high
     mode_not: manual

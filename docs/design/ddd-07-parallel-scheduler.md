@@ -127,10 +127,16 @@ DDD-06 §7.4 で予告した通り、`reroute` 発動時は親和性スコアを
 ```yaml
 # .airflow/config/parallel.yaml
 profiles:
-  - name: single-32b
-    models: [model_qwen25_32b_q3]
-    vram_required_gb: 14
+  # Phase 2 MVP プロファイル（bge-m3 は常時同時ロード）
+  - name: single-14b             # MVP デフォルト。14B + 埋め込み
+    models: [model_qwen25_14b_q4, model_bge_m3]
+    vram_required_gb: 10
 
+  - name: single-32b             # 高精度単一モデル + 埋め込み
+    models: [model_qwen25_32b_q3, model_bge_m3]
+    vram_required_gb: 15
+
+  # Phase 3+ プロファイル
   - name: 14b-plus-8b
     models: [model_qwen25_14b_q4, model_llama31_8b_q4]
     vram_required_gb: 14

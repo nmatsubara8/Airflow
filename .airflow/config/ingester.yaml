@@ -13,7 +13,7 @@ watch:
     - "**/templates/**"
 
 stability:
-  settle_ms: 3000                    # wait for file writes to settle
+  settle_ms: 500                     # wait for file writes to settle (DDD-04 §5.1: size_stable_check_ms)
   poll_interval_ms: 5000             # fallback poll if inotify unavailable
   max_file_size_bytes: 524288        # 512 KB limit
 

@@ -4,39 +4,27 @@
 timezone: Asia/Tokyo
 
 schedules:
-  # Engineering team — nightly batch
-  nightly_engineering_review:
+  # Engineering QA — nightly batch (DDD-08 §7.1)
+  nightly_qa:
     cron: "0 2 * * *"              # 02:00 every day
-    task_template: engineering_review_batch
+    task_template: nightly_qa_batch
     category: engineering
     priority: 3
     agents:
-      - agent_code_reviewer
-      - agent_test_engineer
-    description: "夜間エンジニアリングレビューバッチ"
+      - agent_qa
+    description: "夜間 QA バッチ（テスト実行・カバレッジレポート）"
 
-  # Content team — morning QA
-  morning_content_qa:
-    cron: "0 7 * * *"              # 07:00 every day
-    task_template: content_qa_batch
-    category: content
+  # Security scan — nightly (DDD-08 §7.1)
+  security_scan:
+    cron: "30 2 * * *"             # 02:30 every day
+    task_template: security_scan_batch
+    category: engineering
     priority: 3
     agents:
-      - agent_content_editor
-      - agent_fact_checker
-    description: "朝のコンテンツ品質チェック"
+      - agent_security
+    description: "夜間セキュリティスキャン（CVE・OWASP）"
 
-  # Business team briefing — Tue/Fri
-  business_briefing:
-    cron: "0 9 * * 2,5"           # 09:00 Tue & Fri
-    task_template: business_briefing
-    category: business
-    priority: 4
-    agents:
-      - agent_business_strategy
-    description: "ビジネス定期ブリーフィング（火・金）"
-
-  # Engineering director weekly — Mon
+  # Engineering director weekly — Mon (DDD-08 §7.1)
   eng_director_briefing:
     cron: "0 9 * * 1"             # 09:00 every Monday
     task_template: eng_director_briefing
@@ -47,12 +35,41 @@ schedules:
     description: "エンジニアリングディレクター週次ブリーフィング（月）"
     executor: airflow-scheduler.service  # エージェント不要、直接実行
 
-  # Cleaner — weekly
-  weekly_cleanup:
-    cron: "0 3 * * 0"             # 03:00 every Sunday
-    task_template: weekly_cleanup
+  # Content morning brainstorm — daily (DDD-08 §7.1)
+  morning_brainstorm:
+    cron: "0 7 * * *"              # 07:00 every day
+    task_template: morning_brainstorm
+    category: content
+    priority: 4
+    agents:
+      - agent_morning_brainstorm
+    description: "朝のコンテンツブレインストーミング"
+
+  # Business team briefing — Tue/Fri (DDD-08 §7.1)
+  business_briefing:
+    cron: "0 9 * * 2,5"           # 09:00 Tue & Fri
+    task_template: business_briefing
+    category: business
+    priority: 4
+    agents:
+      - agent_business_strategy
+    description: "ビジネス定期ブリーフィング（火・金）"
+
+  # Cleaner — daily (DDD-08 §7.1)
+  cleaner:
+    cron: "0 3 * * *"             # 03:00 every day
+    task_template: cleaner_scan_and_dedupe
     category: orchestration
     priority: 7
     agents:
       - agent_cleaner
-    description: "週次クリーンアップ（古いタスク・ログのアーカイブ）"
+    description: "日次クリーンアップ（古いタスク・ログのアーカイブ・重複排除）"
+
+  # Audit hash — daily (DDD-08 §7.1, airflow-scheduler.service が直接実行)
+  audit_hash:
+    cron: "0 3 * * *"             # 03:00 every day (cleaner と同時)
+    task_template: audit_hash_verify
+    category: orchestration
+    priority: 6
+    executor: airflow-scheduler.service  # エージェント不要、直接実行
+    description: "監査ログ整合性ハッシュ計算・検証"
