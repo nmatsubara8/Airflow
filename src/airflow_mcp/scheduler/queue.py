@@ -41,11 +41,17 @@ class SchedulerQueue:
     スレッドセーフではない（呼び出し元で同期すること）。
     """
 
-    def __init__(self, starvation_config: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        starvation_config: dict[str, Any] | None = None,
+        fair_share_config: dict[str, Any] | None = None,
+    ) -> None:
         self._queues: dict[str, list[QueueEntry]] = defaultdict(list)
         self._starvation_cfg = starvation_config or {}
+        self._fair_share_cfg = fair_share_config or {}
         self._consecutive: dict[str, int] = defaultdict(int)
         self._last_model: str | None = None
+        self._gpu_time_ms: dict[str, float] = {}
 
     # ── public API ─────────────────────────────────────────
 
@@ -69,6 +75,15 @@ class SchedulerQueue:
         if forced:
             self._update_consecutive(forced.model_id)
             return forced
+
+        # 1.5. フェアシェア: 最低保証を下回るモデルを優先（DDD-07 §6.4）
+        fs_model = self._get_fair_share_boost_model()
+        if fs_model:
+            entry = self._pop_highest_priority(fs_model)
+            if entry:
+                self._update_consecutive(fs_model)
+                logger.info("scheduler.fair_share_boost model=%s", fs_model)
+                return entry
 
         max_consec = self._starvation_cfg.get(
             "max_consecutive_same_model", _MAX_CONSECUTIVE_DEFAULT
@@ -122,6 +137,14 @@ class SchedulerQueue:
         """全エントリのフラットリストを返す（スターベーション監視用）。"""
         return [e for entries in self._queues.values() for e in entries]
 
+    def record_completion(self, model_id: str, duration_ms: float) -> None:
+        """GPU 使用時間を累積記録する（フェアシェア計算用）。"""
+        self._gpu_time_ms[model_id] = self._gpu_time_ms.get(model_id, 0.0) + max(0.0, duration_ms)
+
+    def gpu_time_stats(self) -> dict[str, float]:
+        """モデル別 GPU 使用時間 (ms) を返す（モニタリング用）。"""
+        return dict(self._gpu_time_ms)
+
     # ── private helpers ────────────────────────────────────
 
     def _refresh_starvation_flags(self) -> None:
@@ -161,6 +184,47 @@ class SchedulerQueue:
             reverse=True,
         )
         return entries.pop(0)
+
+    def _get_fair_share_boost_model(self) -> str | None:
+        """フェアシェア設定で最低保証を下回るモデルを返す（DDD-07 §6.4）。
+
+        enabled_on_high_load=true かつ GPU 使用実績がある場合のみ発動。
+        """
+        cfg = self._fair_share_cfg
+        if not cfg.get("enabled_on_high_load"):
+            return None
+
+        min_pct_map: dict[str, float] = cfg.get("minimum_gpu_time_pct", {})
+        if not min_pct_map:
+            return None
+
+        total_ms = sum(self._gpu_time_ms.values())
+        if total_ms <= 0:
+            return None  # 実績なし → フェアシェア判定不要
+
+        deficit: list[tuple[float, str]] = []
+        for model_id, entries in self._queues.items():
+            if not entries:
+                continue
+            # "32b" / "14b" / "8b" などのキーをモデル ID にサブストリングマッチ
+            key = next((k for k in min_pct_map if k in model_id), None)
+            if key is None:
+                continue
+            min_pct = float(min_pct_map[key])
+            actual_pct = self._gpu_time_ms.get(model_id, 0.0) / total_ms * 100.0
+            if actual_pct < min_pct:
+                deficit.append((min_pct - actual_pct, model_id))
+
+        if not deficit:
+            return None
+
+        deficit.sort(reverse=True)
+        boosted_model = deficit[0][1]
+        logger.debug(
+            "scheduler.fair_share deficit=%s model=%s",
+            round(deficit[0][0], 1), boosted_model,
+        )
+        return boosted_model
 
     def _update_consecutive(self, model_id: str) -> None:
         if self._last_model == model_id:

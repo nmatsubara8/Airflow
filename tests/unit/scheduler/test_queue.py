@@ -124,3 +124,89 @@ def test_all_entries_returns_all():
     assert len(entries) == 2
     ids = {e.task_id for e in entries}
     assert ids == {"t1", "t2"}
+
+
+# ── fair_share ────────────────────────────────────────
+
+_FAIR_SHARE_CFG = {
+    "enabled_on_high_load": True,
+    "minimum_gpu_time_pct": {
+        "32b": 30,
+        "14b": 50,
+    },
+}
+
+
+def test_record_completion_accumulates_time():
+    q = SchedulerQueue(_CONFIG, fair_share_config=_FAIR_SHARE_CFG)
+    q.record_completion("model_qwen25_14b_q4", 10000.0)
+    q.record_completion("model_qwen25_14b_q4", 5000.0)
+    assert q.gpu_time_stats()["model_qwen25_14b_q4"] == pytest.approx(15000.0)
+
+
+def test_fair_share_boosts_underserved_model():
+    """14b が最低保証 50% を大幅に下回る場合、同じ優先度でも 14b タスクが先に選択される。"""
+    q = SchedulerQueue(_CONFIG, fair_share_config=_FAIR_SHARE_CFG)
+    # 32b が GPU 時間の 90% を占有 → 14b が不足
+    q.record_completion("model_qwen25_32b_q3", 90000.0)
+    q.record_completion("model_qwen25_14b_q4", 10000.0)
+
+    q.enqueue(_entry("t_32b", "model_qwen25_32b_q3", priority=5))
+    q.enqueue(_entry("t_14b", "model_qwen25_14b_q4", priority=5))
+
+    # フェアシェアにより 14b（50% 保証に対して 10% しかない）を先に選択
+    first = q.dequeue(["model_qwen25_32b_q3", "model_qwen25_14b_q4"])
+    assert first is not None
+    assert first.task_id == "t_14b"
+
+
+def test_fair_share_inactive_when_no_gpu_time():
+    """GPU 使用実績がない場合はフェアシェアを発動しない（通常の優先度順に従う）。"""
+    q = SchedulerQueue(_CONFIG, fair_share_config=_FAIR_SHARE_CFG)
+    # 実績なし → フェアシェア不発動 → 高優先度の 32b タスクが先
+    q.enqueue(_entry("t_32b", "model_qwen25_32b_q3", priority=8))
+    q.enqueue(_entry("t_14b", "model_qwen25_14b_q4", priority=5))
+
+    first = q.dequeue(["model_qwen25_32b_q3", "model_qwen25_14b_q4"])
+    assert first is not None
+    assert first.task_id == "t_32b"
+
+
+def test_fair_share_inactive_when_disabled():
+    """enabled_on_high_load=false の場合はフェアシェアを発動しない。"""
+    cfg = {**_FAIR_SHARE_CFG, "enabled_on_high_load": False}
+    q = SchedulerQueue(_CONFIG, fair_share_config=cfg)
+    q.record_completion("model_qwen25_32b_q3", 90000.0)
+    q.record_completion("model_qwen25_14b_q4", 10000.0)
+
+    q.enqueue(_entry("t_32b", "model_qwen25_32b_q3", priority=8))
+    q.enqueue(_entry("t_14b", "model_qwen25_14b_q4", priority=5))
+
+    first = q.dequeue(["model_qwen25_32b_q3", "model_qwen25_14b_q4"])
+    assert first is not None
+    assert first.task_id == "t_32b"  # 高優先度の 32b が選ばれる
+
+
+def test_fair_share_not_triggered_when_above_minimum():
+    """全モデルが最低保証以上の場合はフェアシェアを発動しない。"""
+    q = SchedulerQueue(_CONFIG, fair_share_config=_FAIR_SHARE_CFG)
+    # 32b=40%, 14b=60% → 両方保証以上
+    q.record_completion("model_qwen25_32b_q3", 40000.0)
+    q.record_completion("model_qwen25_14b_q4", 60000.0)
+
+    q.enqueue(_entry("t_32b", "model_qwen25_32b_q3", priority=8))
+    q.enqueue(_entry("t_14b", "model_qwen25_14b_q4", priority=5))
+
+    first = q.dequeue(["model_qwen25_32b_q3", "model_qwen25_14b_q4"])
+    assert first is not None
+    assert first.task_id == "t_32b"  # フェアシェア不発動 → 高優先度が選ばれる
+
+
+def test_gpu_time_stats_returns_accumulated():
+    q = SchedulerQueue(_CONFIG, fair_share_config=_FAIR_SHARE_CFG)
+    q.record_completion("model_a", 1000.0)
+    q.record_completion("model_b", 2000.0)
+    q.record_completion("model_a", 500.0)
+    stats = q.gpu_time_stats()
+    assert stats["model_a"] == pytest.approx(1500.0)
+    assert stats["model_b"] == pytest.approx(2000.0)

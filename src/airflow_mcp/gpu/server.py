@@ -54,10 +54,14 @@ def _load_config() -> None:
         _current_profile = cfg.get("mvp_profile")
 
         starvation_cfg = cfg.get("starvation_prevention", {})
-        _scheduler_queue = SchedulerQueue(starvation_config=starvation_cfg)
+        fair_share_cfg = cfg.get("fair_share", {})
+        _scheduler_queue = SchedulerQueue(
+            starvation_config=starvation_cfg,
+            fair_share_config=fair_share_cfg,
+        )
 
         _fair_share.clear()
-        _fair_share.update(cfg.get("fair_share", {}))
+        _fair_share.update(fair_share_cfg)
 
 
 def _load_registry_cache() -> dict[str, dict]:
@@ -210,6 +214,9 @@ async def _gpu_release(args: dict[str, Any], token: str | None) -> list[types.Te
     require_scope(token, "gpu:reserve")
     model_id = args["model_id"]
     result = _gpu.release(model_id)
+    # GPU 使用時間をフェアシェア計算に記録する（DDD-07 §6.4）
+    if result.get("released") and result.get("duration_ms", 0) > 0:
+        _scheduler_queue.record_completion(model_id, result["duration_ms"])
     return _result(result)
 
 

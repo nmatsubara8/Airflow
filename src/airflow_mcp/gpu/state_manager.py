@@ -23,6 +23,15 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _iso_to_duration_ms(loaded_at_iso: str) -> float:
+    """loaded_at ISO文字列から現在までの経過ミリ秒を返す。"""
+    try:
+        loaded_at = datetime.fromisoformat(loaded_at_iso.replace("Z", "+00:00"))
+        return (datetime.now(timezone.utc) - loaded_at).total_seconds() * 1000
+    except (ValueError, AttributeError):
+        return 0.0
+
+
 class GpuStateManager:
     """スレッドセーフな GPU 状態管理（DDD-07 §9）。"""
 
@@ -100,15 +109,16 @@ class GpuStateManager:
             return {"reserved": True, "loaded_at": ts, "evicted_models": evicted}
 
     def release(self, model_id: str) -> dict[str, Any]:
-        """モデルをアンロード（DDD-07 §9.1）。"""
+        """モデルをアンロード（DDD-07 §9.1）。duration_ms を結果に含める。"""
         with self._lock:
             if model_id not in self._loaded:
-                return {"released": False, "free_vram_gb": self.free_vram_gb}
-            del self._loaded[model_id]
+                return {"released": False, "free_vram_gb": self.free_vram_gb, "duration_ms": 0.0}
+            model_info = self._loaded.pop(model_id)
+            duration_ms = _iso_to_duration_ms(model_info.get("loaded_at", ""))
             log_event("info", "gpu.released", "gpu-state", new_audit_id(),
-                      model_id=model_id)
+                      model_id=model_id, data={"duration_ms": int(duration_ms)})
             self._write_snapshot()
-            return {"released": True, "free_vram_gb": self.free_vram_gb}
+            return {"released": True, "free_vram_gb": self.free_vram_gb, "duration_ms": duration_ms}
 
     def touch(self, model_id: str) -> None:
         """モデルの last_used_at を更新（LRU 用）。"""
