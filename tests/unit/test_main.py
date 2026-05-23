@@ -147,3 +147,67 @@ def test_dunder_main_guard_calls_main():
     with patch.object(sys, "argv", ["airflow-mcp", "status"]), \
          patch("airflow_mcp.ops.monitor.print_status"):
         runpy.run_module("airflow_mcp.__main__", run_name="__main__", alter_sys=False)
+
+
+# ── auth keygen ───────────────────────────────────────
+
+def test_main_auth_keygen_generates_keypair(tmp_path, capsys):
+    with patch("airflow_mcp.common.auth.generate_keypair",
+               return_value=(tmp_path / "ed25519.pem", tmp_path / "ed25519.pub")) as mock_gen:
+        _main(["auth", "keygen"])
+    mock_gen.assert_called_once_with(None)
+    out = capsys.readouterr().out
+    assert "keypair generated" in out
+
+
+def test_main_auth_keygen_with_dir(tmp_path, capsys):
+    with patch("airflow_mcp.common.auth.generate_keypair",
+               return_value=(tmp_path / "ed25519.pem", tmp_path / "ed25519.pub")) as mock_gen:
+        _main(["auth", "keygen", "--dir", str(tmp_path)])
+    mock_gen.assert_called_once_with(tmp_path)
+
+
+# ── auth issue ────────────────────────────────────────
+
+def test_main_auth_issue_prints_token(capsys):
+    with patch("airflow_mcp.common.auth.issue_jwt", return_value="fake.jwt.token"):
+        _main(["auth", "issue", "--agent", "agent_docs", "--scopes", "tasks:read,models:read"])
+    out = capsys.readouterr().out
+    assert "agent_docs" in out
+    assert "fake.jwt.token" in out
+
+
+def test_main_auth_issue_with_ttl(capsys):
+    with patch("airflow_mcp.common.auth.issue_jwt", return_value="tok.x.y") as mock_issue:
+        _main(["auth", "issue", "--agent", "agent_qa", "--scopes", "tasks:read", "--ttl", "7200"])
+    mock_issue.assert_called_once_with(sub="agent_qa", scopes=["tasks:read"], ttl_sec=7200)
+
+
+def test_main_auth_issue_missing_agent_exits(capsys):
+    with pytest.raises(SystemExit) as exc:
+        _main(["auth", "issue", "--scopes", "tasks:read"])
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "--agent" in err
+
+
+def test_main_auth_unknown_subcommand_exits(capsys):
+    with pytest.raises(SystemExit) as exc:
+        _main(["auth", "badcmd"])
+    assert exc.value.code == 1
+
+
+def test_main_auth_issue_ignores_unknown_flag(capsys):
+    """未知フラグをスキップして --agent が設定されなければ exit(1)（line 125）。"""
+    with pytest.raises(SystemExit) as exc:
+        _main(["auth", "issue", "--unknown-flag"])
+    assert exc.value.code == 1
+
+
+# ── _print_usage includes auth ────────────────────────
+
+def test_print_usage_includes_auth_command(capsys):
+    import airflow_mcp.__main__ as mod
+    mod._print_usage()
+    err = capsys.readouterr().err
+    assert "auth" in err
