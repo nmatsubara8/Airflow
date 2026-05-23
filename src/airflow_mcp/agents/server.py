@@ -15,6 +15,7 @@ import yaml
 
 from ..common.auth import require_scope
 from ..common.errors import AgentNotFound
+from ..common.feature_extractor import extract_features
 from ..common.mcp import dispatch, mcp_result, run_stdio_server
 from ..common.thresholds import AGENT_SECTION_MATCH_SCORE, AGENT_TAG_MATCH_SCORE
 
@@ -156,39 +157,7 @@ async def _agents_extract_features(
     args: dict[str, Any], token: str | None
 ) -> list[types.TextContent]:
     require_scope(token, "agents:read")
-    task = args["task"]
-
-    # 既存 features があれば優先
-    existing = task.get("features", {})
-    inferred: list[str] = []
-
-    features = dict(existing)
-    if "task_type" not in features:
-        tags = task.get("tags", [])
-        if any(t in tags for t in ["review", "code-review"]):
-            features["task_type"] = "review"
-        elif any(t in tags for t in ["summarize", "summary"]):
-            features["task_type"] = "summarize"
-        elif any(t in tags for t in ["translate"]):
-            features["task_type"] = "translate"
-        else:
-            features["task_type"] = "draft"
-        inferred.append("task_type")
-
-    if "required_accuracy" not in features:
-        features["required_accuracy"] = "medium"
-        inferred.append("required_accuracy")
-
-    if "latency_sensitivity" not in features:
-        features["latency_sensitivity"] = "batch"
-        inferred.append("latency_sensitivity")
-
-    if "language" not in features:
-        title = task.get("title", "")
-        # 簡易日本語検出
-        features["language"] = "ja" if any(ord(c) > 0x3000 for c in title) else "en"
-        inferred.append("language")
-
+    features, inferred = extract_features(args["task"])
     return mcp_result({"features": features, "inferred_fields": inferred})
 
 

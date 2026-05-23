@@ -19,6 +19,13 @@ import random
 from typing import Any
 
 from ..common.audit import log_event, new_audit_id
+from ..common.feature_extractor import (
+    ACCURACY_MAP as _ACCURACY_MAP,
+    LANGUAGES as _LANGUAGES,
+    LATENCY_MAP as _LATENCY_MAP,
+    TASK_TYPES as _TASK_TYPES,
+    extract_features,
+)
 from ..common.thresholds import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_32B_ID,
@@ -28,12 +35,6 @@ from ..common.thresholds import (
 )
 
 logger = logging.getLogger(__name__)
-
-# ── 特徴エンコード定数 ────────────────────────────────────
-_TASK_TYPES = ["code_gen", "review", "summarize", "classify", "extract", "chat", "test", "document"]
-_LANGUAGES = ["ja", "en", "code", "mixed"]
-_ACCURACY_MAP = {"low": 0.0, "medium": 0.5, "high": 1.0}
-_LATENCY_MAP = {"none": 0.0, "batch": 0.5, "interactive": 1.0}
 
 # 特徴ベクトルの各次元に対応するデフォルト重み
 _DEFAULT_WEIGHTS: list[float] = (
@@ -227,31 +228,10 @@ def select_model(
 def infer_features(task: dict[str, Any]) -> dict[str, Any]:
     """タスクフィールドから不足特徴を自動推論する（DDD-06 §3.2）。
 
-    既存の features は上書きしない。推論元:
-      - task_type   : tags に含まれる既知タイプ名 / "code" → "code_gen"
-      - required_accuracy : section が business / legal / finance → "high"
-      - latency_sensitivity: tags に "urgent" / "interactive" → "interactive"
+    common.feature_extractor.extract_features への互換シム。
+    features dict のみを返す（inferred_fields は捨てる）。
     """
-    features = dict(task.get("features") or {})
-    tags = [t.lower() for t in (task.get("tags") or [])]
-    section = (task.get("section") or "").lower()
-
-    if "task_type" not in features:
-        for tag in tags:
-            if tag in _TASK_TYPES:
-                features["task_type"] = tag
-                break
-        if "task_type" not in features and "code" in tags:
-            features["task_type"] = "code_gen"
-
-    if "required_accuracy" not in features:
-        if section in ("business", "legal", "finance"):
-            features["required_accuracy"] = "high"
-
-    if "latency_sensitivity" not in features:
-        if "urgent" in tags or "interactive" in tags:
-            features["latency_sensitivity"] = "interactive"
-
+    features, _ = extract_features(task)
     return features
 
 
