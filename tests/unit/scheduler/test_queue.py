@@ -210,3 +210,90 @@ def test_gpu_time_stats_returns_accumulated():
     stats = q.gpu_time_stats()
     assert stats["model_a"] == pytest.approx(1500.0)
     assert stats["model_b"] == pytest.approx(2000.0)
+
+
+# ── step3 continue (line 110) ─────────────────────────
+
+def test_dequeue_step3_skips_loaded_model_in_queue():
+    """step 3 でロード済みモデルのエントリをスキップすること（line 110）。"""
+    q = SchedulerQueue(_CONFIG)
+    # model_14b を max_consecutive(3) 分 + 1 enqueue
+    for i in range(4):
+        q.enqueue(_entry(f"t{i}", "model_14b"))
+    q.enqueue(_entry("t_32b", "model_32b"))
+    # 3回 dequeue して consecutive 上限に達する
+    for _ in range(3):
+        q.dequeue(["model_14b"])
+    # step2 で model_14b skip → step3: model_14b は loaded なので line 110 continue
+    # → model_32b（unloaded）が選ばれる
+    entry = q.dequeue(["model_14b"])
+    assert entry is not None
+    assert entry.model_id == "model_32b"
+
+
+# ── step4 deadlock prevention (lines 118-122) + _pop returns None (line 181)
+
+def test_dequeue_step4_fallback_picks_loaded_after_consecutive_limit():
+    """連続上限後に unloaded キューが空のとき step4 でロード済みを強制選択（lines 118-122）。
+    model_32b（空キュー）が step4 で None を返すケースも合わせてカバー（line 181）。"""
+    q = SchedulerQueue(_CONFIG)
+    for i in range(4):
+        q.enqueue(_entry(f"t{i}", "model_14b"))
+    # 3回 dequeue して consecutive 上限
+    for _ in range(3):
+        q.dequeue(["model_32b", "model_14b"])
+    # step2: model_14b consecutive skip
+    # step3: model_32b は loaded で entries なし → continue (line 110)
+    #         model_14b は loaded → continue (line 110)
+    # step4: model_32b → _pop returns None (line 181)
+    #         model_14b → entry → return (lines 120-122)
+    entry = q.dequeue(["model_32b", "model_14b"])
+    assert entry is not None
+    assert entry.model_id == "model_14b"
+
+
+# ── fair_share: no minimum_gpu_time_pct (line 199) ───
+
+def test_fair_share_returns_none_when_no_min_pct_map():
+    """minimum_gpu_time_pct が空のとき None を返すこと（line 199）。"""
+    cfg = {"enabled_on_high_load": True}  # minimum_gpu_time_pct なし
+    q = SchedulerQueue(_CONFIG, fair_share_config=cfg)
+    q.record_completion("model_a", 1000.0)
+    q.enqueue(_entry("t1", "model_a"))
+    entry = q.dequeue(["model_a"])
+    assert entry is not None  # fair_share 不発動で通常選択
+
+
+# ── fair_share: empty queue entry (line 208) ─────────
+
+def test_fair_share_skips_model_with_empty_queue():
+    """_get_fair_share_boost_model がエントリなしモデルをスキップすること（line 208）。"""
+    # 両モデルとも最低保証以上 → fair_share 不発動
+    # ただし _get_fair_share_boost_model のループは実行され、
+    # 空キューのモデルで line 208 continue が呼ばれる
+    q = SchedulerQueue(_CONFIG, fair_share_config=_FAIR_SHARE_CFG)
+    # 32b=40%, 14b=60% → 両方保証（32b≥30%,14b≥50%）以上
+    q.record_completion("model_qwen25_32b_q3", 40000.0)
+    q.record_completion("model_qwen25_14b_q4", 60000.0)
+    q.enqueue(_entry("t_32b", "model_qwen25_32b_q3"))
+    q.enqueue(_entry("t_14b", "model_qwen25_14b_q4"))
+    # 32b を dequeue → 32b キューが空リストのまま _queues に残る
+    q.dequeue(["model_qwen25_32b_q3"])
+    # _get_fair_share_boost_model: model_32b entries 空 → line 208 continue
+    # fair_share 不発動 → 通常選択で model_14b が返る
+    entry = q.dequeue(["model_qwen25_14b_q4"])
+    assert entry is not None
+    assert entry.task_id == "t_14b"
+
+
+# ── fair_share: unrecognized model key (line 212) ────
+
+def test_fair_share_skips_model_not_matching_any_key():
+    """min_pct_map のキーに合致しない model_id をスキップすること（line 212）。"""
+    q = SchedulerQueue(_CONFIG, fair_share_config=_FAIR_SHARE_CFG)
+    q.record_completion("model_unknown_xyz", 10000.0)
+    q.enqueue(_entry("t1", "model_unknown_xyz"))
+    # key が None → line 212 continue → deficit 空 → fair_share 不発動
+    entry = q.dequeue(["model_unknown_xyz"])
+    assert entry is not None
+    assert entry.task_id == "t1"

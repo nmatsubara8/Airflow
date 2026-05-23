@@ -187,3 +187,53 @@ def test_periodic_snapshot_writes_file(tmp_path):
 
 def test_stop_periodic_snapshot_is_safe_when_not_started(mgr):
     mgr.stop_periodic_snapshot()  # should not raise
+
+
+# ── _iso_to_duration_ms except branch (lines 31-32) ──
+
+def test_iso_to_duration_ms_returns_zero_for_invalid_string():
+    """不正 ISO 文字列のとき 0.0 を返すこと（lines 31-32）。"""
+    from airflow_mcp.gpu.state_manager import _iso_to_duration_ms
+    assert _iso_to_duration_ms("not-a-date") == pytest.approx(0.0)
+    assert _iso_to_duration_ms("") == pytest.approx(0.0)
+
+
+# ── eviction break early (line 188) ──────────────────
+
+def test_evict_stops_early_when_enough_vram_freed(tmp_path):
+    """必要 VRAM 確保済みなら break して残りの候補を退避しないこと（line 188）。"""
+    mgr = GpuStateManager(vram_available_gb=15.0, vram_total_gb=16.0,
+                          snapshot_path=tmp_path / "s.json")
+    mgr.reserve("model_14b", vram_gb=9.0)
+    mgr.reserve("model_bge", vram_gb=1.0)
+    # model_14b を LRU 最古に設定 → 先に退避される
+    mgr._loaded["model_14b"]["last_used_at"] = "2020-01-01T00:00:00Z"
+    mgr._loaded["model_bge"]["last_used_at"] = "2021-01-01T00:00:00Z"
+    # 7GB の新モデルをロード: model_14b(9GB)退避で充分 → break → model_bge は残る
+    result = mgr.reserve("new_model", vram_gb=7.0)
+    assert "model_14b" in result["evicted_models"]
+    assert "model_bge" not in result["evicted_models"]
+    assert "model_bge" in mgr.loaded_model_ids
+
+
+# ── GpuBusy with wait=True (line 198) ────────────────
+
+def test_reserve_raises_gpu_busy_with_wait_true_gives_10s(tmp_path):
+    """wait=True でも VRAM 不足なら GpuBusy(retry_after_ms=10_000)（line 198）。"""
+    mgr = GpuStateManager(vram_available_gb=9.5, vram_total_gb=16.0,
+                          snapshot_path=tmp_path / "s.json")
+    mgr.reserve("model_14b", vram_gb=9.0)
+    mgr._loaded["model_14b"]["pending_tasks"] = 2  # 退避不可
+    with pytest.raises(GpuBusy) as exc_info:
+        mgr.reserve("model_32b", vram_gb=14.0, wait=True)
+    assert exc_info.value.retry_after_ms == 10_000
+
+
+# ── _write_snapshot exception suppressed (lines 210-211)
+
+def test_write_snapshot_suppresses_write_exception(mgr):
+    """スナップショット書き込み失敗時にクラッシュしないこと（lines 210-211）。"""
+    from pathlib import Path
+    from unittest.mock import patch
+    with patch.object(Path, "write_text", side_effect=OSError("disk full")):
+        mgr._write_snapshot()  # should not raise

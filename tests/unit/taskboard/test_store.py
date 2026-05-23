@@ -260,3 +260,95 @@ def test_assign_toctou_claim_wins(task_store: TaskStore, sample_task_fields: dic
     # claim が成功した場合、assign は TaskInvalidTransition になること
     if results[0] is None:
         assert isinstance(results[1], TaskInvalidTransition)
+
+
+# ── 欠損行カバレッジ追加 ──────────────────────────────────
+# 既存テストで使う "task_nonexistent" は _TASK_ID_RE に合致せず
+# _validate_task_id で TaskNotFound が raise される（line 44）ため
+# 各メソッド内部の TaskNotFound raise（lines 96,144,166,183,203,228,243）が未カバー。
+# 有効フォーマット（^task_[a-z0-9]{16,32}$）で存在しない ID を使う。
+_VALID_MISSING = "task_" + "a" * 16  # 存在しない有効 task_id
+
+
+def test_find_task_path_returns_none_for_valid_missing_id(task_store):
+    """_find_task_path が有効フォーマットかつ存在しない ID で None を返すこと（line 96）。"""
+    from airflow_mcp.taskboard.store import TaskStore as _TS
+    path = task_store._find_task_path(_VALID_MISSING)
+    assert path is None
+
+
+def test_get_raises_task_not_found_for_valid_missing_id(task_store):
+    """get() が有効フォーマットの存在しない ID で TaskNotFound（line 144）。"""
+    with pytest.raises(TaskNotFound):
+        task_store.get(_VALID_MISSING)
+
+
+def test_update_raises_task_not_found_for_valid_missing_id(task_store):
+    """update() が有効フォーマットの存在しない ID で TaskNotFound（line 166）。"""
+    with pytest.raises(TaskNotFound):
+        task_store.update(_VALID_MISSING, 1, {"title": "x"})
+
+
+def test_transition_raises_task_not_found_for_valid_missing_id(task_store):
+    """transition() が有効フォーマットの存在しない ID で TaskNotFound（line 183）。"""
+    with pytest.raises(TaskNotFound):
+        task_store.transition(_VALID_MISSING, "in_progress")
+
+
+def test_claim_raises_task_not_found_for_valid_missing_id(task_store):
+    """claim() が有効フォーマットの存在しない ID で TaskNotFound（line 203）。"""
+    with pytest.raises(TaskNotFound):
+        task_store.claim(_VALID_MISSING, "agent_docs")
+
+
+def test_assign_raises_task_not_found_for_valid_missing_id(task_store):
+    """assign() が有効フォーマットの存在しない ID で TaskNotFound（line 228）。"""
+    with pytest.raises(TaskNotFound):
+        task_store.assign(_VALID_MISSING, "human_reviewer")
+
+
+def test_add_handoff_note_raises_task_not_found_for_valid_missing_id(task_store):
+    """add_handoff_note() が有効フォーマットの存在しない ID で TaskNotFound（line 243）。"""
+    with pytest.raises(TaskNotFound):
+        task_store.add_handoff_note(_VALID_MISSING, "note", author="agent_docs")
+
+
+def test_task_path_raises_value_error_for_invalid_status(task_store, sample_task_fields):
+    """_task_path が STATUS_ALLOWLIST 外のステータスで ValueError（line 76）。"""
+    task = task_store.create(sample_task_fields)
+    with pytest.raises(ValueError, match="Invalid status"):
+        task_store._task_path(task["id"], "invalid_status")
+
+
+def test_list_by_status_skips_corrupt_json(task_store):
+    """list_by_status が破損 JSON をスキップして残りを返すこと（lines 156-157）。"""
+    # 正常タスクを作成
+    from airflow_mcp.taskboard.store import TaskStore
+    task_store.create({"title": "正常", "section": "engineering",
+                       "description": "", "tags": [], "priority": 5, "owner": None})
+    # inbox/ 配下に破損 JSON を直接書く
+    corrupt = task_store.base / "inbox" / "task_aaaaaaaaaaaaaaaa.json"
+    corrupt.write_text("{ broken json }")
+    result = task_store.list_by_status("inbox")
+    assert len(result) == 1  # 正常な1件のみ返る
+
+
+def test_find_task_path_finds_done_in_monthly_subdir(task_store, sample_task_fields):
+    """done/ の月別サブディレクトリにある task_id を _find_task_path が返すこと（lines 93-95）。"""
+    task = task_store.create(sample_task_fields)
+    task_store.claim(task["id"], "agent_docs")
+    task_store.transition(task["id"], "done")
+    # done 遷移後に get() → _find_task_path が done/<month>/ を検索してヒット
+    fetched = task_store.get(task["id"])
+    assert fetched["status"] == "done"
+
+
+def test_lock_cleanup_suppresses_oserror(task_store, sample_task_fields):
+    """_lock が unlink で OSError を raise してもクラッシュしないこと（lines 113-114）。"""
+    from unittest.mock import patch
+    task = task_store.create(sample_task_fields)
+    # unlink を OSError に差し替え → except OSError: pass が実行される
+    with patch.object(Path, "unlink", side_effect=OSError("busy")):
+        # _lock コンテキスト内では unlink が呼ばれる → suppressed
+        with task_store._lock(task["id"]):
+            pass  # 正常終了（ロック解放後の unlink が OSError になる）
