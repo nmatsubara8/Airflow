@@ -77,3 +77,25 @@ def vault_dir() -> Path:
 @pytest.fixture
 def project_root() -> Path:
     return PROJECT_ROOT
+
+
+@pytest.fixture
+def auth_isolated(monkeypatch, tmp_path):
+    """auth モジュールを完全分離した状態で返す。
+
+    - _LOCALHOST_BYPASS = False
+    - _token_cache = None（テスト後もキャッシュ汚染防止）
+    - _TOKENS_FILE = 存在しない一時パス（偶発的な実ファイル読み込み防止）
+
+    追加変数が必要なテストは monkeypatch.setattr() で上書きできる:
+        monkeypatch.setattr(auth_isolated, "_TOKENS_FILE", tokens_file)
+        monkeypatch.setattr(auth_isolated, "_JWT_PUBLIC_KEY_PATH", pub)
+
+    Yields: airflow_mcp.common.auth モジュール
+    """
+    import airflow_mcp.common.auth as auth_mod
+    monkeypatch.setattr(auth_mod, "_LOCALHOST_BYPASS", False)
+    monkeypatch.setattr(auth_mod, "_token_cache", None)
+    monkeypatch.setattr(auth_mod, "_TOKENS_FILE", tmp_path / "no_tokens.json")
+    yield auth_mod
+    auth_mod._token_cache = None  # monkeypatch 復元後もキャッシュを None に固定
