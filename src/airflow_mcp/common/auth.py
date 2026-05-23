@@ -9,6 +9,7 @@ import hmac
 import json
 import logging
 import os
+import threading
 from pathlib import Path
 
 from .errors import AuthScopeInsufficient, AuthTokenInvalid, AuthTokenMissing
@@ -26,12 +27,44 @@ if _LOCALHOST_BYPASS:
 # tokens.json のパス（存在しない場合は bypass または環境変数のみ）
 _TOKENS_FILE = Path(os.environ.get("AIRFLOW_TOKENS_FILE", ".airflow/auth/tokens.json"))
 
+# キャッシュ（None = 未ロード）と保護ロック
+_token_cache: dict[str, dict] | None = None
+_cache_lock = threading.RLock()
 
-def _load_tokens() -> dict[str, dict]:
-    """tokens.json をロード。ファイルが存在しない場合は空辞書。"""
-    if _TOKENS_FILE.exists():
+
+def _load_tokens_from_disk() -> dict[str, dict]:
+    """tokens.json をディスクから読み込む。ファイル不在・破損時は空辞書。"""
+    if not _TOKENS_FILE.exists():
+        return {}
+    try:
         return {t["token"]: t for t in json.loads(_TOKENS_FILE.read_text())["tokens"]}
-    return {}
+    except Exception as exc:
+        logger.error("tokens.json 読み込み失敗（fail-closed）: %s", exc)
+        return {}
+
+
+def _get_tokens() -> dict[str, dict]:
+    """キャッシュからトークンを返す。未ロードなら初回ロードする（遅延初期化）。"""
+    global _token_cache
+    with _cache_lock:
+        if _token_cache is None:
+            _token_cache = _load_tokens_from_disk()
+            logger.debug("tokens.json キャッシュロード: %d 件", len(_token_cache))
+        return _token_cache
+
+
+def reload_tokens() -> int:
+    """tokens.json を再読み込みしてキャッシュを更新する。
+
+    SIGHUP ハンドラやトークンローテーション後の管理操作から呼び出す。
+    Returns: ロードしたトークン件数
+    """
+    global _token_cache
+    with _cache_lock:
+        _token_cache = _load_tokens_from_disk()
+        count = len(_token_cache)
+    logger.info("tokens.json 再ロード完了: %d 件", count)
+    return count
 
 
 def require_scope(token_env: str | None, scope: str) -> None:
@@ -45,11 +78,11 @@ def require_scope(token_env: str | None, scope: str) -> None:
     if token_env is None:
         raise AuthTokenMissing()
 
-    tokens = _load_tokens()
+    tokens = _get_tokens()
     if token_env not in tokens:
         # 環境変数から直接トークンを取得する場合
         env_token = os.environ.get("AIRFLOW_MCP_TOKEN")
-        if not hmac.compare_digest(env_token, token_env):
+        if env_token is None or not hmac.compare_digest(env_token, token_env):
             raise AuthTokenInvalid()
         # 環境変数トークンはすべてのスコープを持つ（Phase 2 MVP 簡略化）
         return
