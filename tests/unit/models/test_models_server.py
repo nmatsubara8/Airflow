@@ -166,6 +166,22 @@ async def test_model_register_adds_to_registry():
     assert "model_new" in models_mod._models
 
 
+@pytest.mark.asyncio
+async def test_model_register_requires_models_write_scope(monkeypatch):
+    """models:execute しか持たないトークンで register を呼ぶと AUTH エラーになること。"""
+    import airflow_mcp.common.auth as auth_mod
+    import airflow_mcp.models.server as srv
+    monkeypatch.setattr(auth_mod, "_LOCALHOST_BYPASS", False)
+    monkeypatch.setattr(srv, "get_token_from_env", lambda: "execute_only_token")
+    monkeypatch.setenv("AIRFLOW_MCP_TOKEN", "different_token")
+
+    result = await srv.call_tool("model.register", {"model": {"id": "m_evil", "name": "evil"}})
+    data = json.loads(result[0].text)
+    assert "error" in data
+    assert data["error"]["code"] in ("AUTH_TOKEN_INVALID", "AUTH_SCOPE_INSUFFICIENT")
+    assert "m_evil" not in models_mod._models
+
+
 # ── model.feedback ────────────────────────────────────
 
 @pytest.mark.asyncio

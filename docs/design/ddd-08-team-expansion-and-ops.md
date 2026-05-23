@@ -352,12 +352,16 @@ rate_limit:
 
 | エージェント種別 | 許可スコープ | 禁止操作 |
 |--------------|----------|--------|
-| Engineering 実装系 | tasks:rw, notes:r, models:exec, gpu:reserve | インフラ変更（devops のみ） |
-| QA / Reviewer | tasks:rw, models:exec | 本番デプロイ |
-| Content 系 | tasks:rw, notes:r, models:exec | コード変更 |
-| Business 系 | tasks:rw, notes:r, models:exec | 全システム設定変更 |
-| Cleaner Agent | tasks:rw + tasks:delete | モデル / GPU 操作 |
-| Dispatcher | tasks:write, agents:read, notes:read | model:exec |
+| Engineering 実装系 | tasks:read, tasks:write, notes:read, models:execute, gpu:read, gpu:reserve | notes:write, models:write（管理操作） |
+| QA / Reviewer | tasks:read, tasks:write, models:execute | 本番デプロイ, models:write |
+| Content 系 | tasks:read, tasks:write, notes:read, models:execute | notes:write, コード変更 |
+| Business 系 | tasks:read, tasks:write, notes:read, models:execute | notes:write, 全システム設定変更 |
+| Cleaner Agent | tasks:read, tasks:write | モデル / GPU 操作 |
+| Dispatcher | tasks:write, agents:read, notes:read | models:execute, notes:write |
+| **管理者 (CLI)** | **\*** (全スコープ) | — |
+
+> **`notes:write`**: `notes.reindex` のみ。Qdrant 接続後に高コスト操作になるため管理者権限に限定。  
+> **`models:write`**: `model.register` のみ。Ollama タグ経由の SSRF 踏み台防止のため管理者権限に限定。
 
 ### 4.4 機密ノートのアクセス制御
 

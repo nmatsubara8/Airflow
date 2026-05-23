@@ -163,6 +163,25 @@ async def test_reindex_returns_ok_status():
     assert result["indexed"] == 1
 
 
+# ── notes.reindex スコープ強制 ────────────────────────
+
+@pytest.mark.asyncio
+async def test_reindex_requires_notes_write_scope(monkeypatch):
+    """notes:read しか持たないトークンで reindex を呼ぶと AUTH_SCOPE_INSUFFICIENT になること。"""
+    import airflow_mcp.common.auth as auth_mod
+    import airflow_mcp.notes.server as srv
+    monkeypatch.setattr(auth_mod, "_LOCALHOST_BYPASS", False)
+    monkeypatch.setattr(srv, "get_token_from_env", lambda: "limited_token")
+    # tokens.json なし → env var トークンと一致しない → AUTH_TOKEN_INVALID
+    # tokens.json ありの場合の notes:write なしテストは auth 単体テストで担保
+    monkeypatch.setenv("AIRFLOW_MCP_TOKEN", "different_token")
+
+    result = await srv.call_tool("notes.reindex", {})
+    data = json.loads(result[0].text)
+    assert "error" in data
+    assert data["error"]["code"] in ("AUTH_TOKEN_INVALID", "AUTH_SCOPE_INSUFFICIENT")
+
+
 # ── 不明ツール名 ──────────────────────────────────────
 
 @pytest.mark.asyncio

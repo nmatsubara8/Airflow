@@ -369,13 +369,13 @@ cancelled    → (終端)
 
 ### 4.1 ツール一覧
 
-| ツール名 | 目的 |
-|---------|------|
-| `notes.search` | セマンティック + メタデータフィルタ検索 |
-| `notes.get` | ID 指定で全文取得 |
-| `notes.list_by_category` | カテゴリでフィルタ |
-| `notes.related` | 内部リンクから関連取得 |
-| `notes.reindex` | フォルダ再インデックス（管理用） |
+| ツール名 | 目的 | 必要スコープ |
+|---------|------|------------|
+| `notes.search` | セマンティック + メタデータフィルタ検索 | `notes:read` |
+| `notes.get` | ID 指定で全文取得 | `notes:read` |
+| `notes.list_by_category` | カテゴリでフィルタ | `notes:read` |
+| `notes.related` | 内部リンクから関連取得 | `notes:read` |
+| `notes.reindex` | フォルダ再インデックス（管理用） | `notes:write` |
 
 ### 4.2 個別仕様（抜粋）
 
@@ -446,15 +446,15 @@ Obsidian `[[内部リンク]]` を辿って関連ノートを返す。
 
 ### 5.1 ツール一覧
 
-| ツール名 | 目的 |
-|---------|------|
-| `model.list` | 登録済みモデル一覧 |
-| `model.get` | ID 指定 |
-| `model.recommend` | タスク特徴から推奨モデル |
-| `model.execute` | 指定モデルで推論実行（薄いラッパー） |
-| `model.feedback` | 実行結果フィードバック登録 |
-| `model.stats` | モデル別統計 |
-| `model.register` | 新規モデル登録（管理用） |
+| ツール名 | 目的 | 必要スコープ |
+|---------|------|------------|
+| `model.list` | 登録済みモデル一覧 | `models:read` |
+| `model.get` | ID 指定 | `models:read` |
+| `model.recommend` | タスク特徴から推奨モデル | `models:read` |
+| `model.execute` | 指定モデルで推論実行（薄いラッパー） | `models:execute` |
+| `model.feedback` | 実行結果フィードバック登録 | `models:execute` |
+| `model.stats` | モデル別統計 | `models:read` |
+| `model.register` | 新規モデル登録（管理用） | `models:write` |
 
 ### 5.2 `model.recommend`
 

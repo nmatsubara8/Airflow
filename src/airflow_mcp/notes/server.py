@@ -185,7 +185,7 @@ async def _notes_related(args: dict[str, Any], token: str | None) -> list[types.
 
 
 async def _notes_reindex(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
-    require_scope(token, "notes:read")
+    require_scope(token, "notes:write")
     # Phase 2 スタブ: 実際のインデックス更新はなし
     return _result({"status": "ok", "indexed": len(_notes), "note": "stub — Qdrant not connected"})
 

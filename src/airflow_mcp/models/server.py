@@ -352,7 +352,7 @@ async def _model_stats(args: dict[str, Any], token: str | None) -> list[types.Te
 
 
 async def _model_register(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
-    require_scope(token, "models:execute")
+    require_scope(token, "models:write")
     model = args["model"]
     _models[model["id"]] = model
     return _result({"registered": model["id"]})
