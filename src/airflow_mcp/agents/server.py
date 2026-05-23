@@ -219,7 +219,7 @@ async def _agents_extract_features(
 
 
 async def _agents_register(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
-    require_scope(token, "agents:read")
+    require_scope(token, "agents:write")
     agent = args["agent"]
     agent_id = agent.get("agent_id") or agent.get("id")
     if agent_id:

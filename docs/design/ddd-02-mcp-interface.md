@@ -615,13 +615,13 @@ Obsidian `[[内部リンク]]` を辿って関連ノートを返す。
 
 ### 7.1 ツール一覧
 
-| ツール名 | 目的 |
-|---------|------|
-| `agents.list` | 登録済みエージェント一覧 |
-| `agents.get` | ID 指定で skills.md 取得 |
-| `agents.find_for_task` | タスク特徴から担当候補を推定 |
-| `agents.extract_features` | タスクから特徴ベクトルを自動抽出（DDD-06 §3.2） |
-| `agents.register` | エージェント新規登録 |
+| ツール名 | 目的 | 必要スコープ |
+|---------|------|------------|
+| `agents.list` | 登録済みエージェント一覧 | `agents:read` |
+| `agents.get` | ID 指定で skills.md 取得 | `agents:read` |
+| `agents.find_for_task` | タスク特徴から担当候補を推定 | `agents:read` |
+| `agents.extract_features` | タスクから特徴ベクトルを自動抽出（DDD-06 §3.2） | `agents:read` |
+| `agents.register` | エージェント新規登録（管理用） | `agents:write` |
 
 ### 7.2 `agents.extract_features`
 

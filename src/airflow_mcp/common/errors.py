@@ -138,6 +138,74 @@ class NoteNotFound(AirflowError):
         )
 
 
+# ── タスクエラー（追加）──────────────────────────────
+class TaskScopeViolation(AirflowError):
+    def __init__(self, task_id: str, detail: str = "") -> None:
+        super().__init__(
+            code="TASK_SCOPE_VIOLATION",
+            message=f"タスク '{task_id}' でスコープ外の判断が要求されました。{detail}".rstrip(),
+            error_class="escalate",
+        )
+
+
+class TaskCorrupt(AirflowError):
+    def __init__(self, task_id: str) -> None:
+        super().__init__(
+            code="TASK_CORRUPT",
+            message=f"タスク '{task_id}' のファイルが破損しています（_corrupt/ へ隔離済み）",
+            error_class="fatal",
+        )
+
+
+# ── モデルエラー（追加）──────────────────────────────
+class ModelExecutionFailed(AirflowError):
+    def __init__(self, model_id: str, reason: str = "") -> None:
+        super().__init__(
+            code="MODEL_EXECUTION_FAILED",
+            message=f"モデル '{model_id}' の推論実行に失敗しました。{reason}".rstrip(),
+            error_class="recoverable",
+            retry_after_ms=5000,
+        )
+
+
+class ModelLowConfidence(AirflowError):
+    def __init__(self, model_id: str, score: float) -> None:
+        super().__init__(
+            code="MODEL_LOW_CONFIDENCE",
+            message=f"モデル '{model_id}' の推奨信頼度 {score:.2f} が閾値未満です",
+            error_class="escalate",
+            data={"score": score},
+        )
+
+
+class ModelRerouteExhausted(AirflowError):
+    def __init__(self, model_id: str) -> None:
+        super().__init__(
+            code="MODEL_REROUTE_EXHAUSTED",
+            message=f"fallback_chain を使い切っても auto_score が閾値を下回りました（起点: {model_id}）",
+            error_class="escalate",
+        )
+
+
+# ── ノートエラー（追加）──────────────────────────────
+class NoteParseError(AirflowError):
+    def __init__(self, path: str, detail: str = "") -> None:
+        super().__init__(
+            code="NOTE_PARSE_ERROR",
+            message=f"ノート '{path}' の YAML フロントマター解析に失敗しました。{detail}".rstrip(),
+            error_class="recoverable",
+        )
+
+
+class NoteConfidentialAccessDenied(AirflowError):
+    def __init__(self, note_id: str) -> None:
+        super().__init__(
+            code="NOTE_CONFIDENTIAL_ACCESS_DENIED",
+            message=f"ノート '{note_id}' は confidential です。アクセス権がありません",
+            error_class="fatal",
+        )
+
+
 # ── GPU エラー ──────────────────────────────────────
 class GpuBusy(AirflowError):
     def __init__(self, retry_after_ms: int = 5000) -> None:
@@ -146,4 +214,83 @@ class GpuBusy(AirflowError):
             message="VRAM 不足のためモデルをロードできません",
             error_class="recoverable",
             retry_after_ms=retry_after_ms,
+        )
+
+
+class GpuInsufficientVram(AirflowError):
+    def __init__(self, required_gb: float, free_gb: float) -> None:
+        super().__init__(
+            code="GPU_INSUFFICIENT_VRAM",
+            message=f"VRAM 不足: 必要 {required_gb:.1f} GB、空き {free_gb:.1f} GB（LRU 退避で解消可能性あり）",
+            error_class="recoverable",
+            retry_after_ms=5000,
+            data={"required_gb": required_gb, "free_gb": free_gb},
+        )
+
+
+class GpuReserveTimeout(AirflowError):
+    def __init__(self, model_id: str, timeout_ms: int) -> None:
+        super().__init__(
+            code="GPU_RESERVE_TIMEOUT",
+            message=f"モデル '{model_id}' のリザーブ待機が {timeout_ms} ms でタイムアウトしました",
+            error_class="recoverable",
+            retry_after_ms=10000,
+        )
+
+
+class GpuOom(AirflowError):
+    def __init__(self, model_id: str) -> None:
+        super().__init__(
+            code="GPU_OOM",
+            message=f"モデル '{model_id}' の実行中に GPU OOM が発生しました",
+            error_class="fatal",
+        )
+
+
+# ── 取り込みエラー ──────────────────────────────────
+class IngestPathMissing(AirflowError):
+    def __init__(self, path: str) -> None:
+        super().__init__(
+            code="INGEST_PATH_MISSING",
+            message=f"監視対象 Vault パス '{path}' が消失しました（ingester 停止）",
+            error_class="fatal",
+        )
+
+
+# ── スキーマエラー ──────────────────────────────────
+class SchemaValidationFailed(AirflowError):
+    def __init__(self, detail: str) -> None:
+        super().__init__(
+            code="SCHEMA_VALIDATION_FAILED",
+            message=f"入出力スキーマ違反: {detail}",
+            error_class="fatal",
+        )
+
+
+class SchemaVersionUnsupported(AirflowError):
+    def __init__(self, version: str) -> None:
+        super().__init__(
+            code="SCHEMA_VERSION_UNSUPPORTED",
+            message=f"schema_version '{version}' は未対応です",
+            error_class="fatal",
+        )
+
+
+# ── 内部エラー ──────────────────────────────────────
+class InternalTimeout(AirflowError):
+    def __init__(self, operation: str, timeout_ms: int) -> None:
+        super().__init__(
+            code="INTERNAL_TIMEOUT",
+            message=f"内部処理 '{operation}' が {timeout_ms} ms でタイムアウトしました",
+            error_class="recoverable",
+            retry_after_ms=timeout_ms,
+        )
+
+
+class InternalUnexpected(AirflowError):
+    def __init__(self, detail: str = "") -> None:
+        super().__init__(
+            code="INTERNAL_UNEXPECTED",
+            message=f"想定外のサーバーエラーが発生しました。{detail}".rstrip(),
+            error_class="fatal",
         )

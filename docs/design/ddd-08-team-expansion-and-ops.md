@@ -332,7 +332,21 @@ JWT クレーム：
 
 ### 4.2 レート制限（NF-06 対応）
 
-MCP サーバーに per-token のレート制限を導入：
+MCP サーバーに per-token の Token Bucket レート制限を導入。
+
+**Phase 2 MVP 実装（`common/rate_limiter.py`）**
+
+トークン単位の統一バケット。全 MCP ツール呼び出しに適用：
+
+```python
+# common/rate_limiter.py デフォルト値
+_DEFAULT_CAPACITY    = 100   # バースト上限
+_DEFAULT_REFILL_RATE = 10    # tokens/秒（= 600 req/分の持続レート）
+```
+
+超過時 `AUTH_RATE_LIMITED` (recoverable) エラー + `retry_after_ms`。
+
+**Phase 5 拡張（per-action 制限、aspirational）**
 
 ```yaml
 rate_limit:
@@ -346,7 +360,7 @@ rate_limit:
   burst_multiplier: 2
 ```
 
-実装：Token Bucket アルゴリズム。超過時 `AUTH_RATE_LIMITED` recoverable エラー + `retry_after_ms`。
+> Phase 5 で `auth.yaml` の per-action 設定を読み込み、ツール種別ごとに別バケットを持つ実装に移行する。現 Phase では統一バケットが正本。
 
 ### 4.3 権限境界（NF-04, NF-07 対応）
 
