@@ -119,6 +119,8 @@ def knn_recommend(
         recommendations.append({
             "model_id": model_id,
             "score": round(mean_score, 4),
+            "expected_accuracy": round(mean_score, 4),  # Phase 3: 精度推定として score を使用
+            "swap_cost_ms": 0,  # Phase 3: 並列化前は常に 0（DDD-07 で実装）
             "confidence": round(confidence, 4),
             "sample_count": len(scores),
             "reason": f"過去 {len(scores)} 件の類似タスクで平均スコア {mean_score:.2f}",

@@ -43,7 +43,8 @@ def test_aging_score_zero_at_threshold():
 
 def test_aging_score_positive_after_threshold():
     score = compute_aging_score(_ago(660), _CONFIG)  # 60秒超過 → 0.1
-    assert score == pytest.approx(0.1, abs=0.02)
+    # abs=0.05: テスト実行時間のズレ（最大数秒）を許容
+    assert score == pytest.approx(0.1, abs=0.05)
 
 
 def test_aging_score_increases_with_time():

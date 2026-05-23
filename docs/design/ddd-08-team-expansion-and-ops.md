@@ -158,7 +158,8 @@ mcp_scopes:
   - "tasks:write"
   - "notes:read"
   - "models:execute"
-  - "gpu:reserve"
+  - "gpu:read"       # gpu.state / scheduler.queue_status
+  - "gpu:reserve"    # gpu.reserve / gpu.release / scheduler.*
 ---
 
 # Role

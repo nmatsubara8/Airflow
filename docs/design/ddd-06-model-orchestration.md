@@ -213,6 +213,7 @@ weights = {
 ```
 
 `swap_cost_ms` は Phase 3 では常に 0（並列なし）。Phase 4 で DDD-07 が計算式を入れる。
+`expected_accuracy` は Phase 3 では `score`（KNN 平均スコア）と同値。Phase 4 以降で独立した精度推定モデルに切り替える。
 
 ### 4.5 ε-greedy 探索（Auto モード）
 

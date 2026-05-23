@@ -250,7 +250,7 @@ effective_priority(task) = base_priority + aging_score(task)
 
 aging_score(task):
   wait_sec = now - task.scheduling.enqueued_at.epoch_sec
-  if wait_sec < max_wait_before_boost_seconds:  # 600 sec (10 min)
+  if wait_sec < max_wait_before_boost_s:  # 600 sec (10 min)  ← config key は _s suffix
     return 0
   else:
     return (wait_sec - 600) / 60 × aging_factor  # 0.1 per min
@@ -299,7 +299,7 @@ every 30 sec:
     wait_sec = now - task.enqueued_at
     if wait_sec > max_wait_seconds:
       promote_to_force_run(task)
-    elif wait_sec > max_wait_before_boost:
+    elif wait_sec > max_wait_before_boost_s:
       update_aging_score(task)
     elif task.deadline_close():
       flag_deadline_near(task)

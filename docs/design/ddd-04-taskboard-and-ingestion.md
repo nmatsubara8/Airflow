@@ -87,6 +87,21 @@
 }
 ```
 
+`handoff_notes` の各要素フォーマット：
+
+```json
+{
+  "body": "要約テキスト...",
+  "author": { "type": "agent", "id": "agent_docs" },
+  "timestamp": "2026-05-22T14:05:00Z"
+}
+```
+
+`author.type` は `"agent"` または `"human"` のいずれか。
+
+```json
+```
+
 ### 2.3 状態遷移のファイル操作
 
 ステータス遷移は **ファイル移動** で実装：
@@ -94,8 +109,16 @@
 | 遷移 | 実装 |
 |------|------|
 | `inbox → in_progress` | `mv tasks/inbox/task_X.json tasks/in_progress/task_X.json` |
-| `* → done` | `mv tasks/<src>/task_X.json tasks/done/<YYYY-MM>/task_X.json` |
-| `* → needs_human` | `mv tasks/<src>/task_X.json tasks/needs_human/task_X.json` |
+| `inbox → cancelled` | `mv tasks/inbox/task_X.json tasks/cancelled/task_X.json` |
+| `in_progress → done` | `mv tasks/in_progress/task_X.json tasks/done/<YYYY-MM>/task_X.json` |
+| `in_progress → needs_human` | `mv tasks/in_progress/task_X.json tasks/needs_human/task_X.json` |
+| `in_progress → blocked` | `mv tasks/in_progress/task_X.json tasks/blocked/task_X.json` |
+| `in_progress → cancelled` | `mv tasks/in_progress/task_X.json tasks/cancelled/task_X.json` |
+| `needs_human → in_progress` | `mv tasks/needs_human/task_X.json tasks/in_progress/task_X.json` |
+| `needs_human → cancelled` | `mv tasks/needs_human/task_X.json tasks/cancelled/task_X.json` |
+| `blocked → in_progress` | `mv tasks/blocked/task_X.json tasks/in_progress/task_X.json` |
+| `blocked → cancelled` | `mv tasks/blocked/task_X.json tasks/cancelled/task_X.json` |
+| `* → _corrupt` | 解析不能ファイルを隔離（TaskStore.quarantine） |
 
 ファイル移動は **同一ファイルシステム内で atomic**（POSIX `rename(2)`）。
 
@@ -370,10 +393,15 @@ confidential: true
 
 ### 6.3 重複タスク防止
 
-ingester は `note.id` を `task.source.ref` でタスクボードに事前検索：
+ingester は `content_hash` でタスクボードに事前検索：
 
-- 既に同じ `source.ref` のタスクが存在 → 新規作成しない（idempotency）
-- ノート更新時（hash 不一致）でも、既存タスクが `in_progress` 以降なら新規作成しない
+- 同一 `content_hash` のタスクが **どのステータスにも** 存在する場合は新規作成しない
+  - `done`・`cancelled` 済みのノートも対象（プロセス再起動後の再取り込み防止）
+  - ノートが更新された（hash 変化）場合は、新規タスクとして登録する
+- ノート更新時（hash 不一致）でも、既存タスクが `in_progress` 以降なら新規作成しない（将来実装）
+
+> **Phase 2 実装メモ**: 現時点では全ステータスで同一 hash を検索する保守的な実装を採用。
+> hash が変化したノートの差分更新（§6.3 "将来実装"）は Phase 4 以降で対応する。
 
 ### 6.4 セクション推定ロジック
 
