@@ -99,8 +99,8 @@ async def list_tools() -> list[types.Tool]:
 @server.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
     token = get_token_from_env()
-    check_rate_limit(token)
     try:
+        check_rate_limit(token)
         if name == "notes.search":
             return await _notes_search(arguments, token)
         elif name == "notes.get":
