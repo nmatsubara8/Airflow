@@ -6,11 +6,9 @@
 """
 from __future__ import annotations
 
-import hashlib
 import json
-import time
+import re
 from collections import defaultdict
-from datetime import datetime, timezone
 from typing import Any
 
 import mcp.types as types
@@ -21,32 +19,27 @@ from ..common.audit import log_event, new_audit_id, now_iso
 from ..common.auth import get_token_from_env, require_scope
 from ..common.errors import (
     AirflowError,
-    TaskAlreadyClaimed,
     TaskInvalidTransition,
-    TaskLockConflict,
     TaskNotFound,
 )
+from .store import TaskStore
 
-# ── 有効なステータス遷移（DDD-02 §3.2）──────────────────
-_TRANSITIONS: dict[str, set[str]] = {
-    "inbox":       {"in_progress", "cancelled"},
-    "in_progress": {"done", "needs_human", "blocked", "cancelled"},
-    "needs_human": {"in_progress", "cancelled"},
-    "blocked":     {"in_progress", "cancelled"},
-    "done":        set(),
-    "cancelled":   set(),
-}
+_ALL_STATUSES = ["inbox", "in_progress", "done", "needs_human", "blocked", "cancelled"]
 
-# ── インメモリストア ──────────────────────────────────────
-_tasks: dict[str, dict[str, Any]] = {}
+# プロセス内監査ログ（audit.trace / audit.query 用）
 _audit_log: list[dict[str, Any]] = []
 
 server = Server("taskboard-mcp")
 
+# ── TaskStore シングルトン ────────────────────────────────
+_store: TaskStore | None = None
 
-def _etag(task: dict[str, Any]) -> str:
-    body = json.dumps(task, sort_keys=True, ensure_ascii=False)
-    return "sha256:" + hashlib.sha256(body.encode()).hexdigest()
+
+def _get_store() -> TaskStore:
+    global _store
+    if _store is None:
+        _store = TaskStore()
+    return _store
 
 
 def _result(data: Any) -> list[types.TextContent]:
@@ -269,10 +262,13 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
 
 async def _tasks_list(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "tasks:read")
-    results = list(_tasks.values())
+    store = _get_store()
+    statuses: list[str] = args.get("status") or _ALL_STATUSES
 
-    if statuses := args.get("status"):
-        results = [t for t in results if t["status"] in statuses]
+    results: list[dict[str, Any]] = []
+    for s in statuses:
+        results.extend(store.list_by_status(s))
+
     if owner := args.get("owner_id"):
         results = [t for t in results if t.get("owner") == owner]
     if section := args.get("section"):
@@ -294,113 +290,53 @@ async def _tasks_list(args: dict[str, Any], token: str | None) -> list[types.Tex
 
 async def _tasks_get(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "tasks:read")
-    task_id = args["id"]
-    if task_id not in _tasks:
-        raise TaskNotFound(task_id)
-    return _result(_tasks[task_id])
+    task = _get_store().get(args["id"])  # raises TaskNotFound
+    return _result(task)
 
 
 async def _tasks_create(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "tasks:write")
     meta = args.get("_meta", {})
-    aid = new_audit_id()
-    ts = now_iso()
-    task_id = "task_" + aid[:16].lower().replace("-", "")
-
-    task: dict[str, Any] = {
-        "schema_version": "1.0.0",
-        "id": task_id,
+    task = _get_store().create({
         "title": args["title"],
         "section": args["section"],
-        "status": "inbox",
-        "priority": args.get("priority", 5),
-        "tags": args.get("tags", []),
         "description": args.get("description", ""),
-        "owner": None,
+        "tags": args.get("tags", []),
+        "priority": args.get("priority", 5),
         "source_note_id": args.get("source_note_id"),
         "features": args.get("features", {}),
-        "handoff_notes": [],
-        "join": None,
-        "lock": {"version": 1, "etag": "sha256:" + "0" * 64},
-        "created_at": ts,
-        "updated_at": ts,
-    }
-    task["lock"]["etag"] = _etag(task)
-    _tasks[task_id] = task
-    _record_audit("task.created", task_id=task_id,
+        "owner": None,
+    })
+    _record_audit("task.created", task_id=task["id"],
                   agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"))
     return _result(task)
 
 
 async def _tasks_update(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "tasks:write")
-    task_id = args["id"]
-    if task_id not in _tasks:
-        raise TaskNotFound(task_id)
-
-    task = _tasks[task_id]
-    if task["lock"]["version"] != args["expected_version"]:
-        raise TaskLockConflict(task_id, task["lock"]["version"])
-
-    patch = args["patch"]
-    for key, value in patch.items():
-        if key not in ("id", "created_at", "lock", "schema_version"):
-            task[key] = value
-    task["updated_at"] = now_iso()
-    task["lock"]["version"] += 1
-    task["lock"]["etag"] = _etag(task)
-
     meta = args.get("_meta", {})
-    _record_audit("task.updated", task_id=task_id,
+    # immutable fields are silently stripped by TaskStore.update()
+    task = _get_store().update(args["id"], args["expected_version"], args["patch"])
+    _record_audit("task.updated", task_id=task["id"],
                   agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"))
     return _result(task)
 
 
 async def _tasks_transition(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "tasks:write")
-    task_id = args["id"]
-    to_status = args["to_status"]
-    if task_id not in _tasks:
-        raise TaskNotFound(task_id)
-
-    task = _tasks[task_id]
-    from_status = task["status"]
-    if to_status not in _TRANSITIONS.get(from_status, set()):
-        raise TaskInvalidTransition(from_status, to_status)
-
-    task["status"] = to_status
-    task["updated_at"] = now_iso()
-    task["lock"]["version"] += 1
-    task["lock"]["etag"] = _etag(task)
-
     meta = args.get("_meta", {})
-    _record_audit("task.transitioned", task_id=task_id,
+    task = _get_store().transition(args["id"], args["to_status"], reason=args.get("reason"))
+    _record_audit("task.transitioned", task_id=task["id"],
                   agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"),
-                  data={"from": from_status, "to": to_status, "reason": args.get("reason")})
+                  data={"to": args["to_status"], "reason": args.get("reason")})
     return _result(task)
 
 
 async def _tasks_claim(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "tasks:write")
-    task_id = args["task_id"]
-    agent_id = args["agent_id"]
-    if task_id not in _tasks:
-        raise TaskNotFound(task_id)
-
-    task = _tasks[task_id]
-    if task["owner"] not in (None, agent_id):
-        raise TaskAlreadyClaimed(task_id, task["owner"])
-    if task["status"] != "inbox":
-        raise TaskInvalidTransition(task["status"], "in_progress")
-
-    task["owner"] = agent_id
-    task["status"] = "in_progress"
-    task["updated_at"] = now_iso()
-    task["lock"]["version"] += 1
-    task["lock"]["etag"] = _etag(task)
-
     meta = args.get("_meta", {})
-    _record_audit("task.claimed", task_id=task_id, agent_id=agent_id,
+    task = _get_store().claim(args["task_id"], args["agent_id"])
+    _record_audit("task.claimed", task_id=task["id"], agent_id=args["agent_id"],
                   parent_audit_id=meta.get("audit_id"))
     return _result(task)
 
@@ -409,45 +345,27 @@ async def _tasks_add_handoff_note(
     args: dict[str, Any], token: str | None
 ) -> list[types.TextContent]:
     require_scope(token, "tasks:write")
-    task_id = args["task_id"]
-    if task_id not in _tasks:
-        raise TaskNotFound(task_id)
-
-    task = _tasks[task_id]
-    note = {
-        "id": "hn_" + new_audit_id()[:12].lower(),
-        "content": args["content"],
-        "author": args.get("author", "unknown"),
-        "created_at": now_iso(),
-    }
-    task.setdefault("handoff_notes", []).append(note)
-    task["updated_at"] = now_iso()
-    task["lock"]["version"] += 1
-    task["lock"]["etag"] = _etag(task)
-
     meta = args.get("_meta", {})
-    _record_audit("task.handoff_note_added", task_id=task_id,
+    task = _get_store().add_handoff_note(
+        args["task_id"], args["content"], author=args.get("author", "unknown")
+    )
+    _record_audit("task.handoff_note_added", task_id=task["id"],
                   agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"))
     return _result(task)
 
 
 async def _tasks_assign(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "tasks:write")
+    store = _get_store()
     task_id = args["task_id"]
-    if task_id not in _tasks:
-        raise TaskNotFound(task_id)
+    new_owner = args["new_owner"]
+    meta = args.get("_meta", {})
 
-    task = _tasks[task_id]
+    task = store.get(task_id)  # raises TaskNotFound
     if task["status"] == "in_progress":
         raise TaskInvalidTransition("in_progress", "reassign")
 
-    new_owner = args["new_owner"]
-    task["owner"] = new_owner["id"]
-    task["updated_at"] = now_iso()
-    task["lock"]["version"] += 1
-    task["lock"]["etag"] = _etag(task)
-
-    meta = args.get("_meta", {})
+    task = store.update(task_id, task["lock"]["version"], {"owner": new_owner["id"]})
     _record_audit("task.assigned", task_id=task_id,
                   agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"),
                   data={"new_owner": new_owner, "reason": args.get("reason")})
@@ -456,16 +374,21 @@ async def _tasks_assign(args: dict[str, Any], token: str | None) -> list[types.T
 
 async def _tasks_join(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "tasks:write")
+    store = _get_store()
     parent_id = args["parent_id"]
     child_ids = args["child_ids"]
     policy = args.get("join_policy", "all_done")
 
-    if parent_id not in _tasks:
-        raise TaskNotFound(parent_id)
+    parent = store.get(parent_id)  # raises TaskNotFound
 
-    completed = [cid for cid in child_ids
-                 if _tasks.get(cid, {}).get("status") == "done"]
-    pending = [cid for cid in child_ids if cid not in completed]
+    completed: list[str] = []
+    pending: list[str] = []
+    for cid in child_ids:
+        try:
+            child = store.get(cid)
+            (completed if child["status"] == "done" else pending).append(cid)
+        except TaskNotFound:
+            pending.append(cid)
 
     ready = False
     if policy == "all_done":
@@ -476,9 +399,10 @@ async def _tasks_join(args: dict[str, Any], token: str | None) -> list[types.Tex
         ready = len(completed) > len(child_ids) / 2
 
     if ready:
-        parent = _tasks[parent_id]
-        parent.setdefault("join", {})["status"] = "fulfilled"
-        parent["join"]["fulfilled_at"] = now_iso()
+        now = now_iso()
+        store.update(parent_id, parent["lock"]["version"], {
+            "join": {"status": "fulfilled", "fulfilled_at": now}
+        })
 
     return _result({
         "ready": ready,
@@ -492,7 +416,6 @@ async def _audit_trace(args: dict[str, Any], token: str | None) -> list[types.Te
     root_id = args["audit_id"]
     depth = args.get("depth", 5)
 
-    # BFS で親子関係を辿る
     by_parent: dict[str | None, list[dict]] = defaultdict(list)
     for entry in _audit_log:
         by_parent[entry.get("parent_audit_id")].append(entry)
@@ -519,7 +442,6 @@ async def _audit_query(args: dict[str, Any], token: str | None) -> list[types.Te
 
     if event_filter := args.get("event"):
         pattern = event_filter.replace(".", r"\.").replace("*", ".*")
-        import re
         results = [e for e in results if re.match(pattern, e.get("event", ""))]
     if task_id := args.get("task_id"):
         results = [e for e in results if e.get("task_id") == task_id]
