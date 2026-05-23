@@ -27,6 +27,7 @@ from jsonschema import Draft202012Validator
 
 from ..common.audit import log_event, new_audit_id, now_iso
 from ..common.errors import ModelStructuredOutputInvalid
+from ..common.url_validator import validate_ollama_url
 from ..orchestrator.execution_log import append_execution_log, load_history
 from ..orchestrator.recommender import select_model, simple_rule_select
 from ..taskboard.store import TaskStore
@@ -342,7 +343,9 @@ def run_loop(
     ollama_url: str | None = None,
     poll_interval_s: float = 5.0,
 ) -> None:
-    url = ollama_url or os.environ.get("OLLAMA_URL", "http://localhost:11434")
+    url = validate_ollama_url(
+        ollama_url or os.environ.get("OLLAMA_URL", "http://localhost:11434")
+    )
     logger.info("runner started: agent=%s ollama=%s poll=%.1fs", agent_id, url, poll_interval_s)
     while True:
         try:

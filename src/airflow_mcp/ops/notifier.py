@@ -13,6 +13,8 @@ from typing import Any
 import httpx
 import yaml
 
+from ..common.url_validator import validate_slack_webhook_url
+
 logger = logging.getLogger(__name__)
 
 _CONFIG_PATH = Path(os.environ.get("AIRFLOW_CONFIG", ".airflow/config/auth.yaml"))
@@ -53,7 +55,10 @@ def _load_config() -> dict[str, Any]:
 
 
 def _slack_webhook_url() -> str | None:
-    return os.environ.get("AIRFLOW_SLACK_WEBHOOK")
+    raw = os.environ.get("AIRFLOW_SLACK_WEBHOOK")
+    if raw is None:
+        return None
+    return validate_slack_webhook_url(raw)
 
 
 def send_notification(

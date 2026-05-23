@@ -20,6 +20,7 @@ from ..common.audit import log_event, new_audit_id, now_iso
 from ..common.auth import get_token_from_env, require_scope
 from ..common.rate_limiter import check_rate_limit
 from ..common.errors import AirflowError, ModelNotFound, ModelStructuredOutputInvalid
+from ..common.url_validator import validate_ollama_url
 from ..orchestrator.execution_log import update_feedback
 
 server = Server("models-mcp")
@@ -273,7 +274,9 @@ def _call_ollama(
 
     try:
         import httpx
-        ollama_url = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+        ollama_url = validate_ollama_url(
+            os.environ.get("OLLAMA_URL", "http://localhost:11434")
+        )
         model_tag = model_id.replace("model_", "").replace("_", ":")
         payload: dict[str, Any] = {
             "model": model_tag,

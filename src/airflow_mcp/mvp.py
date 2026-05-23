@@ -23,6 +23,7 @@ import threading
 import time
 from pathlib import Path
 
+from .common.url_validator import validate_ollama_url
 from .dispatcher.main import load_config as load_dispatch_config, run_loop as dispatcher_loop
 from .ingester.main import load_config as load_ingester_config, run_loop as ingester_loop
 from .runner.main import (
@@ -47,7 +48,9 @@ def run_all() -> None:
     model_config = load_model_config()
     registry = _load_registry()
     agent_id = os.environ.get("AIRFLOW_AGENT_ID", "agent_docs")
-    ollama_url = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+    ollama_url = validate_ollama_url(
+        os.environ.get("OLLAMA_URL", "http://localhost:11434")
+    )
 
     vault_root = os.environ.get("VAULT_ROOT", "")
     if not vault_root:
