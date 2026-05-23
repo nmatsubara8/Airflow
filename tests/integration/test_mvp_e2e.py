@@ -111,12 +111,19 @@ def test_mvp_e2e_deduplicates_same_file(tmp_tasks_dir: Path, ingester_config: di
     assert n2 == 0, "重複取り込みが発生しました"
 
 
-def test_mvp_e2e_full_pipeline_with_fixture_vault(tmp_tasks_dir: Path):
-    """tests/fixtures/vault のサンプルファイルでパイプラインが動作すること。"""
+def test_mvp_e2e_full_pipeline_with_fixture_vault(tmp_tasks_dir: Path, tmp_path: Path):
+    """tests/fixtures/vault のサンプルファイルでパイプラインが動作すること。
+
+    フィクスチャファイルは tmp_path にコピーして使用する（元ファイルへの書き込みを防ぐ）。
+    """
+    import shutil
+    vault_copy = tmp_path / "vault"
+    shutil.copytree(VAULT_FIXTURE, vault_copy)
+
     store = TaskStore(base_dir=tmp_tasks_dir)
     config = {
         "watch": {
-            "paths": [str(VAULT_FIXTURE / "Inbox")],
+            "paths": [str(vault_copy / "Inbox")],
             "glob": "**/*.md",
             "exclude": [],
         },
