@@ -12,6 +12,13 @@ from pathlib import Path
 from typing import Any
 
 from ..common.audit import new_audit_id, now_iso
+from ..common.thresholds import (
+    AUTO_SCORE_BASE_SUCCESS,
+    AUTO_SCORE_FEEDBACK_ACCEPTED,
+    AUTO_SCORE_FEEDBACK_MODIFIED,
+    AUTO_SCORE_FEEDBACK_REJECTED,
+    AUTO_SCORE_RETRY_PENALTY,
+)
 
 _DEFAULT_LOG_DIR = Path(".airflow/execution_logs")
 
@@ -33,19 +40,15 @@ def compute_auto_score(
     補正: -0.1 * retry_count
     人間フィードバック: +0.1 accepted / -0.2 modified / -0.5 rejected
     """
-    if not schema_valid:
-        base = 0.0
-    else:
-        base = 0.7
-
-    score = base - (0.1 * retry_count)
+    base = 0.0 if not schema_valid else AUTO_SCORE_BASE_SUCCESS
+    score = base - (AUTO_SCORE_RETRY_PENALTY * retry_count)
 
     if human_feedback == "accepted":
-        score += 0.1
+        score += AUTO_SCORE_FEEDBACK_ACCEPTED
     elif human_feedback == "modified":
-        score -= 0.2
+        score -= AUTO_SCORE_FEEDBACK_MODIFIED
     elif human_feedback == "rejected":
-        score -= 0.5
+        score -= AUTO_SCORE_FEEDBACK_REJECTED
 
     return max(0.0, min(1.0, score))
 

@@ -19,6 +19,13 @@ import random
 from typing import Any
 
 from ..common.audit import log_event, new_audit_id
+from ..common.thresholds import (
+    DEFAULT_MODEL_ID,
+    DEFAULT_MODEL_32B_ID,
+    EPSILON_GREEDY_RATE,
+    KNN_COLD_START_MIN_SAMPLES,
+    KNN_CONFIDENCE_SCALE,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +122,7 @@ def knn_recommend(
         if not scores:
             continue
         mean_score = sum(scores) / len(scores)
-        confidence = min(1.0, len(scores) / 10.0)
+        confidence = min(1.0, len(scores) / KNN_CONFIDENCE_SCALE)
         recommendations.append({
             "model_id": model_id,
             "score": round(mean_score, 4),
@@ -150,7 +157,7 @@ def _cold_start_model(
         if task_type in meta.get("preferred_tasks", []):
             return model_id
 
-    return model_config.get("selection", {}).get("default_model", "model_qwen25_14b_q4")
+    return model_config.get("selection", {}).get("default_model", DEFAULT_MODEL_ID)
 
 
 def select_model(
@@ -169,7 +176,7 @@ def select_model(
     sel_config = model_config.get("selection", {})
     knn_config = model_config.get("knn", {})
     mode = sel_config.get("default_mode", "recommend")
-    exploration_rate = sel_config.get("exploration_rate", 0.1)
+    exploration_rate = sel_config.get("exploration_rate", EPSILON_GREEDY_RATE)
     min_samples = sel_config.get("min_samples_for_auto", 20)
 
     # embedding モデルを除外（推薦対象外）
@@ -183,7 +190,7 @@ def select_model(
     total_samples = sum(r["sample_count"] for r in recommendations)
 
     # コールドスタート（サンプル不足）
-    if total_samples < 5 or not recommendations:
+    if total_samples < KNN_COLD_START_MIN_SAMPLES or not recommendations:
         fallback_id = _cold_start_model(features, registry, model_config)
         aid = new_audit_id()
         log_event("info", "model.cold_start_fallback", "orchestrator", aid,
@@ -257,5 +264,5 @@ def simple_rule_select(task: dict[str, Any]) -> str:
     accuracy = features.get("required_accuracy", "medium")
     latency = features.get("latency_sensitivity", "batch")
     if accuracy == "high" and latency != "interactive":
-        return "model_qwen25_32b_q3"
-    return "model_qwen25_14b_q4"
+        return DEFAULT_MODEL_32B_ID
+    return DEFAULT_MODEL_ID

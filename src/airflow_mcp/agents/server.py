@@ -16,6 +16,7 @@ import yaml
 from ..common.auth import require_scope
 from ..common.errors import AgentNotFound
 from ..common.mcp import dispatch, mcp_result, run_stdio_server
+from ..common.thresholds import AGENT_SECTION_MATCH_SCORE, AGENT_TAG_MATCH_SCORE
 
 server = Server("agents-mcp")
 
@@ -132,13 +133,13 @@ async def _agents_find_for_task(
 
         # セクション一致
         if agent.get("section") == task_section:
-            score += 0.5
+            score += AGENT_SECTION_MATCH_SCORE
 
         # skills ベースのタグマッチ（responsibilities キーワード）
         responsibilities = " ".join(agent.get("responsibilities", []) or []).lower()
         for tag in task_tags:
             if tag.lower() in responsibilities:
-                score += 0.1
+                score += AGENT_TAG_MATCH_SCORE
 
         if score > 0:
             candidates.append({

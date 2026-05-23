@@ -26,6 +26,14 @@ from ..common.errors import (
 )
 from ..common.mcp import dispatch, mcp_result, run_stdio_server
 from ..common.url_validator import validate_ollama_url
+from ..common.thresholds import (
+    DEFAULT_MODEL_ID,
+    DUAL_SCORE_PARTIAL,
+    DUAL_SIM_HIGH,
+    DUAL_SIM_LOW,
+    EPSILON_GREEDY_RATE,
+    KNN_COLD_START_MIN_SAMPLES,
+)
 from ..orchestrator.execution_log import append_execution_log, load_history, update_feedback
 from ..orchestrator.recommender import _cold_start_model, knn_recommend
 
@@ -38,10 +46,6 @@ _feedback_store: list[dict[str, Any]] = []
 
 # リトライ設定（DDD-05 §7）
 _STRUCT_OUTPUT_RETRIES = 2
-
-# 二重実行類似度閾値（DDD-05 §8.2）
-_DUAL_SIM_HIGH = 0.95
-_DUAL_SIM_LOW = 0.85
 
 
 def _load_registry() -> None:
@@ -243,7 +247,7 @@ async def _model_recommend(args: dict[str, Any], token: str | None) -> list[type
 
     # manual モード: 候補の先頭を返す（DDD-06 §4.1）
     if mode == "manual":
-        selected = candidates[0] if candidates else "model_qwen25_14b_q4"
+        selected = candidates[0] if candidates else DEFAULT_MODEL_ID
         model = _models.get(selected, {})
         return mcp_result({
             "recommendations": [{
@@ -265,10 +269,10 @@ async def _model_recommend(args: dict[str, Any], token: str | None) -> list[type
     total_samples = sum(r["sample_count"] for r in recommendations)
 
     # コールドスタート（サンプル不足）
-    if not recommendations or total_samples < 5:
+    if not recommendations or total_samples < KNN_COLD_START_MIN_SAMPLES:
         selected = _cold_start_model(features, _models, {})
         if selected not in available:
-            selected = available[0] if available else (candidates[0] if candidates else "model_qwen25_14b_q4")
+            selected = available[0] if available else (candidates[0] if candidates else DEFAULT_MODEL_ID)
         model = _models.get(selected, {})
         return mcp_result({
             "recommendations": [{
@@ -283,8 +287,7 @@ async def _model_recommend(args: dict[str, Any], token: str | None) -> list[type
         })
 
     # ε-greedy 探索（auto モードのみ、DDD-06 §4.5）
-    epsilon = 0.1
-    if mode == "auto" and random.random() < epsilon:
+    if mode == "auto" and random.random() < EPSILON_GREEDY_RATE:
         others = [m for m in available if m != recommendations[0]["model_id"]]
         if others:
             selected = random.choice(others)
@@ -296,7 +299,7 @@ async def _model_recommend(args: dict[str, Any], token: str | None) -> list[type
                     "expected_accuracy": recommendations[0]["expected_accuracy"],
                     "swap_cost_ms": model.get("avg_load_time_ms", 10000),
                     "confidence": 0.0,
-                    "reason": f"ε-greedy 探索（ε={epsilon}）",
+                    "reason": f"ε-greedy 探索（ε={EPSILON_GREEDY_RATE}）",
                 }],
                 "sample_count": total_samples,
             })
@@ -352,9 +355,9 @@ async def _model_execute(args: dict[str, Any], token: str | None) -> list[types.
         else:
             dual_similarity = _text_similarity(content_a, content_b)
 
-        if dual_similarity < _DUAL_SIM_LOW:
+        if dual_similarity < DUAL_SIM_LOW:
             raise ModelLowConfidence(model_id, dual_similarity)
-        auto_score = 1.0 if dual_similarity >= _DUAL_SIM_HIGH else 0.85
+        auto_score = 1.0 if dual_similarity >= DUAL_SIM_HIGH else DUAL_SCORE_PARTIAL
 
     latency_ms = int(time.time() * 1000) - start_ms
     log_id = "log_" + aid[:16].lower()

@@ -26,6 +26,7 @@ import yaml
 from jsonschema import Draft202012Validator
 
 from ..common.audit import log_event, new_audit_id
+from ..common.thresholds import REROUTE_SCORE_THRESHOLD
 from ..common.url_validator import validate_ollama_url
 from ..orchestrator.execution_log import append_execution_log, compute_auto_score, load_history
 from ..orchestrator.recommender import select_model, simple_rule_select
@@ -236,7 +237,7 @@ def process_task(
     auto_score_primary = compute_auto_score(schema_valid, retry_count)
     features = task.get("features", {})
     skip_for: list[str] = model_config.get("reroute", {}).get("skip_for", [])
-    should_reroute = (not schema_valid or auto_score_primary < 0.7) and max_reroute > 0
+    should_reroute = (not schema_valid or auto_score_primary < REROUTE_SCORE_THRESHOLD) and max_reroute > 0
 
     # skip_for 対象（例: interactive）はリルートせず即 escalate
     if should_reroute and features.get("latency_sensitivity") in skip_for:
