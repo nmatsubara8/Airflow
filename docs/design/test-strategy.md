@@ -120,17 +120,26 @@ pytest tests/unit/config/ -v
 
 ### 2.5 セキュリティテスト
 
-| 検証 | 方法 |
-|------|------|
-| AUTH_TOKEN_MISSING | ヘッダなしリクエスト |
-| AUTH_TOKEN_INVALID | 偽造トークン |
-| AUTH_SCOPE_INSUFFICIENT | tasks:read のみのトークンで tasks.update |
-| AUTH_RATE_LIMITED | 1 分間に 1000 リクエスト |
-| Confidential ノートアクセス | 非許可エージェントから notes.get |
-| パストラバーサル | `notes.get` に `../../etc/passwd` |
-| Vault 外パス監視 | 設定外パスを ingester に登録 |
-| JSON 巨大ペイロード | 10MB の handoff_note |
-| Path injection | task.title に shell special chars |
+| 検証 | 方法 | 実装状況 |
+|------|------|---------|
+| AUTH_TOKEN_MISSING | ヘッダなしリクエスト | ✅ test_auth.py |
+| AUTH_TOKEN_INVALID | 偽造トークン | ✅ test_auth.py |
+| AUTH_SCOPE_INSUFFICIENT | tasks:read のみのトークンで tasks.update | ✅ test_auth.py |
+| AUTH_RATE_LIMITED | 1 分間に 1000 リクエスト | ✅ test_mcp_tools.py |
+| tokens.json キャッシュ（H-4）| 起動時ロード、reload_tokens() で再読み込み | ✅ test_auth.py（16 件） |
+| tasks.assign TOCTOU（M-6）| ロック内ステータス確認 + 並行スレッドテスト | ✅ test_store.py（3 件） |
+| SSRF: OLLAMA_URL（LOW）| スキーム・リンクローカル・メタデータ IP 検証 | ✅ test_url_validator.py（15 件） |
+| SSRF: Slack webhook（LOW）| https + *.slack.com 限定 | ✅ test_url_validator.py（7 件） |
+| notes.reindex スコープ（M-3）| notes:write 必須（旧: notes:read） | ✅ test_notes_server.py |
+| model.register スコープ（H-5）| models:write 必須（旧: models:execute） | ✅ test_models_server.py |
+| パストラバーサル | `task_id` に `../../etc/passwd` → 422 | ✅ test_store.py（_validate_task_id） |
+| タイミング攻撃防止 | hmac.compare_digest() 使用 | ✅ common/auth.py |
+| Audit trace 循環防止 | visited set + depth ≤ 20 | ✅ taskboard/server.py |
+| ReDoS 防止 | fnmatch.fnmatch() で glob（re 不使用） | ✅ taskboard/server.py |
+| Confidential ノートアクセス | 非許可エージェントから notes.get | — Phase 3 |
+| Vault 外パス監視 | 設定外パスを ingester に登録 | — Phase 3 |
+| JSON 巨大ペイロード | 10MB の handoff_note | — Phase 3 |
+| Path injection | task.title に shell special chars | — Phase 3 |
 
 ---
 
@@ -150,7 +159,14 @@ pytest tests/unit/config/ -v
 
 - [ ] §2.2 統合テスト「MVP end-to-end」が 30 秒以内
 - [ ] §2.2 「LLM execute」が 5 秒以内
-- [ ] 楽観的ロック衝突がテストで再現できる
+- [x] 楽観的ロック衝突がテストで再現できる（test_store.py）
+- [x] パストラバーサル / タスク ID バリデーション（_validate_task_id）
+- [x] tasks.assign TOCTOU 競合テスト（M-6、test_store.py）
+- [x] tokens.json キャッシュ・fail-closed・reload（H-4、test_auth.py）
+- [x] SSRF: OLLAMA_URL / AIRFLOW_SLACK_WEBHOOK バリデーション（test_url_validator.py）
+- [x] MCP ツール統合テスト 28 件（test_mcp_tools.py）
+- [x] パイプラインエラーパス 9 件（test_pipeline_errors.py）
+- [x] セキュリティ全 CRITICAL/HIGH 対応完了（path traversal, rate limiting wiring, timing attack, unbounded recursion, ReDoS）
 - [ ] フロントマター不正で NOTE_PARSE_ERROR が発生
 - [ ] Confidential ノートが notes.search の結果から除外
 - [ ] §2.4 カオステスト「Vault 削除」「SQLite ロック残留」が pass
@@ -192,20 +208,33 @@ pytest tests/unit/config/ -v
 
 ### 4.1 ディレクトリ構成
 
+> **実装済みテスト件数（2026-05-23 時点）：400 件（単体 337 件、統合 63 件）**
+
 ```
 tests/
 ├── unit/
-│   ├── config/           # §2.6 設定ファイルバリデーション（新設）
-│   ├── schemas/
+│   ├── common/
+│   │   ├── test_auth.py          # 16 件（tokens.json キャッシュ・スコープ・bypass）
+│   │   ├── test_url_validator.py # 22 件（SSRF: OLLAMA_URL / Slack webhook）
+│   │   ├── test_errors.py
+│   │   └── test_rate_limiter.py
 │   ├── taskboard/
-│   ├── llm_runtime/
+│   │   └── test_store.py         # 23 件（CRUD・楽観的ロック・assign TOCTOU M-6）
 │   ├── scheduler/
+│   │   ├── test_queue.py         # 18 件（fair_share・スターベーション・consecutive）
+│   │   ├── test_starvation.py
+│   │   └── test_profile.py
+│   ├── notes/
+│   │   └── test_notes_server.py  # reindex: notes:write スコープ確認含む
+│   ├── models/
+│   │   └── test_models_server.py # register: models:write スコープ確認含む
+│   ├── schemas/
+│   ├── config/           # §2.6 設定ファイルバリデーション（新設）
+│   ├── llm_runtime/
 │   └── ingester/
 ├── integration/
-│   ├── mvp_e2e/
-│   ├── content_4stage/
-│   ├── pr_review_join/
-│   └── parallel_load/
+│   ├── test_mcp_tools.py         # 28 件（MCP ツール・認証・レート制限・tasks.join）
+│   └── test_pipeline_errors.py   # 9 件（needs_human・reroute・並列エラーパス）
 ├── chaos/
 │   ├── ollama_kill.sh
 │   ├── gpu_oom.py
