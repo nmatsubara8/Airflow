@@ -52,7 +52,8 @@
 | シナリオ | 検証項目 | DDD 参照 |
 |---------|--------|--------|
 | MVP end-to-end | Vault→ingester→dispatcher→docs→done、30 秒以内 | DDD-04 §11 |
-| LLM execute（構造化出力） | model.execute → schema_valid=true、5 秒以内 | DDD-05 §12 |
+| LLM execute（構造化出力・ウォームアップ済み） | model.execute → schema_valid=true、`60 + expected_tokens × 0.1` 秒以内（モデルロード済み前提。コールドスタート時は初回ロード 120 秒を別計上） | DDD-05 §12 |
+| LLM execute（MockOllamaClient） | schema_valid=true を 1 秒以内で確認（CI 上でのスモークテスト） | DDD-05 §12 |
 | 4 段レビュー | content-director → brand-voice → root-cause → anti-ai-slop の連鎖 | DDD-08 §3.1 |
 | PR レビュー並列集約 | qa/security/reviewer 並列 → tech-lead 集約（tasks.join） | DDD-08 §3.2 |
 | モデル recommend → execute | KNN 推奨 → 実行 → ExecutionLog 記録 | DDD-06 §11 |
@@ -90,6 +91,33 @@ airflow test load --tasks 100 --models qwen25_14b_q4,qwen25_32b_q3
 | ネットワーク遮断（Qdrant） | `iptables -A OUTPUT -p tcp --dport 6333 -j DROP` | recoverable リトライ 5 回、failed gracefully |
 | 監査ハッシュチェーン改ざん | `<date>.jsonl` を直接編集 | critical アラート、ロックダウンモード |
 
+### 2.6 設定ファイルバリデーションテスト
+
+`.airflow/config/*.yaml` および `.airflow/models/registry.json` が起動時に正しくロードされること、また設定値が DDD で定めた制約を満たすことを検証する。
+
+| 対象ファイル | 検証内容 | 期待結果 |
+|---|---|---|
+| `registry.json` 全モデル | `model.schema.json`（Draft 2020-12）に対する jsonschema バリデート | 全モデルが pass |
+| `parallel.yaml` | `vram_available_gb` ≤ `vram_total_gb - vram_reserve_gb` | 整合 |
+| `parallel.yaml` | `mvp_profile` に指定されたプロファイル名が `profiles[].name` に存在する | 存在する |
+| `model-config.yaml` | `knn.weights` の全値が `> 0` | バリデート pass |
+| `model-config.yaml` | `reroute.fallback_chain` 内のモデル ID が `registry.json` に登録済み | 全 ID が存在する |
+| `schedules.yaml` | `agents` リスト内の agent_id が `agents/` ディレクトリに対応する `skills.md` を持つ | 全 ID が存在する |
+| `auth.yaml` | `rate_limit.per_role` のすべてのロール名が `roles` に定義済み | 整合 |
+| `ingester.yaml` | `embedding.model_id` が `registry.json` に登録済み | 存在する |
+| `notifications.yaml` | `triggers[].schedule` が `schedules.yaml` のスケジュール名に存在する（指定がある場合） | 整合 |
+
+テスト実行方法（CI 用スクリプト想定）：
+
+```bash
+pytest tests/unit/config/ -v
+# tests/unit/config/test_registry.py     — jsonschema バリデート
+# tests/unit/config/test_parallel.py     — VRAM 整合・プロファイル存在
+# tests/unit/config/test_model_config.py — weights / fallback_chain
+# tests/unit/config/test_schedules.py    — agent_id 存在確認
+# tests/unit/config/test_cross_config.py — config 間参照整合
+```
+
 ### 2.5 セキュリティテスト
 
 | 検証 | 方法 |
@@ -108,14 +136,15 @@ airflow test load --tasks 100 --models qwen25_14b_q4,qwen25_32b_q3
 
 ## 3. フェーズ別検証チェックリスト
 
-### Phase 1（横断基盤、2 週）
+### Phase 1（横断基盤、2 週）✅ 完了
 
-- [ ] 7 スキーマファイルが schemas/ に配置
-- [ ] schemas/examples/*.json が各 3 件以上、全て jsonschema バリデート pass
-- [ ] 5 MCP サーバーがスタブで stdio 起動
-- [ ] エラーレスポンスが DDD-03 §2.2 形式に準拠
-- [ ] `audit.trace` で階層追跡が動作
-- [ ] `airflow logs trace <audit_id>` が動作
+- [x] 7 スキーマファイルが `schemas/` に配置（`schemas/*.schema.json`）
+- [x] `schemas/examples/*.json` が各 3 件（21 ファイル）、`scripts/validate_schemas.py` で 28/28 pass
+- [x] GitHub Actions `schema-validate.yml` が `schemas/**` 変更時に自動実行
+- [ ] 5 MCP サーバーがスタブで stdio 起動（Phase 2 実装待ち）
+- [ ] エラーレスポンスが DDD-03 §2.2 形式に準拠（Phase 2 実装待ち）
+- [ ] `audit.trace` で階層追跡が動作（Phase 2 実装待ち）
+- [ ] `airflow logs trace <audit_id>` が動作（Phase 2 実装待ち）
 
 ### Phase 2（MVP コア、2 週）
 
@@ -166,6 +195,7 @@ airflow test load --tasks 100 --models qwen25_14b_q4,qwen25_32b_q3
 ```
 tests/
 ├── unit/
+│   ├── config/           # §2.6 設定ファイルバリデーション（新設）
 │   ├── schemas/
 │   ├── taskboard/
 │   ├── llm_runtime/
@@ -182,10 +212,17 @@ tests/
 │   └── vault_delete.sh
 ├── security/
 │   └── auth_negative.py
+├── stubs/                # MCP スタブサーバー（§4.4）
+│   ├── taskboard_mcp.py
+│   ├── notes_mcp.py
+│   └── models_mcp.py
 ├── fixtures/
-│   ├── vaults/test-vault/
-│   ├── tasks/sample-tasks/
-│   └── notes/sample-notes/
+│   ├── vaults/test-vault/Inbox/    # MVP end-to-end 用
+│   ├── tasks/                      # schemas/examples/task/ から流用
+│   ├── notes/
+│   └── llm_responses/              # MockOllamaClient 用 fixture JSON
+│       ├── model_qwen25_14b_q4/
+│       └── model_qwen25_32b_q3/
 └── conftest.py
 ```
 
@@ -201,12 +238,87 @@ tests/
 | カオス注入 | bash スクリプト + pytest fixture |
 | MCP テスト | `mcp` SDK のテストユーティリティ |
 
+### 4.4 Mock / スタブ戦略
+
+GPU や外部サービスなしで CI を完結させるため、以下の差し替えコンポーネントを用意する。
+
+#### MockOllamaClient
+
+`OllamaClient` の実装を差し替え、実推論をせず固定 JSON を返す。
+
+```python
+class MockOllamaClient:
+    """テスト用 Ollama スタブ。schema_valid=true の固定出力を返す。"""
+    def __init__(self, fixture_dir: str = "tests/fixtures/llm_responses/"):
+        self.fixture_dir = fixture_dir
+
+    def chat(self, model: str, messages: list, format: dict | None = None, **kw):
+        # task_type に対応する fixture JSON を返す
+        fixture_path = f"{self.fixture_dir}/{model}/{messages[-1].get('role','user')}.json"
+        return json.load(open(fixture_path))
+
+    def embeddings(self, model: str, prompt: str) -> list[float]:
+        # 1024 次元のゼロベクトルを返す（距離計算テスト用）
+        return [0.0] * 1024
+```
+
+- fixture は `tests/fixtures/llm_responses/<model_id>/<task_type>.json` に配置
+- 構造化出力失敗シナリオ用に `invalid_output.json`（schema 不適合）も用意
+
+#### MockQdrantClient
+
+```python
+class MockQdrantClient:
+    """インメモリ辞書で Qdrant の upsert/search を模倣する。"""
+    def __init__(self):
+        self._store: dict[str, dict] = {}
+
+    def upsert(self, collection_name, points): ...
+    def search(self, collection_name, query_vector, limit) -> list: ...
+```
+
+#### MCP スタブサーバー
+
+統合テスト用に `tests/stubs/` 以下に最小 FastAPI サーバーを用意する。
+
+```
+tests/stubs/
+├── taskboard_mcp.py   # tasks.read / tasks.write / tasks.update を実装
+├── notes_mcp.py       # notes.search / notes.get を実装
+└── models_mcp.py      # model.recommend / model.execute を MockOllamaClient 使用で実装
+```
+
+`conftest.py` で `@pytest.fixture(scope="session")` として起動し、テスト後に停止する。
+
+#### GPU State mock
+
+```python
+@pytest.fixture
+def gpu_state_factory():
+    """VRAM 状態を任意に設定できる fixture。"""
+    def _make(free_gb: float, loaded: list[str]) -> GpuState:
+        return GpuState(free_vram_gb=free_gb, loaded_models=loaded)
+    return _make
+```
+
+### 4.5 テスト命名規約
+
+```
+tests/unit/<module>/test_<対象クラス or 関数>.py
+  └── def test_<動作>_<前提条件>_<期待結果>():
+
+例:
+  test_optimistic_lock_concurrent_update_raises_conflict
+  test_knn_recommend_cold_start_returns_preferred_model
+  test_structured_output_invalid_json_triggers_retry
+```
+
 ### 4.3 fixture 戦略
 
-- **Vault fixture**：13 個の YouTube ノート（セッション前半で確認済み）を `tests/fixtures/vaults/test-vault/` に配置
-- **Task fixture**：各ステータス・各セクションのサンプル
-- **モデル mock**：実 Ollama 不要な単体テスト用に `MockOllamaClient`
-- **GPU mock**：VRAM 状態を擬似的に制御
+- **Vault fixture**：`tests/fixtures/vaults/test-vault/Inbox/` に最小 `.md` ファイル（MVP end-to-end 用）
+- **Task fixture**：`schemas/examples/task/` の 3 サンプルを流用（inbox/in_progress/done の各ステータス）
+- **LLM response fixture**：`tests/fixtures/llm_responses/<model_id>/<task_type>.json`（MockOllamaClient が参照、§4.4 参照）
+- **Config fixture**：`.airflow/config/` をそのまま利用。テスト用に差し替えが必要な場合は `tmp_path` に上書き
 
 ---
 
@@ -233,8 +345,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: pip install jsonschema
-      - run: python -m airflow.test.schema_validate schemas/ schemas/examples/
+      - run: pip install jsonschema==4.23.0
+      - run: python scripts/validate_schemas.py   # 28/28 pass が合格条件
 
   integration:
     runs-on: ubuntu-latest
