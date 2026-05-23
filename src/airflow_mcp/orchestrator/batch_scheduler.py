@@ -15,8 +15,8 @@ from typing import Any
 import yaml
 
 from ..common.audit import log_event, new_audit_id
-from .audit_integrity import run_chain_hash
-from .notifier import notify_batch_complete
+from ..ops.audit_integrity import run_chain_hash
+from ..ops.notifier import notify_batch_complete
 
 logger = logging.getLogger(__name__)
 

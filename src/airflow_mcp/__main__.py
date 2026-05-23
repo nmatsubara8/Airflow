@@ -35,10 +35,10 @@ def main() -> None:
     if cmd == "batch":
         loop = "--loop" in sys.argv[2:]
         if loop:
-            from .ops.batch_scheduler import run_loop
+            from .orchestrator.batch_scheduler import run_loop
             run_loop()
         else:
-            from .ops.batch_scheduler import run_due_schedules
+            from .orchestrator.batch_scheduler import run_due_schedules
             results = run_due_schedules()
             if results:
                 for r in results:

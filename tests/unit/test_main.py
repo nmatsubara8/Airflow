@@ -59,7 +59,7 @@ def test_main_status_calls_print_status():
 # ── batch (no --loop) ─────────────────────────────────
 
 def test_main_batch_no_results_prints_no_schedules(capsys):
-    with patch("airflow_mcp.ops.batch_scheduler.run_due_schedules", return_value=[]):
+    with patch("airflow_mcp.orchestrator.batch_scheduler.run_due_schedules", return_value=[]):
         _main(["batch"])
     out = capsys.readouterr().out
     assert "no schedules due" in out
@@ -67,7 +67,7 @@ def test_main_batch_no_results_prints_no_schedules(capsys):
 
 def test_main_batch_with_results_prints_summary(capsys):
     results = [{"name": "nightly", "success": 5, "total": 5, "duration_s": 10.0}]
-    with patch("airflow_mcp.ops.batch_scheduler.run_due_schedules", return_value=results):
+    with patch("airflow_mcp.orchestrator.batch_scheduler.run_due_schedules", return_value=results):
         _main(["batch"])
     out = capsys.readouterr().out
     assert "nightly" in out
@@ -76,7 +76,7 @@ def test_main_batch_with_results_prints_summary(capsys):
 # ── batch --loop ──────────────────────────────────────
 
 def test_main_batch_loop_calls_run_loop():
-    with patch("airflow_mcp.ops.batch_scheduler.run_loop") as mock_loop:
+    with patch("airflow_mcp.orchestrator.batch_scheduler.run_loop") as mock_loop:
         _main(["batch", "--loop"])
     mock_loop.assert_called_once()
 
