@@ -19,6 +19,7 @@ from ..common.audit import log_event, new_audit_id, now_iso
 from ..common.auth import get_token_from_env, require_scope
 from ..common.errors import AirflowError, GpuBusy
 from ..scheduler.profile import get_profile_models, select_best_profile
+from ..scheduler.queue import QueueEntry, SchedulerQueue
 from .state_manager import GpuStateManager
 
 server = Server("gpu-mcp")
@@ -26,7 +27,8 @@ server = Server("gpu-mcp")
 _PARALLEL_CONFIG = Path(os.environ.get("AIRFLOW_PARALLEL_CONFIG", ".airflow/config/parallel.yaml"))
 
 _gpu: GpuStateManager = GpuStateManager()
-_task_queues: dict[str, list] = {}
+_task_queues: dict[str, list] = {}   # legacy: raw list per model (used by tests)
+_scheduler_queue: SchedulerQueue = SchedulerQueue()
 _profiles: list[dict] = []
 _current_profile: str | None = None
 _degraded: bool = False
@@ -176,11 +178,9 @@ async def _scheduler_queue_status(
     args: dict[str, Any], token: str | None
 ) -> list[types.TextContent]:
     require_scope(token, "gpu:read")
-    queues = {
-        model_id: {"depth": len(tasks), "oldest_wait_s": 0}
-        for model_id, tasks in _task_queues.items()
-    }
-    return _result({"queues": queues, "current_profile": _current_profile})
+    depths = _scheduler_queue.model_depths()
+    queues = {model_id: {"depth": d, "oldest_wait_s": 0} for model_id, d in depths.items()}
+    return _result({"queues": queues, "current_profile": _current_profile, "degraded": _degraded})
 
 
 async def _scheduler_profile_switch(

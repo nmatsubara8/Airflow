@@ -8,6 +8,7 @@ import pytest
 import airflow_mcp.gpu.server as gpu_mod
 from airflow_mcp.gpu.server import _free_vram
 from airflow_mcp.gpu.state_manager import GpuStateManager
+from airflow_mcp.scheduler.queue import QueueEntry, SchedulerQueue
 
 
 @pytest.fixture(autouse=True)
@@ -19,6 +20,7 @@ def reset_gpu_state(tmp_path):
         snapshot_path=tmp_path / "gpu_state.json",
     )
     gpu_mod._task_queues.clear()
+    gpu_mod._scheduler_queue = SchedulerQueue()
     gpu_mod._profiles.clear()
     gpu_mod._current_profile = None
     gpu_mod._degraded = False
@@ -29,6 +31,7 @@ def reset_gpu_state(tmp_path):
         snapshot_path=tmp_path / "gpu_state.json",
     )
     gpu_mod._task_queues.clear()
+    gpu_mod._scheduler_queue = SchedulerQueue()
     gpu_mod._profiles.clear()
     gpu_mod._current_profile = None
     gpu_mod._degraded = False
@@ -135,7 +138,9 @@ async def test_gpu_release_increases_free_vram():
 
 @pytest.mark.asyncio
 async def test_scheduler_queue_status_returns_queues():
-    gpu_mod._task_queues["model_a"] = ["task1", "task2"]
+    from datetime import datetime, timezone
+    gpu_mod._scheduler_queue.enqueue(QueueEntry(task_id="task1", model_id="model_a"))
+    gpu_mod._scheduler_queue.enqueue(QueueEntry(task_id="task2", model_id="model_a"))
     result = await _call("scheduler.queue_status", {})
     assert "queues" in result
     assert "model_a" in result["queues"]

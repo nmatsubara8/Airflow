@@ -25,7 +25,7 @@ server = Server("models-mcp")
 
 _REGISTRY_PATH = Path(os.environ.get("AIRFLOW_REGISTRY", ".airflow/models/registry.json"))
 _models: dict[str, dict[str, Any]] = {}
-_execution_logs: list[dict[str, Any]] = {}
+_execution_logs: dict[str, dict[str, Any]] = {}
 _feedback_store: list[dict[str, Any]] = []
 
 
