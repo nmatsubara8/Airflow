@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
+from airflow_mcp.orchestrator.recommender import simple_rule_select
 from airflow_mcp.runner.main import (
     _build_messages,
     _call_ollama,
@@ -21,26 +22,35 @@ from airflow_mcp.taskboard.store import TaskStore
 FIXTURES_DIR = Path(__file__).parent.parent.parent / "fixtures"
 
 
-# ── _select_model ─────────────────────────────────────────
+# ── simple_rule_select (コールドスタートフォールバック) ────
 
 def test_select_model_high_accuracy_batch_returns_32b():
     task = {"features": {"required_accuracy": "high", "latency_sensitivity": "batch"}}
-    assert _select_model(task, {}) == "model_qwen25_32b_q3"
+    assert simple_rule_select(task) == "model_qwen25_32b_q3"
 
 
 def test_select_model_medium_accuracy_returns_14b():
     task = {"features": {"required_accuracy": "medium", "latency_sensitivity": "batch"}}
-    assert _select_model(task, {}) == "model_qwen25_14b_q4"
+    assert simple_rule_select(task) == "model_qwen25_14b_q4"
 
 
 def test_select_model_high_accuracy_interactive_returns_14b():
     # interactive は latency 優先なので 14B
     task = {"features": {"required_accuracy": "high", "latency_sensitivity": "interactive"}}
-    assert _select_model(task, {}) == "model_qwen25_14b_q4"
+    assert simple_rule_select(task) == "model_qwen25_14b_q4"
 
 
 def test_select_model_empty_features_returns_14b():
-    assert _select_model({}, {}) == "model_qwen25_14b_q4"
+    assert simple_rule_select({}) == "model_qwen25_14b_q4"
+
+
+# ── _select_model (registry なし → simple_rule フォールバック) ─
+
+def test_runner_select_model_no_registry_falls_back_to_simple_rule():
+    task = {"features": {"required_accuracy": "high", "latency_sensitivity": "batch"}}
+    model_id, etype = _select_model(task, {}, registry=None)
+    assert model_id == "model_qwen25_32b_q3"
+    assert etype is None
 
 
 # ── _model_id_to_ollama_tag ───────────────────────────────

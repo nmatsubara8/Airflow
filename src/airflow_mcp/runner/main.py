@@ -2,13 +2,15 @@
 
 in_progress タスクをポーリングし、Ollama 経由で処理して done に遷移。
 
-Flow per DDD-05 §9:
+Flow per DDD-05 §9 / DDD-06 §4:
   1. in_progress タスクを取得（自分が owner のもの）
-  2. system prompt + タスク内容でメッセージ構築
-  3. models-mcp model.execute（構造化出力強制）
-  4. schema_valid チェック、失敗時リトライ最大 3 回
-  5. handoff_note に parsed.summary を格納
-  6. tasks.transition(done)  or  tasks.transition(needs_human) on final failure
+  2. KNN 推奨 or コールドスタートフォールバックでモデル選択（DDD-06）
+  3. system prompt + タスク内容でメッセージ構築
+  4. models-mcp model.execute（構造化出力強制）
+  5. schema_valid チェック、失敗時リトライ最大 3 回
+  6. auto_score 算出 → ExecutionLog 記録
+  7. handoff_note に parsed.summary を格納
+  8. tasks.transition(done)  or  tasks.transition(needs_human) on final failure
 """
 from __future__ import annotations
 
@@ -25,6 +27,8 @@ from jsonschema import Draft202012Validator
 
 from ..common.audit import log_event, new_audit_id, now_iso
 from ..common.errors import ModelStructuredOutputInvalid
+from ..orchestrator.execution_log import append_execution_log, load_history
+from ..orchestrator.recommender import select_model, simple_rule_select
 from ..taskboard.store import TaskStore
 
 logger = logging.getLogger(__name__)
@@ -49,14 +53,22 @@ def _load_registry(path: str = ".airflow/models/registry.json") -> dict[str, dic
     return {m["id"]: m for m in data.get("models", [])}
 
 
-def _select_model(task: dict[str, Any], model_config: dict[str, Any]) -> str:
-    """タスク features から推奨モデルを選択（Phase 2 MVP: 単純ルール）。"""
-    features = task.get("features", {})
-    accuracy = features.get("required_accuracy", "medium")
-    latency = features.get("latency_sensitivity", "batch")
-    if accuracy == "high" and latency != "interactive":
-        return "model_qwen25_32b_q3"
-    return "model_qwen25_14b_q4"
+def _select_model(
+    task: dict[str, Any],
+    model_config: dict[str, Any],
+    registry: dict[str, dict] | None = None,
+    history: list[dict[str, Any]] | None = None,
+) -> tuple[str, str | None]:
+    """KNN 推奨でモデルを選択（DDD-06 §4）。履歴がなければ固定ルールにフォールバック。
+
+    Returns:
+        (model_id, exploration_type)
+    """
+    if registry and model_config:
+        hist = history if history is not None else load_history()
+        return select_model(task, model_config, registry, hist)
+    # registry / config なし → Phase 2 固定ルール
+    return simple_rule_select(task), None
 
 
 def _model_id_to_ollama_tag(model_id: str, registry: dict[str, dict]) -> str:
@@ -156,7 +168,8 @@ def process_task(
               "properties": {"summary": {"type": "string"}}}
     )
 
-    model_id = _select_model(task, model_config)
+    # DDD-06 §4: KNN 推奨でモデルを選択
+    model_id, exploration_type = _select_model(task, model_config, registry)
     model_tag = _model_id_to_ollama_tag(model_id, registry)
     messages = _build_messages(task, system_prompt)
     temperature = 0.3
@@ -185,7 +198,23 @@ def process_task(
         time.sleep(0.5)
 
     latency_ms = int(time.time() * 1000) - start_ms
-    log_id = "log_" + aid[:16].lower()
+
+    # DDD-06 §5: auto_score 算出 → ExecutionLog 記録
+    try:
+        exec_record = append_execution_log(
+            task_id=task_id,
+            agent_id=agent_id,
+            model_id=model_id,
+            features_snapshot=task.get("features", {}),
+            schema_valid=schema_valid,
+            retry_count=retry_count,
+            latency_ms=latency_ms,
+            exploration_type=exploration_type,
+        )
+        log_id = exec_record["id"]
+    except Exception as exc:
+        logger.warning("execution_log write failed: %s", exc)
+        log_id = "log_" + aid[:16].lower()
 
     log_event(
         "info" if schema_valid else "error",
@@ -198,7 +227,8 @@ def process_task(
             "code": "MODEL_STRUCTURED_OUTPUT_INVALID",
             "message": f"{retry_count + 1}回リトライ後も schema 不適合",
         },
-        data={"retry_count": retry_count, "schema_valid": schema_valid},
+        data={"retry_count": retry_count, "schema_valid": schema_valid,
+              "exploration_type": exploration_type},
     )
 
     if not schema_valid:
