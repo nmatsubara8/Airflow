@@ -604,6 +604,37 @@ def test_text_similarity_empty():
 
 
 @pytest.mark.asyncio
+async def test_model_execute_dual_mode_structured_output_similarity(monkeypatch):
+    """二重実行 + structured_output: JSON フィールド一致率で類似度を計算すること（line 316）。"""
+    from unittest.mock import MagicMock, patch
+    monkeypatch.setenv("OLLAMA_STUB", "false")
+    _add_model("model_qwen25_14b_q4")
+    schema = {"type": "object", "required": ["summary"],
+              "properties": {"summary": {"type": "string"}}}
+
+    call_count = 0
+
+    def fake_post(url, json, timeout):
+        nonlocal call_count
+        call_count += 1
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = lambda: None
+        mock_resp.json.return_value = {"message": {"content": '{"summary": "same"}'}}
+        return mock_resp
+
+    with patch("httpx.post", side_effect=fake_post):
+        result = await _call("model.execute", {
+            "model_id": "model_qwen25_14b_q4",
+            "messages": [{"role": "user", "content": "hi"}],
+            "structured_output": {"schema": schema},
+            "features": {"required_accuracy": "high", "latency_sensitivity": "batch"},
+        })
+    assert result["dual_similarity"] == 1.0
+    assert result["auto_score"] == 1.0
+    assert call_count == 2
+
+
+@pytest.mark.asyncio
 async def test_model_execute_dual_mode_high_similarity(monkeypatch):
     """二重実行で similarity >= 0.95 → auto_score=1.0 が返ること。"""
     monkeypatch.setenv("OLLAMA_STUB", "true")

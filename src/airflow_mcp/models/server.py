@@ -527,8 +527,6 @@ async def _model_load(args: dict[str, Any], token: str | None) -> list[types.Tex
         resp.raise_for_status()
         return mcp_result({"loaded": model_id, "ollama_tag": model_tag})
     except Exception as exc:
-        if isinstance(exc, AirflowError):
-            raise
         stub = {"loaded": model_id, "status": f"load_error: {exc}"}
         return mcp_result(stub)
 
@@ -554,8 +552,6 @@ async def _model_unload(args: dict[str, Any], token: str | None) -> list[types.T
         resp.raise_for_status()
         return mcp_result({"unloaded": model_id, "ollama_tag": model_tag})
     except Exception as exc:
-        if isinstance(exc, AirflowError):
-            raise
         stub = {"unloaded": model_id, "status": f"unload_error: {exc}"}
         return mcp_result(stub)
 
@@ -573,8 +569,6 @@ async def _model_ps(args: dict[str, Any], token: str | None) -> list[types.TextC
         resp.raise_for_status()
         return mcp_result(resp.json())
     except Exception as exc:
-        if isinstance(exc, AirflowError):
-            raise
         return mcp_result({"models": [], "status": f"ps_error: {exc}"})
 
 
