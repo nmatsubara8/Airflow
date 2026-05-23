@@ -505,3 +505,164 @@ def test_process_task_execution_log_failure_still_completes(
 
     assert result is True
     assert task_store.get(task["id"])["status"] == "done"
+
+
+# ── _select_model KNN path (lines 69-70) ─────────────
+
+def test_select_model_uses_knn_when_registry_and_config_present():
+    """registry と model_config が両方あるとき select_model (KNN) を呼ぶこと。"""
+    from unittest.mock import patch
+    from airflow_mcp.runner.main import _select_model
+    task = {"features": {"required_accuracy": "high", "latency_sensitivity": "batch"}}
+    registry = {"model_qwen25_14b_q4": {"ollama_tag": "qwen2.5:14b", "preferred_tasks": []}}
+    config = {"knn": {"k": 3}}
+    with patch("airflow_mcp.runner.main.select_model",
+               return_value=("model_qwen25_14b_q4", "exploit")) as mock_select:
+        model_id, etype = _select_model(task, config, registry=registry, history=[])
+    mock_select.assert_called_once()
+    assert model_id == "model_qwen25_14b_q4"
+    assert etype == "exploit"
+
+
+def test_select_model_calls_load_history_when_history_is_none():
+    """history=None のとき load_history() を呼んで履歴を補完すること（line 69）。"""
+    from unittest.mock import patch
+    from airflow_mcp.runner.main import _select_model
+    task = {"features": {}}
+    registry = {"model_a": {"ollama_tag": "a:latest", "preferred_tasks": []}}
+    config = {"knn": {"k": 3}}
+    with patch("airflow_mcp.runner.main.load_history", return_value=[]) as mock_hist, \
+         patch("airflow_mcp.runner.main.select_model", return_value=("model_a", None)):
+        _select_model(task, config, registry=registry, history=None)
+    mock_hist.assert_called_once()
+
+
+# ── execution_log failure during reroute (lines 265-266) ─
+
+def test_process_task_reroute_execution_log_failure_still_completes(
+    task_store, sample_task_fields, monkeypatch
+):
+    """reroute 後の execution_log 書き込み失敗でもタスクが完了すること（lines 265-266）。"""
+    monkeypatch.setenv("OLLAMA_STUB", "false")
+    task = task_store.create(sample_task_fields)
+    task_store.claim(task["id"], "agent_docs")
+    task_in_progress = task_store.get(task["id"])
+
+    call_count = {"n": 0}
+
+    def fake_call(*args, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] <= 3:
+            return '{"bad":"x"}', {"bad": "x"}, False
+        return '{"summary":"ok","key_points":[]}', {"summary": "ok", "key_points": []}, True
+
+    log_call_count = {"n": 0}
+
+    def fake_log(*args, **kwargs):
+        log_call_count["n"] += 1
+        if log_call_count["n"] == 2:  # reroute の二回目の呼び出しで失敗
+            raise IOError("disk full during reroute")
+        return {"id": "log_test_001"}
+
+    model_config = {
+        "reroute": {
+            "max_reroute_attempts": 1,
+            "fallback_chain": {"model_qwen25_14b_q4": ["model_qwen25_32b_q3"]},
+        }
+    }
+    registry = {
+        "model_qwen25_14b_q4": {"ollama_tag": "qwen2.5:14b", "preferred_tasks": []},
+        "model_qwen25_32b_q3": {"ollama_tag": "qwen2.5:32b", "preferred_tasks": []},
+    }
+
+    with patch("airflow_mcp.runner.main._select_model",
+               return_value=("model_qwen25_14b_q4", None)), \
+         patch("airflow_mcp.runner.main._call_ollama", side_effect=fake_call), \
+         patch("airflow_mcp.runner.main.append_execution_log", side_effect=fake_log):
+        result = process_task(
+            task_in_progress, task_store, model_config, registry, "agent_docs", "http://localhost"
+        )
+
+    assert result is True
+    assert task_store.get(task["id"])["status"] == "done"
+
+
+# ── run_once exception handler (lines 333-334) ───────
+
+def test_run_once_catches_process_task_exception(task_store, sample_task_fields):
+    """process_task が例外を投げても run_once がクラッシュしないこと（lines 333-334）。"""
+    import os
+    os.environ["OLLAMA_STUB"] = "false"
+    task = task_store.create(sample_task_fields)
+    task_store.claim(task["id"], "agent_docs")
+
+    with patch("airflow_mcp.runner.main.process_task",
+               side_effect=RuntimeError("unexpected crash")):
+        n = run_once(task_store, {}, {}, "agent_docs", "http://localhost")
+
+    assert n == 0  # 例外は catch されカウントされない
+
+
+# ── run_loop (lines 346-357) ─────────────────────────
+
+def test_run_loop_runs_and_handles_results(task_store, monkeypatch):
+    """run_loop が run_once を呼び出し、処理数 > 0 のときログを出力すること。"""
+    import time as time_mod
+    call_count = {"n": 0}
+
+    def fake_run_once(*args, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return 1  # 処理あり → logger.info が呼ばれる
+        raise SystemExit(0)
+
+    monkeypatch.setattr("airflow_mcp.runner.main.run_once", fake_run_once)
+    monkeypatch.setattr("airflow_mcp.runner.main.time.sleep", lambda s: None)
+
+    from airflow_mcp.runner.main import run_loop
+    with pytest.raises(SystemExit):
+        run_loop(task_store, {}, {}, "agent_docs", "http://localhost:11434", poll_interval_s=0.001)
+
+    assert call_count["n"] == 2
+
+
+def test_run_loop_catches_run_once_exception(task_store, monkeypatch):
+    """run_loop が run_once の例外を catch してループを継続すること（lines 355-356）。"""
+    call_count = {"n": 0}
+
+    def fake_run_once(*args, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise RuntimeError("transient store error")
+        raise SystemExit(0)
+
+    monkeypatch.setattr("airflow_mcp.runner.main.run_once", fake_run_once)
+    monkeypatch.setattr("airflow_mcp.runner.main.time.sleep", lambda s: None)
+
+    from airflow_mcp.runner.main import run_loop
+    with pytest.raises(SystemExit):
+        run_loop(task_store, {}, {}, "agent_docs", "http://localhost:11434", poll_interval_s=0.001)
+
+    assert call_count["n"] == 2
+
+
+# ── _cli (lines 361-368) ─────────────────────────────
+
+def test_cli_entry_point(monkeypatch, tmp_path):
+    """_cli が TaskStore, load_model_config, _load_registry を呼んで run_loop に渡すこと。"""
+    call_args = {}
+
+    def fake_run_loop(store, model_config, registry, *args, **kwargs):
+        call_args["store"] = store
+        call_args["model_config"] = model_config
+        call_args["registry"] = registry
+        raise SystemExit(0)
+
+    monkeypatch.setattr("airflow_mcp.runner.main.run_loop", fake_run_loop)
+    monkeypatch.setenv("AIRFLOW_TASKBOARD_DIR", str(tmp_path))
+
+    from airflow_mcp.runner.main import _cli
+    with pytest.raises(SystemExit):
+        _cli()
+
+    assert "store" in call_args
