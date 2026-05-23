@@ -12,6 +12,8 @@ from airflow_mcp.orchestrator.recommender import simple_rule_select
 from airflow_mcp.runner.main import (
     _build_messages,
     _call_ollama,
+    _execute_with_retry,
+    _get_fallback_model,
     _model_id_to_ollama_tag,
     _select_model,
     process_task,
@@ -181,3 +183,166 @@ def test_run_once_returns_zero_when_no_owned_tasks(task_store: TaskStore, sample
     task_store.claim(task["id"], "agent_other")
     n = run_once(task_store, {}, {}, "agent_docs", "http://localhost")
     assert n == 0
+
+
+# ── _execute_with_retry ────────────────────────────────────
+
+def test_execute_with_retry_stub_returns_valid():
+    os.environ["OLLAMA_STUB"] = "true"
+    messages = [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}]
+    schema = {"type": "object", "required": ["summary"],
+              "properties": {"summary": {"type": "string"}}}
+    content, parsed, valid, retries = _execute_with_retry(
+        "http://x", "model", messages, schema
+    )
+    assert valid is True
+    assert retries == 0
+
+
+def test_execute_with_retry_stops_on_success():
+    call_count = 0
+
+    def fake_call(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return '{"summary":"ok"}', {"summary": "ok"}, True
+
+    with patch("airflow_mcp.runner.main._call_ollama", side_effect=fake_call):
+        _, _, valid, retries = _execute_with_retry("http://x", "m", [], {})
+    assert valid is True
+    assert call_count == 1  # 最初の成功で停止
+
+
+# ── _get_fallback_model ────────────────────────────────────
+
+def test_get_fallback_model_returns_first_in_chain():
+    config = {"reroute": {"fallback_chain": {
+        "model_qwen25_14b_q4": ["model_qwen25_32b_q3"]
+    }}}
+    assert _get_fallback_model("model_qwen25_14b_q4", config) == "model_qwen25_32b_q3"
+
+
+def test_get_fallback_model_returns_none_when_no_chain():
+    config = {"reroute": {"fallback_chain": {"model_qwen25_32b_q3": []}}}
+    assert _get_fallback_model("model_qwen25_32b_q3", config) is None
+
+
+def test_get_fallback_model_returns_none_when_model_not_in_chain():
+    assert _get_fallback_model("unknown_model", {}) is None
+
+
+# ── reroute in process_task ───────────────────────────────
+
+def test_process_task_reroute_succeeds_with_fallback(
+    task_store: TaskStore, sample_task_fields: dict, monkeypatch
+):
+    """プライマリ失敗 → fallback_chain で再試行 → 成功 → done。"""
+    monkeypatch.setenv("OLLAMA_STUB", "false")
+    task = task_store.create(sample_task_fields)
+    task_store.claim(task["id"], "agent_docs")
+    task_in_progress = task_store.get(task["id"])
+
+    call_count = {"n": 0}
+
+    def fake_call(*args, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] <= 3:  # プライマリ: 3回失敗
+            return '{"bad":"field"}', {"bad": "field"}, False
+        # フォールバック: 成功
+        return '{"summary":"ok","key_points":["p1"]}', \
+               {"summary": "ok", "key_points": ["p1"]}, True
+
+    model_config = {
+        "reroute": {
+            "max_reroute_attempts": 1,
+            "fallback_chain": {"model_qwen25_14b_q4": ["model_qwen25_32b_q3"]},
+        }
+    }
+    registry = {
+        "model_qwen25_14b_q4": {"ollama_tag": "qwen2.5:14b", "preferred_tasks": []},
+        "model_qwen25_32b_q3": {"ollama_tag": "qwen2.5:32b", "preferred_tasks": []},
+    }
+
+    with patch("airflow_mcp.runner.main._select_model",
+               return_value=("model_qwen25_14b_q4", None)), \
+         patch("airflow_mcp.runner.main._call_ollama", side_effect=fake_call):
+        result = process_task(
+            task_in_progress, task_store, model_config, registry, "agent_docs", "http://localhost"
+        )
+
+    assert result is True
+    done = task_store.get(task["id"])
+    assert done["status"] == "done"
+    note = done["handoff_notes"][-1]["content"]
+    assert "reroute" in note  # reroute 情報が handoff_note に含まれる
+
+
+def test_process_task_reroute_also_fails_transitions_to_needs_human(
+    task_store: TaskStore, sample_task_fields: dict, monkeypatch
+):
+    """プライマリ + fallback 両方失敗 → needs_human に遷移。"""
+    monkeypatch.setenv("OLLAMA_STUB", "false")
+    task = task_store.create(sample_task_fields)
+    task_store.claim(task["id"], "agent_docs")
+    task_in_progress = task_store.get(task["id"])
+
+    def always_fail(*args, **kwargs):
+        return '{"bad":"x"}', {"bad": "x"}, False
+
+    model_config = {
+        "reroute": {
+            "max_reroute_attempts": 1,
+            "fallback_chain": {"model_qwen25_14b_q4": ["model_qwen25_32b_q3"]},
+        }
+    }
+    registry = {
+        "model_qwen25_14b_q4": {"ollama_tag": "qwen2.5:14b", "preferred_tasks": []},
+        "model_qwen25_32b_q3": {"ollama_tag": "qwen2.5:32b", "preferred_tasks": []},
+    }
+
+    with patch("airflow_mcp.runner.main._select_model",
+               return_value=("model_qwen25_14b_q4", None)), \
+         patch("airflow_mcp.runner.main._call_ollama", side_effect=always_fail):
+        result = process_task(
+            task_in_progress, task_store, model_config, registry, "agent_docs", "http://localhost"
+        )
+
+    assert result is False
+    assert task_store.get(task["id"])["status"] == "needs_human"
+
+
+def test_process_task_no_reroute_when_max_attempts_zero(
+    task_store: TaskStore, sample_task_fields: dict, monkeypatch
+):
+    """max_reroute_attempts=0 なら reroute しない。"""
+    monkeypatch.setenv("OLLAMA_STUB", "false")
+    task = task_store.create(sample_task_fields)
+    task_store.claim(task["id"], "agent_docs")
+    task_in_progress = task_store.get(task["id"])
+
+    calls: list[str] = []
+
+    def fake_call(url, model_tag, *args, **kwargs):
+        calls.append(model_tag)
+        return '{"bad":"x"}', {"bad": "x"}, False
+
+    model_config = {
+        "reroute": {
+            "max_reroute_attempts": 0,
+            "fallback_chain": {"model_qwen25_14b_q4": ["model_qwen25_32b_q3"]},
+        }
+    }
+    registry = {
+        "model_qwen25_14b_q4": {"ollama_tag": "qwen2.5:14b-q4", "preferred_tasks": []},
+        "model_qwen25_32b_q3": {"ollama_tag": "qwen2.5:32b-q3", "preferred_tasks": []},
+    }
+
+    with patch("airflow_mcp.runner.main._select_model",
+               return_value=("model_qwen25_14b_q4", None)), \
+         patch("airflow_mcp.runner.main._call_ollama", side_effect=fake_call):
+        process_task(
+            task_in_progress, task_store, model_config, registry, "agent_docs", "http://localhost"
+        )
+
+    # fallback モデルの tag が呼ばれていないこと
+    assert not any("32b" in c for c in calls), f"fallback が呼ばれた: {calls}"

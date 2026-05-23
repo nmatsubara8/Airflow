@@ -19,6 +19,7 @@ from mcp.server.stdio import stdio_server
 from ..common.audit import log_event, new_audit_id, now_iso
 from ..common.auth import get_token_from_env, require_scope
 from ..common.errors import AirflowError, ModelNotFound, ModelStructuredOutputInvalid
+from ..orchestrator.execution_log import update_feedback
 
 server = Server("models-mcp")
 
@@ -312,18 +313,24 @@ def _call_ollama(
 
 
 async def _model_feedback(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
+    """人間フィードバックを ExecutionLog に登録し KNN 学習データを更新（DDD-06 §5.3）。"""
     require_scope(token, "models:read")
-    log_id = args.get("execution_log_id")
-    if log_id and log_id in _execution_logs:
-        _execution_logs[log_id]["human_feedback"] = args["human_feedback"]
-    _feedback_store.append({
-        "task_id": args["task_id"],
-        "execution_log_id": log_id,
-        "human_feedback": args["human_feedback"],
-        "comment": args.get("comment"),
+    task_id = args["task_id"]
+    human_feedback = args["human_feedback"]
+
+    updated = update_feedback(task_id, human_feedback)
+    aid = new_audit_id()
+    log_event("info", "model.feedback_recorded", "models-mcp", aid,
+              task_id=task_id,
+              data={"human_feedback": human_feedback,
+                    "auto_score": updated.get("auto_score") if updated else None})
+
+    return _result({
+        "task_id": task_id,
+        "human_feedback": human_feedback,
+        "updated_record": updated,
         "recorded_at": now_iso(),
     })
-    return _result({"updated_log_ids": [log_id] if log_id else []})
 
 
 async def _model_stats(args: dict[str, Any], token: str | None) -> list[types.TextContent]:

@@ -142,6 +142,44 @@ def _call_ollama(
     return content, parsed, True
 
 
+def _execute_with_retry(
+    ollama_url: str,
+    model_tag: str,
+    messages: list[dict],
+    output_schema: dict,
+    temperature: float = 0.3,
+    max_tokens: int = 512,
+) -> tuple[str, dict | None, bool, int]:
+    """モデルを最大 _MAX_RETRY 回試行する。(content, parsed, schema_valid, retry_count)。"""
+    content = ""
+    parsed: dict | None = None
+    schema_valid = False
+    retry_count = 0
+    for attempt in range(_MAX_RETRY):
+        retry_count = attempt
+        try:
+            content, parsed, schema_valid = _call_ollama(
+                ollama_url, model_tag, messages, output_schema, temperature, max_tokens, attempt
+            )
+            if schema_valid:
+                break
+        except httpx.HTTPError as exc:
+            logger.error("ollama call failed attempt %d: %s", attempt + 1, exc)
+            if attempt == _MAX_RETRY - 1:
+                break
+        if not schema_valid:
+            logger.warning("schema invalid attempt %d/%d", attempt + 1, _MAX_RETRY)
+        time.sleep(0.5)
+    return content, parsed, schema_valid, retry_count
+
+
+def _get_fallback_model(model_id: str, model_config: dict[str, Any]) -> str | None:
+    """reroute.fallback_chain から次モデルを返す（DDD-06 §7.3）。"""
+    chain = model_config.get("reroute", {}).get("fallback_chain", {})
+    fallbacks = chain.get(model_id, [])
+    return fallbacks[0] if fallbacks else None
+
+
 def process_task(
     task: dict[str, Any],
     store: TaskStore,
@@ -152,10 +190,11 @@ def process_task(
 ) -> bool:
     """
     タスク 1 件を処理する。成功時 True、最終失敗時 False。
-    DDD-05 §9 の end-to-end フロー。
+    DDD-05 §9 + DDD-06 §7.3 の end-to-end フロー（reroute 含む）。
     """
     task_id = task["id"]
     aid = new_audit_id()
+    max_reroute = model_config.get("reroute", {}).get("max_reroute_attempts", 1)
 
     # system prompt & output schema 読み込み
     system_prompt = (
@@ -170,51 +209,60 @@ def process_task(
 
     # DDD-06 §4: KNN 推奨でモデルを選択
     model_id, exploration_type = _select_model(task, model_config, registry)
-    model_tag = _model_id_to_ollama_tag(model_id, registry)
     messages = _build_messages(task, system_prompt)
-    temperature = 0.3
-    max_tokens = 512
-
     start_ms = int(time.time() * 1000)
-    content = ""
-    parsed: dict | None = None
-    schema_valid = False
-    retry_count = 0
 
-    for attempt in range(_MAX_RETRY):
-        retry_count = attempt
-        try:
-            content, parsed, schema_valid = _call_ollama(
-                ollama_url, model_tag, messages, output_schema,
-                temperature, max_tokens, attempt
-            )
-            if schema_valid:
-                break
-            logger.warning("schema invalid attempt %d/%d for %s", attempt + 1, _MAX_RETRY, task_id)
-        except httpx.HTTPError as exc:
-            logger.error("ollama call failed attempt %d: %s", attempt + 1, exc)
-            if attempt == _MAX_RETRY - 1:
-                break
-        time.sleep(0.5)
-
+    # ── プライマリ実行 ────────────────────────────────────
+    model_tag = _model_id_to_ollama_tag(model_id, registry)
+    content, parsed, schema_valid, retry_count = _execute_with_retry(
+        ollama_url, model_tag, messages, output_schema
+    )
     latency_ms = int(time.time() * 1000) - start_ms
 
-    # DDD-06 §5: auto_score 算出 → ExecutionLog 記録
+    # DDD-06 §5: ExecutionLog 記録（プライマリ）
     try:
         exec_record = append_execution_log(
-            task_id=task_id,
-            agent_id=agent_id,
-            model_id=model_id,
+            task_id=task_id, agent_id=agent_id, model_id=model_id,
             features_snapshot=task.get("features", {}),
-            schema_valid=schema_valid,
-            retry_count=retry_count,
-            latency_ms=latency_ms,
-            exploration_type=exploration_type,
+            schema_valid=schema_valid, retry_count=retry_count,
+            latency_ms=latency_ms, exploration_type=exploration_type,
         )
         log_id = exec_record["id"]
     except Exception as exc:
         logger.warning("execution_log write failed: %s", exc)
         log_id = "log_" + aid[:16].lower()
+
+    # ── Reroute（DDD-06 §7.3）: プライマリ失敗時にフォールバックモデルで再試行 ──
+    rerouted_from: str | None = None
+    if not schema_valid and max_reroute > 0:
+        fallback_id = _get_fallback_model(model_id, model_config)
+        if fallback_id and fallback_id in registry:
+            rerouted_from = model_id
+            model_id = fallback_id
+            model_tag = _model_id_to_ollama_tag(fallback_id, registry)
+            reroute_start = int(time.time() * 1000)
+
+            log_event("info", "model.rerouted", "runner", new_audit_id(),
+                      task_id=task_id, agent_id=agent_id,
+                      data={"from": rerouted_from, "to": fallback_id})
+            logger.info("reroute %s → %s for %s", rerouted_from, fallback_id, task_id)
+
+            content, parsed, schema_valid, retry_count = _execute_with_retry(
+                ollama_url, model_tag, messages, output_schema
+            )
+            reroute_latency = int(time.time() * 1000) - reroute_start
+            latency_ms += reroute_latency
+
+            try:
+                exec_record = append_execution_log(
+                    task_id=task_id, agent_id=agent_id, model_id=fallback_id,
+                    features_snapshot=task.get("features", {}),
+                    schema_valid=schema_valid, retry_count=retry_count,
+                    latency_ms=reroute_latency, exploration_type="reroute",
+                )
+                log_id = exec_record["id"]
+            except Exception as exc:
+                logger.warning("execution_log write failed (reroute): %s", exc)
 
     log_event(
         "info" if schema_valid else "error",
@@ -228,17 +276,18 @@ def process_task(
             "message": f"{retry_count + 1}回リトライ後も schema 不適合",
         },
         data={"retry_count": retry_count, "schema_valid": schema_valid,
-              "exploration_type": exploration_type},
+              "exploration_type": exploration_type,
+              "rerouted_from": rerouted_from},
     )
 
     if not schema_valid:
         # 最終失敗 → needs_human に遷移（DDD-03 §3.4）
-        store.add_handoff_note(
-            task_id,
+        note = (
             f"[FAILED] {retry_count + 1}回試行後も構造化出力が schema に不適合。"
-            f"生の出力: {content[:300]}",
-            author=agent_id,
+            + (f" reroute({rerouted_from}→{model_id})も失敗。" if rerouted_from else "")
+            + f" 生の出力: {content[:200]}"
         )
+        store.add_handoff_note(task_id, note, author=agent_id)
         store.transition(task_id, "needs_human",
                          reason="MODEL_STRUCTURED_OUTPUT_INVALID after retries")
         logger.error("task %s → needs_human (schema invalid)", task_id)
@@ -248,18 +297,20 @@ def process_task(
     summary = parsed.get("summary", "") if parsed else content[:200]
     key_points = parsed.get("key_points", []) if parsed else []
     confidence = parsed.get("confidence", 0.0) if parsed else 0.0
+    reroute_note = f" | **reroute**: {rerouted_from}→{model_id}" if rerouted_from else ""
 
     handoff_content = (
         f"**要約**: {summary}\n\n"
         f"**重要ポイント**:\n" + "\n".join(f"- {p}" for p in key_points) + "\n\n"
         f"**確信度**: {confidence:.2f} | **モデル**: {model_id} | "
-        f"**レイテンシ**: {latency_ms}ms | **リトライ**: {retry_count}回 | "
-        f"**実行ログ**: {log_id}"
+        f"**レイテンシ**: {latency_ms}ms | **リトライ**: {retry_count}回"
+        f"{reroute_note} | **実行ログ**: {log_id}"
     )
     store.add_handoff_note(task_id, handoff_content, author=agent_id)
     store.transition(task_id, "done", reason="agent completed successfully")
 
-    logger.info("task %s → done (%.1fs, schema_valid=%s)", task_id, latency_ms / 1000, schema_valid)
+    logger.info("task %s → done (%.1fs, model=%s%s)", task_id, latency_ms / 1000, model_id,
+                f" via reroute from {rerouted_from}" if rerouted_from else "")
     return True
 
 

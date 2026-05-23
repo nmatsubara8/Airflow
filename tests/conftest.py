@@ -42,6 +42,14 @@ def sample_task_fields() -> dict:
     }
 
 
+@pytest.fixture(autouse=True)
+def _restore_ollama_stub():
+    """各テスト後に OLLAMA_STUB を元の値に戻す。"""
+    original = os.environ.get("OLLAMA_STUB", "true")
+    yield
+    os.environ["OLLAMA_STUB"] = original
+
+
 @pytest.fixture
 def vault_dir() -> Path:
     return VAULT_DIR

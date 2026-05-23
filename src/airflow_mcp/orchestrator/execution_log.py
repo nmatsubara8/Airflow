@@ -93,6 +93,59 @@ def append_execution_log(
     return record
 
 
+def update_feedback(
+    task_id: str,
+    human_feedback: str,
+    log_dir: str | Path = _DEFAULT_LOG_DIR,
+) -> dict[str, Any] | None:
+    """task_id に対応する最新 ExecutionLog に human_feedback を反映（DDD-06 §5.3）。
+
+    JSONL ファイルをインプレース書き換えし、更新済みレコードを返す。
+    対応レコードが見つからない場合は None を返す。
+    """
+    base = Path(log_dir)
+    if not base.exists():
+        return None
+
+    for jsonl_path in sorted(base.glob("*.jsonl"), reverse=True):
+        try:
+            lines = jsonl_path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+
+        updated_lines: list[str] = []
+        found: dict[str, Any] | None = None
+
+        # 最新レコード（末尾優先）を 1 件だけ更新
+        for line in reversed(lines):
+            if not line.strip():
+                updated_lines.insert(0, line)
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                updated_lines.insert(0, line)
+                continue
+
+            if found is None and record.get("task_id") == task_id:
+                record["human_feedback"] = human_feedback
+                record["auto_score"] = compute_auto_score(
+                    record.get("schema_valid", record.get("success", False)),
+                    record.get("retry_count", 0),
+                    human_feedback,
+                )
+                found = record
+                updated_lines.insert(0, json.dumps(record, ensure_ascii=False))
+            else:
+                updated_lines.insert(0, line)
+
+        if found is not None:
+            jsonl_path.write_text("\n".join(updated_lines) + "\n", encoding="utf-8")
+            return found
+
+    return None
+
+
 def load_history(
     log_dir: str | Path = _DEFAULT_LOG_DIR,
     window: int = 200,
