@@ -1,0 +1,4 @@
+{
+  "wrong_field": "This response is intentionally schema-invalid",
+  "another_wrong": 42
+}

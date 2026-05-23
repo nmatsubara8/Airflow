@@ -1,0 +1,11 @@
+{
+  "summary": "APIレート制限をRedis Sliding Window方式で実装する。IPとAPIキー単位で1分100req制限、429レスポンスとX-RateLimit-*ヘッダーを付与。",
+  "key_points": [
+    "Redis Sliding Window Counterアルゴリズムを使用",
+    "IPアドレスおよびAPIキー単位での制限",
+    "超過時は429 Too Many Requestsを返す",
+    "X-RateLimit-Limitなどのヘッダーを全レスポンスに付与"
+  ],
+  "confidence": 0.92,
+  "suggested_tags": ["backend", "api", "rate-limiting", "redis", "security"]
+}
