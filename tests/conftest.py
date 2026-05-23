@@ -50,6 +50,26 @@ def _restore_ollama_stub():
 
 
 @pytest.fixture
+def fake_stdio_ctx():
+    """asynccontextmanager として使える fake stdio_server を返す。
+
+    MCP サーバーの run() 関数をテストする際に共通利用する:
+
+        async def test_run(fake_stdio_ctx):
+            with patch("airflow_mcp.common.mcp.stdio_server", fake_stdio_ctx):
+                ...
+    """
+    from contextlib import asynccontextmanager
+    from unittest.mock import MagicMock
+
+    @asynccontextmanager
+    async def _ctx():
+        yield MagicMock(), MagicMock()
+
+    return _ctx
+
+
+@pytest.fixture
 def vault_dir() -> Path:
     return VAULT_DIR
 

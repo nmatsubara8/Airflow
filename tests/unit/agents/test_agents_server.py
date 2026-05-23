@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 import airflow_mcp.agents.server as agents_mod
+from tests.helpers import make_mcp_caller
 
 
 @pytest.fixture(autouse=True)
@@ -17,9 +18,7 @@ def reset_agents():
     agents_mod._agents.clear()
 
 
-async def _call(name: str, args: dict) -> dict:
-    result = await agents_mod.call_tool(name, args)
-    return json.loads(result[0].text)
+_call = make_mcp_caller(agents_mod.call_tool)
 
 
 # ── _load_agents ──────────────────────────────────────
@@ -248,18 +247,12 @@ async def test_call_tool_returns_mcp_result_on_airflow_error(monkeypatch):
 # ── run() ─────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_run_starts_stdio_server(monkeypatch):
-    from contextlib import asynccontextmanager
-    from unittest.mock import AsyncMock, MagicMock, patch
+async def test_run_starts_stdio_server(monkeypatch, fake_stdio_ctx):
+    from unittest.mock import AsyncMock, patch
 
     monkeypatch.setattr(agents_mod, "_AGENTS_DIR", Path("/nonexistent"))
-
-    @asynccontextmanager
-    async def fake_stdio_server():
-        yield MagicMock(), MagicMock()
-
     mock_run = AsyncMock()
-    with patch("airflow_mcp.common.mcp.stdio_server", fake_stdio_server), \
+    with patch("airflow_mcp.common.mcp.stdio_server", fake_stdio_ctx), \
          patch.object(agents_mod.server, "run", mock_run):
         await agents_mod.run()
 

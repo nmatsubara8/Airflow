@@ -6,6 +6,7 @@ import json
 import pytest
 
 import airflow_mcp.notes.server as notes_mod
+from tests.helpers import make_mcp_caller
 
 
 @pytest.fixture(autouse=True)
@@ -29,9 +30,7 @@ def _add_note(note_id: str, title: str, body: str,
     return note
 
 
-async def _call(name: str, args: dict) -> dict:
-    result = await notes_mod.call_tool(name, args)
-    return json.loads(result[0].text)
+_call = make_mcp_caller(notes_mod.call_tool)
 
 
 # ── notes.search ──────────────────────────────────────
@@ -207,17 +206,12 @@ async def test_list_tools_returns_all_tool_names():
 # ── run() (lines 193-194) ─────────────────────────────
 
 @pytest.mark.asyncio
-async def test_run_starts_stdio_server():
-    from contextlib import asynccontextmanager
-    from unittest.mock import AsyncMock, MagicMock, patch
+async def test_run_starts_stdio_server(fake_stdio_ctx):
+    from unittest.mock import AsyncMock, patch
     import airflow_mcp.notes.server as notes_mod
 
-    @asynccontextmanager
-    async def fake_stdio_server():
-        yield MagicMock(), MagicMock()
-
     mock_run = AsyncMock()
-    with patch("airflow_mcp.common.mcp.stdio_server", fake_stdio_server), \
+    with patch("airflow_mcp.common.mcp.stdio_server", fake_stdio_ctx), \
          patch.object(notes_mod.server, "run", mock_run):
         await notes_mod.run()
 

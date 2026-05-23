@@ -1,45 +1,37 @@
 """gpu/server.py の単体テスト（DDD-02 §6 / DDD-07）。"""
 from __future__ import annotations
 
-import json
-
 import pytest
 
 import airflow_mcp.gpu.server as gpu_mod
 from airflow_mcp.gpu.server import _free_vram
+from tests.helpers import make_mcp_caller
 from airflow_mcp.gpu.state_manager import GpuStateManager
 from airflow_mcp.scheduler.queue import QueueEntry, SchedulerQueue
+
+
+def _reset_gpu_state(tmp_path):
+    gpu_mod._gpu = GpuStateManager(
+        vram_available_gb=15.0,
+        vram_total_gb=16.0,
+        snapshot_path=tmp_path / "gpu_state.json",
+    )
+    gpu_mod._task_queues.clear()
+    gpu_mod._scheduler_queue = SchedulerQueue()
+    gpu_mod._profiles.clear()
+    gpu_mod._current_profile = None
+    gpu_mod._degraded = False
 
 
 @pytest.fixture(autouse=True)
 def reset_gpu_state(tmp_path):
     """各テスト前後に GPU 状態をリセット。"""
-    gpu_mod._gpu = GpuStateManager(
-        vram_available_gb=15.0,
-        vram_total_gb=16.0,
-        snapshot_path=tmp_path / "gpu_state.json",
-    )
-    gpu_mod._task_queues.clear()
-    gpu_mod._scheduler_queue = SchedulerQueue()
-    gpu_mod._profiles.clear()
-    gpu_mod._current_profile = None
-    gpu_mod._degraded = False
+    _reset_gpu_state(tmp_path)
     yield
-    gpu_mod._gpu = GpuStateManager(
-        vram_available_gb=15.0,
-        vram_total_gb=16.0,
-        snapshot_path=tmp_path / "gpu_state.json",
-    )
-    gpu_mod._task_queues.clear()
-    gpu_mod._scheduler_queue = SchedulerQueue()
-    gpu_mod._profiles.clear()
-    gpu_mod._current_profile = None
-    gpu_mod._degraded = False
+    _reset_gpu_state(tmp_path)
 
 
-async def _call(name: str, args: dict) -> dict:
-    result = await gpu_mod.call_tool(name, args)
-    return json.loads(result[0].text)
+_call = make_mcp_caller(gpu_mod.call_tool)
 
 
 # ── _free_vram ────────────────────────────────────────
@@ -283,19 +275,14 @@ async def test_list_tools_returns_expected_tool_names():
 # ── run() entry point (lines 263-265) ─────────────────
 
 @pytest.mark.asyncio
-async def test_run_starts_stdio_server(monkeypatch):
+async def test_run_starts_stdio_server(monkeypatch, fake_stdio_ctx):
     """run() が _load_config を呼び stdio_server を起動すること。"""
-    from contextlib import asynccontextmanager
     from unittest.mock import AsyncMock, MagicMock, patch
 
     monkeypatch.setattr(gpu_mod, "_PARALLEL_CONFIG", MagicMock(exists=lambda: False))
 
-    @asynccontextmanager
-    async def fake_stdio_server():
-        yield MagicMock(), MagicMock()
-
     mock_run = AsyncMock()
-    with patch("airflow_mcp.common.mcp.stdio_server", fake_stdio_server), \
+    with patch("airflow_mcp.common.mcp.stdio_server", fake_stdio_ctx), \
          patch.object(gpu_mod.server, "run", mock_run):
         await gpu_mod.run()
 

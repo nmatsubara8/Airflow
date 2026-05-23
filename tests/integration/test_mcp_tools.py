@@ -22,6 +22,7 @@ import airflow_mcp.taskboard.server as tb_mod
 from airflow_mcp.common.errors import AuthRateLimited
 from airflow_mcp.common.rate_limiter import RateLimiter, _limiter
 from airflow_mcp.taskboard.store import TaskStore
+from tests.helpers import make_mcp_caller
 
 
 # ── フィクスチャ ──────────────────────────────────────────────────────────
@@ -45,9 +46,7 @@ def reset_rate_limiter():
     _limiter._buckets.clear()
 
 
-async def _call(name: str, args: dict) -> dict:
-    result = await tb_mod.call_tool(name, args)
-    return json.loads(result[0].text)
+_call = make_mcp_caller(tb_mod.call_tool)
 
 
 def _make_task(title: str = "テストタスク", section: str = "engineering") -> dict:

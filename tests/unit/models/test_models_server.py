@@ -6,6 +6,7 @@ import json
 import pytest
 
 import airflow_mcp.models.server as models_mod
+from tests.helpers import make_mcp_caller
 
 
 @pytest.fixture(autouse=True)
@@ -31,9 +32,7 @@ def _add_model(model_id: str, **extra) -> dict:
     return model
 
 
-async def _call(name: str, args: dict) -> dict:
-    result = await models_mod.call_tool(name, args)
-    return json.loads(result[0].text)
+_call = make_mcp_caller(models_mod.call_tool)
 
 
 # ── model.list ────────────────────────────────────────

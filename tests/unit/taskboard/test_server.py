@@ -1,12 +1,11 @@
 """taskboard/server.py の単体テスト（DDD-02 §3）。"""
 from __future__ import annotations
 
-import json
-
 import pytest
 
 import airflow_mcp.taskboard.server as srv_mod
 from airflow_mcp.taskboard.store import TaskStore
+from tests.helpers import make_mcp_caller
 
 
 @pytest.fixture(autouse=True)
@@ -33,9 +32,7 @@ def _make_task(store: TaskStore, **overrides) -> dict:
     return store.create(fields)
 
 
-async def _call(name: str, args: dict) -> dict:
-    result = await srv_mod.call_tool(name, args)
-    return json.loads(result[0].text)
+_call = make_mcp_caller(srv_mod.call_tool)
 
 
 # ── _get_store singleton (line 42) ────────────────────
@@ -401,16 +398,11 @@ async def test_unknown_tool_returns_error():
 # ── run() (lines 457-458) ─────────────────────────────
 
 @pytest.mark.asyncio
-async def test_run_starts_stdio_server():
-    from contextlib import asynccontextmanager
-    from unittest.mock import AsyncMock, MagicMock, patch
-
-    @asynccontextmanager
-    async def fake_stdio_server():
-        yield MagicMock(), MagicMock()
+async def test_run_starts_stdio_server(fake_stdio_ctx):
+    from unittest.mock import AsyncMock, patch
 
     mock_server_run = AsyncMock()
-    with patch("airflow_mcp.common.mcp.stdio_server", fake_stdio_server), \
+    with patch("airflow_mcp.common.mcp.stdio_server", fake_stdio_ctx), \
          patch.object(srv_mod.server, "run", mock_server_run):
         await srv_mod.run()
 
