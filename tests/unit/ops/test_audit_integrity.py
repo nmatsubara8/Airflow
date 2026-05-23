@@ -1,0 +1,122 @@
+"""ops/audit_integrity.py の単体テスト（DDD-08 §4.5）。"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from airflow_mcp.ops.audit_integrity import (
+    _hash_path,
+    _sha256_file,
+    compute_chain_hash,
+    run_chain_hash,
+    verify_chain,
+)
+
+
+@pytest.fixture(autouse=True)
+def _patch_paths(tmp_path, monkeypatch):
+    logs_dir = tmp_path / "logs"
+    integrity_dir = logs_dir / "integrity"
+    logs_dir.mkdir()
+    integrity_dir.mkdir()
+    import airflow_mcp.ops.audit_integrity as mod
+    monkeypatch.setattr(mod, "_LOGS_DIR", logs_dir)
+    monkeypatch.setattr(mod, "_INTEGRITY_DIR", integrity_dir)
+
+
+# ── sha256_file ───────────────────────────────────────
+
+def test_sha256_file_returns_hex(tmp_path):
+    f = tmp_path / "test.jsonl"
+    f.write_text('{"event":"test"}\n')
+    h = _sha256_file(f)
+    assert len(h) == 64
+    assert all(c in "0123456789abcdef" for c in h)
+
+
+def test_sha256_file_empty_when_missing(tmp_path):
+    h = _sha256_file(tmp_path / "nonexistent.jsonl")
+    assert len(h) == 64  # sha256("") still produces a hash
+
+
+# ── compute_chain_hash ────────────────────────────────
+
+def test_chain_hash_differs_with_different_prev(tmp_path, monkeypatch):
+    import airflow_mcp.ops.audit_integrity as mod
+    logs_dir = tmp_path / "logs"
+    logs_dir.mkdir(exist_ok=True)
+    monkeypatch.setattr(mod, "_LOGS_DIR", logs_dir)
+    (logs_dir / "2026-01-01.jsonl").write_text('{"event":"a"}\n')
+    h1 = compute_chain_hash("2026-01-01", "prev_a")
+    h2 = compute_chain_hash("2026-01-01", "prev_b")
+    assert h1 != h2
+
+
+def test_chain_hash_same_for_same_inputs(tmp_path, monkeypatch):
+    import airflow_mcp.ops.audit_integrity as mod
+    logs_dir = tmp_path / "logs"
+    logs_dir.mkdir(exist_ok=True)
+    monkeypatch.setattr(mod, "_LOGS_DIR", logs_dir)
+    (logs_dir / "2026-01-01.jsonl").write_text('{"event":"a"}\n')
+    h1 = compute_chain_hash("2026-01-01", "prev")
+    h2 = compute_chain_hash("2026-01-01", "prev")
+    assert h1 == h2
+
+
+# ── run_chain_hash ────────────────────────────────────
+
+def test_run_chain_hash_creates_hash_file():
+    run_chain_hash("2026-01-01")
+    from airflow_mcp.ops.audit_integrity import _INTEGRITY_DIR
+    assert (_INTEGRITY_DIR / "2026-01-01.hash").exists()
+
+
+def test_run_chain_hash_returns_correct_fields():
+    result = run_chain_hash("2026-01-02")
+    assert result["date"] == "2026-01-02"
+    assert "hash" in result
+    assert "prev_hash" in result
+    assert "computed_at" in result
+
+
+def test_run_chain_hash_uses_prev_as_chain():
+    run_chain_hash("2026-01-01")
+    result2 = run_chain_hash("2026-01-02")
+    # 2 日目の prev_hash は 1 日目のハッシュと一致
+    from airflow_mcp.ops.audit_integrity import _INTEGRITY_DIR
+    record1 = json.loads((_INTEGRITY_DIR / "2026-01-01.hash").read_text())
+    assert result2["prev_hash"] == record1["hash"]
+
+
+# ── verify_chain ──────────────────────────────────────
+
+def test_verify_chain_no_failures_for_valid_chain():
+    run_chain_hash("2026-01-01")
+    run_chain_hash("2026-01-02")
+    failures = verify_chain()
+    assert failures == []
+
+
+def test_verify_chain_detects_tampered_hash():
+    run_chain_hash("2026-01-01")
+    from airflow_mcp.ops.audit_integrity import _INTEGRITY_DIR
+    # ハッシュを改ざん
+    path = _INTEGRITY_DIR / "2026-01-01.hash"
+    record = json.loads(path.read_text())
+    record["hash"] = "deadbeef" * 8
+    path.write_text(json.dumps(record))
+
+    run_chain_hash("2026-01-02")
+    failures = verify_chain()
+    # 改ざんされた日 or その翌日で破断を検出
+    assert len(failures) >= 1
+
+
+def test_verify_chain_since_filters_dates():
+    run_chain_hash("2026-01-01")
+    run_chain_hash("2026-01-02")
+    # since=2026-01-02 なら 1 日目は検査しない
+    failures = verify_chain(since="2026-01-02")
+    assert failures == []
