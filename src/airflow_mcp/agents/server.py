@@ -15,7 +15,6 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 import yaml
 
-from ..common.audit import log_event, new_audit_id
 from ..common.auth import get_token_from_env, require_scope
 from ..common.errors import AirflowError
 

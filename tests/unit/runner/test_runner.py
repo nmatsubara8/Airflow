@@ -460,7 +460,7 @@ def test_run_once_returns_zero_with_empty_store(task_store):
 
 # ── _get_fallback_model ───────────────────────────────
 
-def test_get_fallback_model_returns_first_in_chain():
+def test_get_fallback_model_uses_first_in_chain():
     config = {"reroute": {"fallback_chain": {"model_a": ["model_b", "model_c"]}}}
     assert _get_fallback_model("model_a", config) == "model_b"
 
