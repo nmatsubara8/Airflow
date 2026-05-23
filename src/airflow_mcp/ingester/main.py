@@ -70,13 +70,15 @@ def run_once(store: TaskStore, config: dict[str, Any]) -> int:
             if content_hash in _seen_hashes:
                 continue
 
-            # dedup: アクティブなタスクに同一 content_hash がないか確認（DDD-04 §5.3）
-            # done は _seen_hashes がプロセス内重複を防ぐ。needs_human/blocked も検索対象に含める。
+            # dedup: 全ステータスに同一 content_hash がないか確認（DDD-04 §6.3）
+            # done/cancelled を含めることでプロセス再起動後の再取り込みも防ぐ。
             existing = (
                 store.list_by_status("inbox")
                 + store.list_by_status("in_progress")
                 + store.list_by_status("needs_human")
                 + store.list_by_status("blocked")
+                + store.list_by_status("done")
+                + store.list_by_status("cancelled")
             )
             if any(t.get("content_hash") == content_hash for t in existing):
                 _seen_hashes.add(content_hash)

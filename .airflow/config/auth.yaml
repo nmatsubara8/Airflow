@@ -20,7 +20,7 @@ auth:
 
     agent:
       description: "Standard agent execution scope"
-      scopes: ["tasks:read", "tasks:write", "notes:read", "notes:search", "models:read", "gpu:read"]
+      scopes: ["tasks:read", "tasks:write", "notes:read", "notes:search", "models:read", "models:execute", "gpu:read", "gpu:reserve"]
 
     readonly:
       description: "Read-only monitoring"

@@ -208,7 +208,7 @@ async def _model_recommend(args: dict[str, Any], token: str | None) -> list[type
 
 
 async def _model_execute(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
-    require_scope(token, "models:read")  # execute は read スコープで可（Phase 2 MVP）
+    require_scope(token, "models:execute")
     model_id = args["model_id"]
     if model_id not in _models:
         raise ModelNotFound(model_id)
@@ -314,7 +314,7 @@ def _call_ollama(
 
 async def _model_feedback(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     """人間フィードバックを ExecutionLog に登録し KNN 学習データを更新（DDD-06 §5.3）。"""
-    require_scope(token, "models:read")
+    require_scope(token, "models:execute")
     task_id = args["task_id"]
     human_feedback = args["human_feedback"]
 
@@ -350,7 +350,7 @@ async def _model_stats(args: dict[str, Any], token: str | None) -> list[types.Te
 
 
 async def _model_register(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
-    require_scope(token, "models:read")
+    require_scope(token, "models:execute")
     model = args["model"]
     _models[model["id"]] = model
     return _result({"registered": model["id"]})

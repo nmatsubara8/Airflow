@@ -155,7 +155,7 @@ async def _gpu_state(args: dict[str, Any], token: str | None) -> list[types.Text
 
 
 async def _gpu_reserve(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
-    require_scope(token, "gpu:read")
+    require_scope(token, "gpu:reserve")
     model_id = args["model_id"]
     wait = args.get("wait", True)
 
@@ -206,7 +206,7 @@ async def _gpu_reserve(args: dict[str, Any], token: str | None) -> list[types.Te
 
 
 async def _gpu_release(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
-    require_scope(token, "gpu:read")
+    require_scope(token, "gpu:reserve")
     model_id = args["model_id"]
     before = len(_state["loaded_models"])
     _state["loaded_models"] = [m for m in _state["loaded_models"] if m["id"] != model_id]
@@ -234,7 +234,7 @@ async def _scheduler_queue_status(
 async def _scheduler_profile_switch(
     args: dict[str, Any], token: str | None
 ) -> list[types.TextContent]:
-    require_scope(token, "gpu:read")
+    require_scope(token, "gpu:reserve")
     profile_name = args["profile_name"]
     known = [p["name"] for p in _profiles]
     if profile_name not in known:
@@ -250,7 +250,7 @@ async def _scheduler_profile_switch(
 async def _scheduler_degrade(
     args: dict[str, Any], token: str | None
 ) -> list[types.TextContent]:
-    require_scope(token, "gpu:read")
+    require_scope(token, "gpu:reserve")
     _state["degraded"] = args["enabled"]
     log_event("warn" if args["enabled"] else "info",
               "scheduler.degraded" if args["enabled"] else "scheduler.degraded_recovered",

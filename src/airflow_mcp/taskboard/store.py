@@ -207,9 +207,9 @@ class TaskStore:
             task = json.loads(path.read_text())
             note = {
                 "id": "hn_" + new_audit_id()[:12].lower(),
-                "content": content,
-                "author": author,
-                "created_at": now_iso(),
+                "body": content,
+                "author": {"type": "agent", "id": author},
+                "timestamp": now_iso(),
             }
             task.setdefault("handoff_notes", []).append(note)
             task["updated_at"] = now_iso()

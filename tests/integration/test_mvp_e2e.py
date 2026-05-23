@@ -95,8 +95,8 @@ def test_mvp_e2e_completes_within_30_seconds(
     assert task["status"] == "done"
     assert len(task["handoff_notes"]) >= 1
     note = task["handoff_notes"][-1]
-    assert "要約" in note["content"]
-    assert note["author"] == "agent_docs"
+    assert "要約" in note["body"]
+    assert note["author"]["id"] == "agent_docs"
 
 
 def test_mvp_e2e_deduplicates_same_file(tmp_tasks_dir: Path, ingester_config: dict):

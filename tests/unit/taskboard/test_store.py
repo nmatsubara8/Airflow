@@ -167,7 +167,7 @@ def test_add_handoff_note_appends_to_list(task_store: TaskStore, sample_task_fie
     task_store.add_handoff_note(task["id"], "2番目のノート", author="agent_docs")
     fetched = task_store.get(task["id"])
     assert len(fetched["handoff_notes"]) == 2
-    assert fetched["handoff_notes"][0]["content"] == "最初のノート"
+    assert fetched["handoff_notes"][0]["body"] == "最初のノート"
 
 
 def test_add_handoff_note_has_required_fields(task_store: TaskStore, sample_task_fields: dict):
@@ -176,9 +176,11 @@ def test_add_handoff_note_has_required_fields(task_store: TaskStore, sample_task
     updated = task_store.add_handoff_note(task["id"], "内容", author="agent_docs")
     note = updated["handoff_notes"][0]
     assert "id" in note
-    assert "content" in note
+    assert "body" in note
     assert "author" in note
-    assert "created_at" in note
+    assert "timestamp" in note
+    assert note["author"]["type"] == "agent"
+    assert note["author"]["id"] == "agent_docs"
 
 
 # ── quarantine ────────────────────────────────────────────

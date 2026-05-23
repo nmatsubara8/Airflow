@@ -135,7 +135,7 @@ def test_process_task_stub_adds_handoff_note(task_store: TaskStore, sample_task_
     process_task(task_in_progress, task_store, {}, {}, "agent_docs", "http://localhost")
     done = task_store.get(task["id"])
     assert len(done["handoff_notes"]) >= 1
-    assert "要約" in done["handoff_notes"][-1]["content"]
+    assert "要約" in done["handoff_notes"][-1]["body"]
 
 
 def test_process_task_invalid_schema_transitions_to_needs_human(
@@ -273,7 +273,7 @@ def test_process_task_reroute_succeeds_with_fallback(
     assert result is True
     done = task_store.get(task["id"])
     assert done["status"] == "done"
-    note = done["handoff_notes"][-1]["content"]
+    note = done["handoff_notes"][-1]["body"]
     assert "reroute" in note  # reroute 情報が handoff_note に含まれる
 
 
