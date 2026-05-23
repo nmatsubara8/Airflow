@@ -16,6 +16,7 @@ from mcp.server import Server
 
 from ..common.audit import log_event, new_audit_id
 from ..common.auth import require_scope
+from ..common.errors import SchedulerProfileNotFound
 from ..common.mcp import dispatch, mcp_result, run_stdio_server
 from ..scheduler.profile import get_profile_models, select_best_profile
 from ..scheduler.queue import SchedulerQueue
@@ -208,8 +209,7 @@ async def _scheduler_profile_switch(
     profile_name = args["profile_name"]
     known = [p["name"] for p in _profiles]
     if profile_name not in known:
-        return mcp_result({"error": {"code": "UNKNOWN_PROFILE",
-                                  "message": f"'{profile_name}' は未定義。既知: {known}"}})
+        raise SchedulerProfileNotFound(profile_name, known)
     old = _current_profile
     _current_profile = profile_name
     log_event("info", "scheduler.profile_switched", "gpu-mcp", new_audit_id(),

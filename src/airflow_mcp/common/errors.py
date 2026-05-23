@@ -207,6 +207,15 @@ class NoteConfidentialAccessDenied(AirflowError):
 
 
 # ── GPU エラー ──────────────────────────────────────
+class SchedulerProfileNotFound(AirflowError):
+    def __init__(self, profile_name: str, known: list[str]) -> None:
+        super().__init__(
+            code="UNKNOWN_PROFILE",
+            message=f"'{profile_name}' は未定義。既知: {known}",
+            error_class="escalate",
+        )
+
+
 class GpuBusy(AirflowError):
     def __init__(self, retry_after_ms: int = 5000) -> None:
         super().__init__(
@@ -277,6 +286,15 @@ class SchemaVersionUnsupported(AirflowError):
 
 
 # ── 内部エラー ──────────────────────────────────────
+class AgentNotFound(AirflowError):
+    def __init__(self, agent_id: str) -> None:
+        super().__init__(
+            code="AGENT_NOT_FOUND",
+            message=f"エージェント '{agent_id}' が見つかりません",
+            error_class="escalate",
+        )
+
+
 class InternalTimeout(AirflowError):
     def __init__(self, operation: str, timeout_ms: int) -> None:
         super().__init__(

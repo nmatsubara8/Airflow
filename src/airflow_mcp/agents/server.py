@@ -14,6 +14,7 @@ from mcp.server import Server
 import yaml
 
 from ..common.auth import require_scope
+from ..common.errors import AgentNotFound
 from ..common.mcp import dispatch, mcp_result, run_stdio_server
 
 server = Server("agents-mcp")
@@ -112,8 +113,7 @@ async def _agents_get(args: dict[str, Any], token: str | None) -> list[types.Tex
     require_scope(token, "agents:read")
     agent_id = args["agent_id"]
     if agent_id not in _agents:
-        return mcp_result({"error": {"code": "AGENT_NOT_FOUND",
-                                  "message": f"エージェント '{agent_id}' が見つかりません"}})
+        raise AgentNotFound(agent_id)
     return mcp_result(_agents[agent_id])
 
 
