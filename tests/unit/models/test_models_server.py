@@ -204,3 +204,213 @@ async def test_model_feedback_returns_task_id(tmp_path, monkeypatch):
 async def test_unknown_tool_returns_error():
     result = await _call("model.unknown", {})
     assert "error" in result
+
+
+# ── _load_registry (lines 35-38) ─────────────────────
+
+def test_load_registry_reads_file(tmp_path, monkeypatch):
+    reg = tmp_path / "registry.json"
+    reg.write_text(json.dumps({"models": [
+        {"id": "model_from_file", "ollama_tag": "file:latest", "vram_gb": 8.0}
+    ]}))
+    monkeypatch.setattr(models_mod, "_REGISTRY_PATH", reg)
+    models_mod._models.clear()
+    models_mod._load_registry()
+    assert "model_from_file" in models_mod._models
+
+
+# ── list_tools (line 47) ──────────────────────────────
+
+@pytest.mark.asyncio
+async def test_list_tools_returns_all_seven_tools():
+    tools = await models_mod.list_tools()
+    names = [t.name for t in tools]
+    assert set(names) == {
+        "model.list", "model.get", "model.recommend",
+        "model.execute", "model.feedback", "model.stats", "model.register",
+    }
+
+
+# ── _model_recommend default else branch (lines 187-188) ─
+
+@pytest.mark.asyncio
+async def test_model_recommend_medium_accuracy_returns_14b(monkeypatch):
+    _add_model("model_qwen25_14b_q4")
+    monkeypatch.setattr("airflow_mcp.models.server.random.random", lambda: 1.0)
+    result = await _call("model.recommend", {
+        "features": {"required_accuracy": "medium", "latency_sensitivity": "batch"},
+    })
+    assert result["recommendations"][0]["model_id"] == "model_qwen25_14b_q4"
+    assert "14B" in result["recommendations"][0]["reason"]
+
+
+@pytest.mark.asyncio
+async def test_model_recommend_interactive_latency_returns_14b(monkeypatch):
+    _add_model("model_qwen25_14b_q4")
+    _add_model("model_qwen25_32b_q3")
+    monkeypatch.setattr("airflow_mcp.models.server.random.random", lambda: 1.0)
+    result = await _call("model.recommend", {
+        "features": {"required_accuracy": "high", "latency_sensitivity": "interactive"},
+    })
+    # high accuracy but interactive → else branch (14b)
+    assert result["recommendations"][0]["model_id"] == "model_qwen25_14b_q4"
+
+
+# ── ε-greedy branch (lines 196-197) ──────────────────
+
+@pytest.mark.asyncio
+async def test_model_recommend_epsilon_greedy_explores(monkeypatch):
+    _add_model("model_qwen25_14b_q4")
+    _add_model("model_qwen25_32b_q3")
+    monkeypatch.setattr("airflow_mcp.models.server.random.random", lambda: 0.0)
+    monkeypatch.setattr(
+        "airflow_mcp.models.server.random.choice",
+        lambda lst: lst[0],
+    )
+    result = await _call("model.recommend", {
+        "features": {"required_accuracy": "high", "latency_sensitivity": "batch"},
+    })
+    assert "ε-greedy" in result["recommendations"][0]["reason"]
+
+
+# ── _call_ollama non-stub paths (lines 275-317) ───────
+
+@pytest.mark.asyncio
+async def test_model_execute_httpx_basic_call(monkeypatch):
+    """非スタブ: httpx.post が正常応答を返す基本ケース（lines 275-310）。"""
+    from unittest.mock import MagicMock, patch
+    monkeypatch.setenv("OLLAMA_STUB", "false")
+    _add_model("model_qwen25_14b_q4")
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"message": {"content": "some output"}}
+    mock_resp.raise_for_status = lambda: None
+    with patch("httpx.post", return_value=mock_resp):
+        result = await _call("model.execute", {
+            "model_id": "model_qwen25_14b_q4",
+            "messages": [{"role": "user", "content": "hello"}],
+        })
+    assert result["content"] == "some output"
+
+
+@pytest.mark.asyncio
+async def test_model_execute_with_temperature_and_max_tokens(monkeypatch):
+    """options に temperature と num_predict が設定されること（lines 286-289）。"""
+    from unittest.mock import MagicMock, patch
+    monkeypatch.setenv("OLLAMA_STUB", "false")
+    _add_model("model_qwen25_14b_q4")
+    captured = {}
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"message": {"content": "ok"}}
+    mock_resp.raise_for_status = lambda: None
+
+    def fake_post(url, json, timeout):
+        captured["payload"] = json
+        return mock_resp
+
+    with patch("httpx.post", side_effect=fake_post):
+        await _call("model.execute", {
+            "model_id": "model_qwen25_14b_q4",
+            "messages": [{"role": "user", "content": "hi"}],
+            "temperature": 0.7,
+            "max_tokens": 128,
+        })
+    assert captured["payload"]["options"]["temperature"] == 0.7
+    assert captured["payload"]["options"]["num_predict"] == 128
+
+
+@pytest.mark.asyncio
+async def test_model_execute_structured_output_valid_schema(monkeypatch):
+    """structured_output.schema が valid JSON のとき parsed が返ること（lines 290-310）。"""
+    from unittest.mock import MagicMock, patch
+    monkeypatch.setenv("OLLAMA_STUB", "false")
+    _add_model("model_qwen25_14b_q4")
+    schema = {"type": "object", "required": ["summary"],
+              "properties": {"summary": {"type": "string"}}}
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"message": {"content": json.dumps({"summary": "ok"})}}
+    mock_resp.raise_for_status = lambda: None
+    with patch("httpx.post", return_value=mock_resp):
+        result = await _call("model.execute", {
+            "model_id": "model_qwen25_14b_q4",
+            "messages": [{"role": "user", "content": "hi"}],
+            "structured_output": {"schema": schema},
+        })
+    assert result["parsed"]["summary"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_model_execute_structured_output_schema_validation_fails(monkeypatch):
+    """schema 不適合 JSON → ModelStructuredOutputInvalid → AirflowError 応答（lines 303-314）。"""
+    from unittest.mock import MagicMock, patch
+    monkeypatch.setenv("OLLAMA_STUB", "false")
+    _add_model("model_qwen25_14b_q4")
+    schema = {"type": "object", "required": ["summary"],
+              "properties": {"summary": {"type": "string"}}}
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"message": {"content": json.dumps({"wrong": "field"})}}
+    mock_resp.raise_for_status = lambda: None
+    with patch("httpx.post", return_value=mock_resp):
+        result = await _call("model.execute", {
+            "model_id": "model_qwen25_14b_q4",
+            "messages": [{"role": "user", "content": "hi"}],
+            "structured_output": {"schema": schema},
+        })
+    assert "error" in result
+    assert result["error"]["code"] == "MODEL_STRUCTURED_OUTPUT_INVALID"
+
+
+@pytest.mark.asyncio
+async def test_model_execute_structured_output_json_decode_error(monkeypatch):
+    """content が JSON でないとき → ModelStructuredOutputInvalid（lines 307-308）。"""
+    from unittest.mock import MagicMock, patch
+    monkeypatch.setenv("OLLAMA_STUB", "false")
+    _add_model("model_qwen25_14b_q4")
+    schema = {"type": "object", "required": ["summary"],
+              "properties": {"summary": {"type": "string"}}}
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"message": {"content": "not json {"}}
+    mock_resp.raise_for_status = lambda: None
+    with patch("httpx.post", return_value=mock_resp):
+        result = await _call("model.execute", {
+            "model_id": "model_qwen25_14b_q4",
+            "messages": [{"role": "user", "content": "hi"}],
+            "structured_output": {"schema": schema},
+        })
+    assert "error" in result
+    assert result["error"]["code"] == "MODEL_STRUCTURED_OUTPUT_INVALID"
+
+
+@pytest.mark.asyncio
+async def test_model_execute_ollama_connection_error_falls_back(monkeypatch):
+    """httpx 接続失敗 → スタブフォールバック応答（lines 312-317）。"""
+    import httpx as _httpx
+    from unittest.mock import patch
+    monkeypatch.setenv("OLLAMA_STUB", "false")
+    _add_model("model_qwen25_14b_q4")
+    with patch("httpx.post", side_effect=_httpx.ConnectError("refused")):
+        result = await _call("model.execute", {
+            "model_id": "model_qwen25_14b_q4",
+            "messages": [{"role": "user", "content": "hi"}],
+        })
+    assert "content" in result
+    assert "Ollama 接続失敗" in result["content"]
+
+
+# ── run() entry point (lines 365-367) ─────────────────
+
+@pytest.mark.asyncio
+async def test_run_calls_load_registry_and_server(tmp_path, monkeypatch):
+    """run() が _load_registry を呼んだうえで stdio_server を起動すること。"""
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def fake_stdio_server():
+        yield MagicMock(), MagicMock()
+
+    mock_server_run = AsyncMock()
+    with patch("airflow_mcp.models.server.stdio_server", fake_stdio_server), \
+         patch.object(models_mod.server, "run", mock_server_run):
+        await models_mod.run()
+
+    mock_server_run.assert_awaited_once()
