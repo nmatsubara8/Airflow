@@ -7,3 +7,4 @@ __pycache__/
 .airflow/tasks/
 .airflow/audit_logs/
 .airflow/runtime/
+.coverage
