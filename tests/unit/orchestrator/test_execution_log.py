@@ -224,3 +224,88 @@ def test_update_feedback_skips_corrupt_json_line(log_dir: Path):
     result = update_feedback("task_corrupt_line", "accepted", log_dir=log_dir)
     assert result is not None
     assert result["human_feedback"] == "accepted"
+
+
+def test_update_feedback_oserror_on_read_is_skipped(log_dir: Path):
+    """read_text が OSError を raise したファイルはスキップすること（lines 113-114）。
+    chmod は root で効かないため read_text をモックする。"""
+    from unittest.mock import patch
+    import datetime
+    log_dir.mkdir(parents=True, exist_ok=True)
+    bad = log_dir / "2020-01.jsonl"
+    bad.write_text("")   # ファイルは存在する
+
+    with patch.object(Path, "read_text", side_effect=OSError("permission denied")):
+        result = update_feedback("any_task", "accepted", log_dir=log_dir)
+    assert result is None
+
+
+def test_update_feedback_preserves_empty_lines(log_dir: Path):
+    """JSONL に空行が含まれていても更新が正常動作すること（lines 122-123）。"""
+    import json as _json
+    import datetime
+    log_dir.mkdir(parents=True, exist_ok=True)
+    jsonl = log_dir / f"{datetime.date.today().strftime('%Y-%m')}.jsonl"
+    record = {"id": "log_y", "task_id": "task_empty",
+              "timestamp": "2026-05-23T00:00:00Z", "schema_valid": True,
+              "retry_count": 0, "auto_score": 0.7, "human_feedback": None}
+    # 空行を前後に挟む
+    jsonl.write_text("\n" + _json.dumps(record) + "\n\n", encoding="utf-8")
+    result = update_feedback("task_empty", "accepted", log_dir=log_dir)
+    assert result is not None
+    assert result["human_feedback"] == "accepted"
+
+
+def test_load_history_breaks_between_files_when_window_full(tmp_path: Path):
+    """window が最初のファイルで満たされたとき次ファイルを読まないこと（line 161）。"""
+    import json as _json
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    # 新しいファイル（ソート順で先に来る）に window 分のレコードを書く
+    newer = log_dir / "2026-05.jsonl"
+    older = log_dir / "2026-04.jsonl"
+    for i in range(5):
+        newer.open("a").write(
+            _json.dumps({"id": f"log_{i:04d}", "task_id": f"t{i}"}) + "\n"
+        )
+    older.write_text(_json.dumps({"id": "log_old", "task_id": "t_old"}) + "\n")
+
+    history = load_history(log_dir=log_dir, window=5)
+    assert len(history) == 5
+    assert all(r["task_id"] != "t_old" for r in history)
+
+
+def test_load_history_skips_corrupt_json_in_file(tmp_path: Path):
+    """JSONL 内の破損行をスキップして他レコードを返すこと（lines 169-170）。"""
+    import json as _json
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    jsonl = log_dir / "2026-05.jsonl"
+    good = {"id": "log_good", "task_id": "task_good"}
+    jsonl.write_text("{ invalid json\n" + _json.dumps(good) + "\n")
+    history = load_history(log_dir=log_dir)
+    assert any(r["task_id"] == "task_good" for r in history)
+
+
+def test_load_history_oserror_on_read_is_skipped(tmp_path: Path):
+    """read_text が OSError の .jsonl はスキップすること（lines 173-174）。"""
+    from unittest.mock import patch
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    bad = log_dir / "2026-05.jsonl"
+    bad.write_text("")
+
+    with patch.object(Path, "read_text", side_effect=OSError("unreadable")):
+        history = load_history(log_dir=log_dir)
+    assert history == []
+
+
+def test_update_feedback_preserves_other_task_records(log_dir: Path):
+    """更新対象でないレコードも else ブランチで保持されること（line 140）。"""
+    _append(log_dir, task_id="task_a")
+    _append(log_dir, task_id="task_b")
+    result = update_feedback("task_a", "accepted", log_dir=log_dir)
+    assert result is not None
+    # task_b のレコードも残っている
+    history = load_history(log_dir=log_dir)
+    assert any(r["task_id"] == "task_b" for r in history)
