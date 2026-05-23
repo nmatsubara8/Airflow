@@ -236,3 +236,68 @@ def test_fair_share_stored_in_module():
 async def test_unknown_tool_returns_error():
     result = await _call("gpu.unknown", {})
     assert "error" in result
+
+
+# ── _load_config with existing YAML (lines 42-64) ─────
+
+def test_load_config_reads_yaml_file(tmp_path, monkeypatch):
+    """config ファイルが存在するときすべてのフィールドが読み込まれること。"""
+    cfg_file = tmp_path / "parallel.yaml"
+    cfg_file.write_text(
+        "scheduler:\n  vram_available_gb: 12.0\n  vram_total_gb: 16.0\n"
+        "gpu:\n  pinned_models: []\n"
+        "profiles:\n  - name: test-profile\n    models: []\n    vram_required_gb: 12\n"
+        "mvp_profile: test-profile\n"
+        "starvation_prevention: {}\n"
+        "fair_share:\n  model_a: 0.5\n"
+    )
+    monkeypatch.setattr(gpu_mod, "_PARALLEL_CONFIG", cfg_file)
+    gpu_mod._load_config()
+    assert gpu_mod._current_profile == "test-profile"
+    assert gpu_mod._fair_share.get("model_a") == pytest.approx(0.5)
+    assert any(p["name"] == "test-profile" for p in gpu_mod._profiles)
+
+
+# ── _load_registry_cache return {} (line 72) ──────────
+
+def test_load_registry_cache_returns_empty_when_no_file(monkeypatch):
+    """AIRFLOW_REGISTRY が存在しないとき {} を返すこと。"""
+    monkeypatch.setenv("AIRFLOW_REGISTRY", "/nonexistent/registry.json")
+    result = gpu_mod._load_registry_cache()
+    assert result == {}
+
+
+# ── list_tools() body (line 110) ──────────────────────
+
+@pytest.mark.asyncio
+async def test_list_tools_returns_expected_tool_names():
+    tools = await gpu_mod.list_tools()
+    names = [t.name for t in tools]
+    assert "gpu.state" in names
+    assert "gpu.reserve" in names
+    assert "gpu.release" in names
+    assert "scheduler.queue_status" in names
+    assert "scheduler.profile_switch" in names
+    assert "scheduler.degrade" in names
+
+
+# ── run() entry point (lines 263-265) ─────────────────
+
+@pytest.mark.asyncio
+async def test_run_starts_stdio_server(monkeypatch):
+    """run() が _load_config を呼び stdio_server を起動すること。"""
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    monkeypatch.setattr(gpu_mod, "_PARALLEL_CONFIG", MagicMock(exists=lambda: False))
+
+    @asynccontextmanager
+    async def fake_stdio_server():
+        yield MagicMock(), MagicMock()
+
+    mock_run = AsyncMock()
+    with patch("airflow_mcp.gpu.server.stdio_server", fake_stdio_server), \
+         patch.object(gpu_mod.server, "run", mock_run):
+        await gpu_mod.run()
+
+    mock_run.assert_awaited_once()
