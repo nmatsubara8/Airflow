@@ -145,3 +145,133 @@ def test_run_once_handles_parse_error_gracefully(tmp_path, task_store):
     # パース例外をキャッチして 0 を返すこと（クラッシュしない）
     n = run_once(task_store, config)
     assert n == 0
+
+
+def test_run_once_skips_nonexistent_watch_path(task_store):
+    """存在しない watch パスは quietly スキップすること（line 53）。"""
+    import airflow_mcp.ingester.main as im
+    im._seen_hashes.clear()
+    config = {"watch": {"paths": ["/nonexistent/vault/path"], "glob": "*.md", "exclude": []},
+              "stability": {"settle_ms": 0, "max_file_size_bytes": 524288}}
+    n = run_once(task_store, config)
+    assert n == 0
+
+
+def test_run_once_skips_excluded_files(tmp_path, task_store):
+    """exclude パターンにマッチするファイルをスキップすること（line 56）。"""
+    archive = tmp_path / "archive"
+    archive.mkdir()
+    md = archive / "old_task.md"
+    md.write_text("---\ntitle: 旧タスク\nsection: engineering\n---\n本文")
+
+    import airflow_mcp.ingester.main as im
+    im._seen_hashes.clear()
+
+    config = {"watch": {"paths": [str(tmp_path)], "glob": "**/*.md",
+                        "exclude": ["archive/*"]},
+              "stability": {"settle_ms": 0, "max_file_size_bytes": 524288}}
+    n = run_once(task_store, config)
+    assert n == 0
+
+
+def test_run_once_skips_unstable_file(tmp_path, task_store):
+    """settle_ms が大きいと直後に作成したファイルはスキップされること（line 61）。"""
+    md = tmp_path / "new.md"
+    md.write_text("---\ntitle: 新規\nsection: engineering\n---\n本文")
+
+    import airflow_mcp.ingester.main as im
+    im._seen_hashes.clear()
+
+    config = {"watch": {"paths": [str(tmp_path)], "glob": "*.md", "exclude": []},
+              "stability": {"settle_ms": 999_999_000, "max_file_size_bytes": 524288}}
+    n = run_once(task_store, config)
+    assert n == 0
+
+
+def test_run_once_dedup_from_store(tmp_path, task_store):
+    """_seen_hashes をクリアしてもストア内に同一 content_hash があれば再取り込みしないこと（lines 84-85）。"""
+    md = tmp_path / "task.md"
+    md.write_text("---\ntitle: 重複テスト\nsection: engineering\n---\n本文")
+
+    import airflow_mcp.ingester.main as im
+    im._seen_hashes.clear()
+
+    config = {"watch": {"paths": [str(tmp_path)], "glob": "*.md", "exclude": []},
+              "stability": {"settle_ms": 0, "max_file_size_bytes": 524288}}
+
+    # 1回目：正常に ingested
+    n1 = run_once(task_store, config)
+    assert n1 == 1
+
+    # _seen_hashes をクリアして「プロセス再起動後」をシミュレート
+    im._seen_hashes.clear()
+
+    # 2回目：ストアに既存のハッシュがあるので再取り込みしない
+    n2 = run_once(task_store, config)
+    assert n2 == 0
+
+
+# ── run_loop ───────────────────────────────────────────
+
+def test_run_loop_runs_once_then_stops(task_store, monkeypatch):
+    """run_loop が run_once を呼び n>0 のときログを出力すること（lines 125-134）。"""
+    import pytest
+    call_count = {"n": 0}
+
+    def fake_run_once(store, config):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return 1  # n>0 → logger.info branch
+        raise SystemExit(0)
+
+    monkeypatch.setattr("airflow_mcp.ingester.main.run_once", fake_run_once)
+    monkeypatch.setattr("airflow_mcp.ingester.main.time.sleep", lambda s: None)
+
+    from airflow_mcp.ingester.main import run_loop
+    with pytest.raises(SystemExit):
+        run_loop(task_store, {}, poll_interval_ms=100)
+
+    assert call_count["n"] == 2
+
+
+def test_run_loop_catches_run_once_exception(task_store, monkeypatch):
+    """run_loop が run_once の例外を catch してループを継続すること（lines 132-133）。"""
+    import pytest
+    call_count = {"n": 0}
+
+    def fake_run_once(store, config):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise RuntimeError("store temporarily unavailable")
+        raise SystemExit(0)
+
+    monkeypatch.setattr("airflow_mcp.ingester.main.run_once", fake_run_once)
+    monkeypatch.setattr("airflow_mcp.ingester.main.time.sleep", lambda s: None)
+
+    from airflow_mcp.ingester.main import run_loop
+    with pytest.raises(SystemExit):
+        run_loop(task_store, {})
+
+    assert call_count["n"] == 2
+
+
+# ── _cli ───────────────────────────────────────────────
+
+def test_cli_entry_point(tmp_path, monkeypatch):
+    """_cli が TaskStore と load_config を呼んで run_loop に渡すこと（lines 138-143）。"""
+    import pytest
+    call_args = {}
+
+    def fake_run_loop(store, config):
+        call_args["store"] = store
+        call_args["config"] = config
+        raise SystemExit(0)
+
+    monkeypatch.setattr("airflow_mcp.ingester.main.run_loop", fake_run_loop)
+    monkeypatch.setenv("AIRFLOW_TASKBOARD_DIR", str(tmp_path))
+
+    from airflow_mcp.ingester.main import _cli
+    with pytest.raises(SystemExit):
+        _cli()
+
+    assert "store" in call_args
