@@ -25,8 +25,7 @@ import httpx
 import yaml
 from jsonschema import Draft202012Validator
 
-from ..common.audit import log_event, new_audit_id, now_iso
-from ..common.errors import ModelStructuredOutputInvalid
+from ..common.audit import log_event, new_audit_id
 from ..common.url_validator import validate_ollama_url
 from ..orchestrator.execution_log import append_execution_log, load_history
 from ..orchestrator.recommender import select_model, simple_rule_select

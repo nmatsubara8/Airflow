@@ -15,12 +15,12 @@ import yaml
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 
-from ..common.audit import log_event, new_audit_id, now_iso
+from ..common.audit import log_event, new_audit_id
 from ..common.auth import get_token_from_env, require_scope
 from ..common.rate_limiter import check_rate_limit
-from ..common.errors import AirflowError, GpuBusy
+from ..common.errors import AirflowError
 from ..scheduler.profile import get_profile_models, select_best_profile
-from ..scheduler.queue import QueueEntry, SchedulerQueue
+from ..scheduler.queue import SchedulerQueue
 from .state_manager import GpuStateManager
 
 server = Server("gpu-mcp")

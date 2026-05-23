@@ -21,7 +21,6 @@ import logging
 import os
 import threading
 import time
-from pathlib import Path
 
 from .common.url_validator import validate_ollama_url
 from .dispatcher.main import load_config as load_dispatch_config, run_loop as dispatcher_loop

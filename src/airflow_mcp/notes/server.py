@@ -7,14 +7,13 @@ Phase 2 MVP: Qdrant 未接続のため search は fixture ベースのスタブ�
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
 import mcp.types as types
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 
-from ..common.audit import log_event, new_audit_id, now_iso
+from ..common.audit import log_event, new_audit_id
 from ..common.auth import get_token_from_env, require_scope
 from ..common.rate_limiter import check_rate_limit
 from ..common.errors import AirflowError, NoteNotFound
