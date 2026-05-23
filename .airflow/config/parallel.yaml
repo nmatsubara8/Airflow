@@ -1,0 +1,59 @@
+# Parallel Scheduler Configuration (DDD-07)
+# Phase 2 MVP: single model execution; expand in Phase 4
+
+scheduler:
+  ollama_num_parallel: 2         # OLLAMA_NUM_PARALLEL env var
+  vram_total_gb: 16
+  vram_reserve_gb: 1             # OS / driver headroom
+  vram_available_gb: 15          # effective = total - reserve
+
+starvation_prevention:
+  max_consecutive_same_model: 10
+  max_wait_before_boost_s: 600   # aging: boost priority after 10 min
+  deadline_warn_s: 300           # warn if task waits > 5 min
+  force_run_s: 3600              # force-run regardless of VRAM after 1 hr
+
+fair_share:
+  model_qwen25_32b_q3: 0.30      # 32B gets at least 30% of slots
+  model_qwen25_14b_q4: 0.50      # 14B gets at least 50%
+  model_llama31_8b_q4: 0.20      # 8B (Phase 3+)
+
+profiles:
+  - name: single-32b
+    models:
+      - model_qwen25_32b_q3
+      - model_bge_m3
+    vram_required_gb: 15
+    description: "High-accuracy single model + embedding"
+
+  - name: single-14b
+    models:
+      - model_qwen25_14b_q4
+      - model_bge_m3
+    vram_required_gb: 10
+    description: "MVP default: balanced speed/accuracy + embedding"
+
+  - name: 14b-plus-8b
+    models:
+      - model_qwen25_14b_q4
+      - model_llama31_8b_q4
+      - model_bge_m3
+    vram_required_gb: 14
+    description: "Phase 3+: dual inference + embedding"
+
+  - name: dual-8b-plus-emb
+    models:
+      - model_llama31_8b_q4
+      - model_qwen25_7b_q4
+      - model_bge_m3
+    vram_required_gb: 11
+    description: "Phase 4+: low-latency dual small models"
+
+  - name: coder-plus-emb
+    models:
+      - model_qwen25_coder_32b_q3
+      - model_bge_m3
+    vram_required_gb: 15
+    description: "Phase 3+: code-specialized single model"
+
+mvp_profile: single-14b          # active profile for Phase 2

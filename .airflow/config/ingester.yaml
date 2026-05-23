@@ -1,0 +1,43 @@
+# Vault Ingestion Configuration (DDD-04)
+# Monitors Obsidian Vault directories and converts .md files into tasks
+
+watch:
+  paths:
+    - "${VAULT_ROOT}/Inbox"          # primary drop zone (MVP target)
+    - "${VAULT_ROOT}/Projects"       # project notes
+    - "${VAULT_ROOT}/Daily"          # daily notes
+  glob: "**/*.md"
+  exclude:
+    - "**/_archive/**"
+    - "**/.trash/**"
+    - "**/templates/**"
+
+stability:
+  settle_ms: 3000                    # wait for file writes to settle
+  poll_interval_ms: 5000             # fallback poll if inotify unavailable
+  max_file_size_bytes: 524288        # 512 KB limit
+
+parsing:
+  frontmatter: true                  # extract YAML frontmatter as metadata
+  body_max_tokens: 4096              # truncate body before embedding
+  title_from_h1: true                # use first H1 as task title if no frontmatter.title
+
+embedding:
+  backend: qdrant
+  qdrant_url: "http://localhost:6333"
+  collection: "airflow_notes"
+  model_id: model_bge_m3
+  dimensions: 1024
+  batch_size: 8
+
+dedup:
+  enabled: true
+  method: content_hash               # sha256 of normalized body
+  window_hours: 72                   # ignore re-ingestion within 72h
+
+output:
+  task_status: inbox
+  vault_subfolder_to_category:
+    Inbox: null                      # dispatcher resolves category
+    Projects: engineering
+    Daily: null

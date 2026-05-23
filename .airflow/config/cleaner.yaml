@@ -1,0 +1,27 @@
+# Cleaner Agent Configuration (DDD-08)
+# Manages archival of completed tasks and stale execution logs
+
+cleaner:
+  schedule: "weekly_cleanup"         # references schedules.yaml
+
+  tasks:
+    archive_done_after_days: 30      # move done tasks to _archive/ after 30d
+    archive_failed_after_days: 7     # move failed tasks to _archive/ after 7d
+    purge_archive_after_days: 365    # delete archived tasks after 1 year
+    corrupt_quarantine_dir: "tasks/_corrupt"
+
+  execution_logs:
+    archive_after_days: 14           # compress logs older than 14d
+    purge_after_days: 90             # delete logs older than 90d
+    compress_format: gzip
+
+  notes:
+    orphan_check: true               # flag notes with no linked task
+    orphan_after_days: 60
+
+  qdrant:
+    cleanup_deleted_notes: true      # remove embeddings for purged notes
+    batch_size: 100
+
+  dry_run: false                     # set true to preview without deleting
+  notify_on_error: true              # send alert via notifications.yaml on failure

@@ -1,0 +1,47 @@
+# Authentication & Authorization Configuration (DDD-08 §4)
+# Phase 2 MVP: API key mode. JWT upgrade planned for Phase 5.
+
+auth:
+  mode: api_key                      # api_key | jwt (Phase 5)
+  token_header: "X-Airflow-Token"
+
+  # API keys are stored in environment variables, not this file.
+  # Expected env vars:
+  #   AIRFLOW_API_KEY_ADMIN
+  #   AIRFLOW_API_KEY_AGENT
+  #   AIRFLOW_API_KEY_READONLY
+  key_env_prefix: "AIRFLOW_API_KEY_"
+
+  roles:
+    admin:
+      description: "Full access including config changes"
+      scopes: ["tasks:*", "agents:*", "models:*", "gpu:*", "notes:*", "config:*"]
+
+    agent:
+      description: "Standard agent execution scope"
+      scopes: ["tasks:read", "tasks:write", "notes:read", "notes:search", "models:read", "gpu:read"]
+
+    readonly:
+      description: "Read-only monitoring"
+      scopes: ["tasks:read", "agents:read", "models:read", "gpu:read"]
+
+rate_limit:
+  algorithm: token_bucket
+  default:
+    capacity: 100                    # max burst
+    refill_rate: 10                  # tokens per second
+  per_role:
+    admin:
+      capacity: 500
+      refill_rate: 50
+    agent:
+      capacity: 200
+      refill_rate: 20
+    readonly:
+      capacity: 50
+      refill_rate: 5
+
+mcp_auth:
+  require_token: true
+  token_expiry_s: 3600               # 1 hour session token
+  localhost_bypass: true             # no auth for 127.0.0.1 (Phase 2 convenience)

@@ -1,0 +1,56 @@
+# Notification Configuration (DDD-08 §6)
+# Alerts for escalation, failures, and scheduled reports
+
+notifications:
+  channels:
+    slack:
+      enabled: true
+      webhook_url: "${SLACK_WEBHOOK_URL}"  # set in environment
+      default_channel: "#airflow-alerts"
+      mention_on_critical: "@here"
+
+  triggers:
+    # Task escalation — needs human review
+    escalation:
+      channel: slack
+      slack_channel: "#airflow-alerts"
+      severity: warning
+      template: |
+        *[Escalation]* タスク `{task_id}` が needs_human に遷移しました。
+        エラー: `{error_code}` — {error_message}
+        担当エージェント: {agent_id} | 監査ID: {audit_id}
+
+    # Fatal error
+    fatal_error:
+      channel: slack
+      slack_channel: "#airflow-alerts"
+      severity: critical
+      template: |
+        *[FATAL]* コンポーネント `{component}` で致命的エラーが発生しました。
+        エラー: `{error_code}` — {error_message}
+        監査ID: {audit_id}
+
+    # VRAM near limit
+    vram_warning:
+      channel: slack
+      slack_channel: "#airflow-alerts"
+      severity: warning
+      threshold_gb: 1.0              # alert when free VRAM < 1GB
+      template: |
+        *[VRAM Warning]* 空き VRAM が {free_gb:.1f}GB になりました。
+        ロード中モデル: {loaded_models}
+
+    # Nightly batch completion report
+    batch_report:
+      channel: slack
+      slack_channel: "#airflow-reports"
+      severity: info
+      schedule: "nightly_engineering_review"
+      template: |
+        *[夜間バッチ完了]* {date}
+        処理タスク数: {total} | 成功: {success} | エスカレーション: {escalated}
+        平均レイテンシ: {avg_latency_ms}ms | 平均スコア: {avg_score:.2f}
+
+  retry:
+    max_attempts: 3
+    backoff_s: 5
