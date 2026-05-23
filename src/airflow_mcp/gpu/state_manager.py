@@ -32,15 +32,20 @@ class GpuStateManager:
         vram_total_gb: float = 16.0,
         pinned_models: list[str] | None = None,
         snapshot_path: str | Path = _SNAPSHOT_PATH,
+        snapshot_interval_s: float = 0,
     ) -> None:
         self._lock = threading.Lock()
         self._vram_available = vram_available_gb
         self._vram_total = vram_total_gb
         self._pinned: set[str] = set(pinned_models or [])
         self._snapshot_path = Path(snapshot_path)
+        self._snapshot_timer: threading.Timer | None = None
 
         # model_id → {id, vram_gb, loaded_at, last_used_at, pending_tasks, pinned}
         self._loaded: dict[str, dict[str, Any]] = {}
+
+        if snapshot_interval_s > 0:
+            self._start_periodic_snapshot(snapshot_interval_s)
 
     # ── 公開 API ──────────────────────────────────────────
 
@@ -194,3 +199,22 @@ class GpuStateManager:
             )
         except Exception as exc:
             logger.warning("gpu snapshot write failed: %s", exc)
+
+    def _start_periodic_snapshot(self, interval_s: float) -> None:
+        """DDD-07 §9.4: 定期スナップショット書き込みを開始する。"""
+        def _tick() -> None:
+            with self._lock:
+                self._write_snapshot()
+            self._snapshot_timer = threading.Timer(interval_s, _tick)
+            self._snapshot_timer.daemon = True
+            self._snapshot_timer.start()
+
+        self._snapshot_timer = threading.Timer(interval_s, _tick)
+        self._snapshot_timer.daemon = True
+        self._snapshot_timer.start()
+
+    def stop_periodic_snapshot(self) -> None:
+        """定期スナップショットを停止する。"""
+        if self._snapshot_timer is not None:
+            self._snapshot_timer.cancel()
+            self._snapshot_timer = None

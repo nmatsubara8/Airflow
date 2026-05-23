@@ -181,6 +181,55 @@ async def test_scheduler_degrade_disables_degraded_mode():
     assert gpu_mod._degraded is False
 
 
+# ── get_model_config_with_degraded ────────────────────
+
+def test_model_config_reflects_degraded_flag():
+    gpu_mod._degraded = False
+    cfg = gpu_mod.get_model_config_with_degraded()
+    assert cfg["degraded"] is False
+
+    gpu_mod._degraded = True
+    cfg = gpu_mod.get_model_config_with_degraded()
+    assert cfg["degraded"] is True
+
+
+# ── suggest_profile_switch ────────────────────────────
+
+def test_suggest_profile_switch_returns_current_when_no_profiles():
+    gpu_mod._profiles.clear()
+    gpu_mod._current_profile = "single-14b"
+    result = gpu_mod.suggest_profile_switch()
+    assert result == "single-14b"
+
+
+def test_suggest_profile_switch_auto_selects():
+    gpu_mod._profiles.extend([
+        {"name": "single-14b", "models": ["m14b"], "vram_required_gb": 10},
+        {"name": "single-32b", "models": ["m32b"], "vram_required_gb": 15},
+    ])
+    gpu_mod._current_profile = None
+    gpu_mod._scheduler_queue.enqueue(QueueEntry(task_id="t1", model_id="m32b"))
+    result = gpu_mod.suggest_profile_switch()
+    assert result == "single-32b"
+
+
+# ── scheduler.queue_status includes degraded ──────────
+
+@pytest.mark.asyncio
+async def test_queue_status_includes_degraded_flag():
+    gpu_mod._degraded = True
+    result = await _call("scheduler.queue_status", {})
+    assert result["degraded"] is True
+
+
+# ── fair_share config ─────────────────────────────────
+
+def test_fair_share_stored_in_module():
+    gpu_mod._fair_share.clear()
+    gpu_mod._fair_share.update({"model_a": 0.5, "model_b": 0.5})
+    assert gpu_mod._fair_share["model_a"] == 0.5
+
+
 # ── 不明ツール名 ──────────────────────────────────────
 
 @pytest.mark.asyncio

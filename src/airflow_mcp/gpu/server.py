@@ -32,23 +32,39 @@ _scheduler_queue: SchedulerQueue = SchedulerQueue()
 _profiles: list[dict] = []
 _current_profile: str | None = None
 _degraded: bool = False
+_fair_share: dict[str, float] = {}
+_registry: dict[str, dict] = {}
 
 
 def _load_config() -> None:
-    global _current_profile
+    global _current_profile, _scheduler_queue, _gpu
     if _PARALLEL_CONFIG.exists():
         cfg = yaml.safe_load(_PARALLEL_CONFIG.read_text())
         sched = cfg.get("scheduler", {})
         pinned = cfg.get("gpu", {}).get("pinned_models", [])
-        global _gpu
         _gpu = GpuStateManager(
             vram_available_gb=sched.get("vram_available_gb", 15.0),
             vram_total_gb=sched.get("vram_total_gb", 16.0),
             pinned_models=pinned,
+            snapshot_interval_s=5.0,
         )
         _profiles.clear()
         _profiles.extend(cfg.get("profiles", []))
         _current_profile = cfg.get("mvp_profile")
+
+        starvation_cfg = cfg.get("starvation_prevention", {})
+        _scheduler_queue = SchedulerQueue(starvation_config=starvation_cfg)
+
+        _fair_share.clear()
+        _fair_share.update(cfg.get("fair_share", {}))
+
+
+def _load_registry_cache() -> dict[str, dict]:
+    registry_path = Path(os.environ.get("AIRFLOW_REGISTRY", ".airflow/models/registry.json"))
+    if registry_path.exists():
+        data = json.loads(registry_path.read_text())
+        return {m["id"]: m for m in data.get("models", [])}
+    return {}
 
 
 def _result(data: Any) -> list[types.TextContent]:
@@ -57,6 +73,31 @@ def _result(data: Any) -> list[types.TextContent]:
 
 def _free_vram() -> float:
     return _gpu.free_vram_gb
+
+
+def get_model_config_with_degraded() -> dict[str, Any]:
+    """affinity scorer に渡す model_config を構築する（degraded 状態を反映）。"""
+    return {"degraded": _degraded}
+
+
+def suggest_profile_switch() -> str | None:
+    """キュー深度に基づきプロファイル自動選択を実施する（DDD-07 §4.2）。"""
+    global _current_profile
+    if not _profiles:
+        return _current_profile
+    depths = _scheduler_queue.model_depths()
+    registry = _load_registry_cache()
+    current_models = get_profile_models(_profiles, _current_profile)
+    best = select_best_profile(
+        _profiles, depths, _current_profile, current_models,
+        _gpu.free_vram_gb, registry,
+    )
+    if best and best != _current_profile:
+        old = _current_profile
+        _current_profile = best
+        log_event("info", "scheduler.auto_profile_switch", "gpu-mcp", new_audit_id(),
+                  data={"from": old, "to": best})
+    return _current_profile
 
 
 @server.list_tools()
@@ -157,13 +198,9 @@ async def _gpu_reserve(args: dict[str, Any], token: str | None) -> list[types.Te
     model_id = args["model_id"]
     wait = args.get("wait", True)
 
-    registry_path = Path(os.environ.get("AIRFLOW_REGISTRY", ".airflow/models/registry.json"))
-    registry: dict[str, dict] = {}
-    if registry_path.exists():
-        data = json.loads(registry_path.read_text())
-        registry = {m["id"]: m for m in data.get("models", [])}
-
+    registry = _load_registry_cache()
     result = _gpu.reserve(model_id=model_id, wait=wait, registry=registry)
+    _gpu.touch(model_id)
     return _result(result)
 
 

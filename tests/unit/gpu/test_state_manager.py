@@ -166,3 +166,24 @@ def test_snapshot_used_vram_is_sum_of_loaded(mgr):
     mgr.reserve("model_bge", registry=_REGISTRY)
     snap = mgr.snapshot()
     assert snap["used_vram_gb"] == pytest.approx(10.0)
+
+
+# ── periodic snapshot ────────────────────────────────
+
+def test_periodic_snapshot_writes_file(tmp_path):
+    import time
+    snap_path = tmp_path / "periodic_gpu.json"
+    mgr = GpuStateManager(
+        snapshot_path=snap_path,
+        snapshot_interval_s=0.1,
+    )
+    mgr.reserve("model_14b", registry=_REGISTRY)
+    time.sleep(0.25)
+    mgr.stop_periodic_snapshot()
+    assert snap_path.exists()
+    data = json.loads(snap_path.read_text())
+    assert data["schema_version"] == "1.0.0"
+
+
+def test_stop_periodic_snapshot_is_safe_when_not_started(mgr):
+    mgr.stop_periodic_snapshot()  # should not raise
