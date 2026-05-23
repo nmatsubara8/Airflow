@@ -217,6 +217,25 @@ class TaskStore:
                 path.unlink(missing_ok=True)
         return task
 
+    def assign(self, task_id: str, new_owner_id: str) -> dict[str, Any]:
+        """オーナーをアトミックに変更する（TOCTOU 対策: M-6）。
+
+        ロック内でステータスを再確認し、in_progress なら TaskInvalidTransition を raise する。
+        """
+        with self._lock(task_id):
+            path = self._find_task_path(task_id)
+            if path is None:
+                raise TaskNotFound(task_id)
+            task = json.loads(path.read_text())
+            if task["status"] == "in_progress":
+                raise TaskInvalidTransition("in_progress", "reassign")
+            task["owner"] = new_owner_id
+            task["updated_at"] = now_iso()
+            task["lock"]["version"] += 1
+            task["lock"]["etag"] = _etag(task)
+            self._write_atomic(path, task)
+        return task
+
     def add_handoff_note(self, task_id: str, content: str, author: str) -> dict[str, Any]:
         with self._lock(task_id):
             path = self._find_task_path(task_id)

@@ -363,11 +363,7 @@ async def _tasks_assign(args: dict[str, Any], token: str | None) -> list[types.T
     new_owner = args["new_owner"]
     meta = args.get("_meta", {})
 
-    task = store.get(task_id)  # raises TaskNotFound
-    if task["status"] == "in_progress":
-        raise TaskInvalidTransition("in_progress", "reassign")
-
-    task = store.update(task_id, task["lock"]["version"], {"owner": new_owner["id"]})
+    task = store.assign(task_id, new_owner["id"])  # atomic: lock → check → write (M-6)
     _record_audit("task.assigned", task_id=task_id,
                   agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"),
                   data={"new_owner": new_owner, "reason": args.get("reason")})

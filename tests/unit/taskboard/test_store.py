@@ -199,3 +199,64 @@ def test_etag_changes_after_update(task_store: TaskStore, sample_task_fields: di
     original_etag = task["lock"]["etag"]
     updated = task_store.update(task["id"], 1, {"description": "変更"})
     assert updated["lock"]["etag"] != original_etag
+
+
+# ── assign (M-6 TOCTOU 対策) ──────────────────────────────
+
+def test_assign_changes_owner_atomically(task_store: TaskStore, sample_task_fields: dict):
+    """inbox タスクのオーナー変更がアトミックに行われること。"""
+    task = task_store.create(sample_task_fields)
+    updated = task_store.assign(task["id"], "human_reviewer_01")
+    assert updated["owner"] == "human_reviewer_01"
+    assert updated["lock"]["version"] == 2
+
+
+def test_assign_raises_invalid_transition_when_in_progress(
+    task_store: TaskStore, sample_task_fields: dict
+):
+    """in_progress タスクへの assign はロック内で TaskInvalidTransition を raise すること（M-6）。"""
+    task = task_store.create(sample_task_fields)
+    task_store.claim(task["id"], "agent_docs")
+    with pytest.raises(TaskInvalidTransition):
+        task_store.assign(task["id"], "human_reviewer_01")
+
+
+def test_assign_toctou_claim_wins(task_store: TaskStore, sample_task_fields: dict):
+    """claim と assign が競合した場合、claim 後の assign は TaskInvalidTransition になること（M-6）。
+
+    これは旧実装の TOCTOU ウィンドウに相当するシナリオ:
+      スレッド A が get() でステータス確認（inbox）
+      スレッド B が claim() で in_progress へ遷移
+      スレッド A が assign() しようとすると → TaskInvalidTransition
+    """
+    task = task_store.create(sample_task_fields)
+    task_id = task["id"]
+
+    barrier = threading.Barrier(2)
+    results: list[Exception | None] = [None, None]
+
+    def do_claim():
+        barrier.wait()
+        try:
+            task_store.claim(task_id, "agent_docs")
+        except Exception as e:
+            results[0] = e
+
+    def do_assign():
+        barrier.wait()
+        try:
+            task_store.assign(task_id, "human_reviewer_01")
+        except (TaskInvalidTransition, TaskLockConflict) as e:
+            results[1] = e
+
+    t_claim = threading.Thread(target=do_claim)
+    t_assign = threading.Thread(target=do_assign)
+    t_claim.start(); t_assign.start()
+    t_claim.join(); t_assign.join()
+
+    # claim か assign のどちらか一方だけが成功する
+    failures = sum(1 for r in results if r is not None)
+    assert failures == 1, "並行 claim/assign で片方だけが成功すること"
+    # claim が成功した場合、assign は TaskInvalidTransition になること
+    if results[0] is None:
+        assert isinstance(results[1], TaskInvalidTransition)
