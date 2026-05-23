@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 
-from airflow_mcp.ingester.parser import frontmatter_to_task_fields, parse_markdown
+from airflow_mcp.ingester.parser import frontmatter_to_task_fields, infer_section, normalize_path, parse_markdown
 
 
 # ── parse_markdown ────────────────────────────────────────
@@ -90,13 +90,13 @@ def test_frontmatter_to_task_fields_maps_section(tmp_path: Path):
     assert fields["section"] == "business"
 
 
-def test_frontmatter_to_task_fields_default_section_is_none(tmp_path: Path):
-    # section 未指定の場合は None を返し、dispatcher が section を決定する（DDD-04 §6.4）
+def test_frontmatter_to_task_fields_default_section_is_orchestration(tmp_path: Path):
+    # section 未指定 かつ category 未指定の場合は infer_section がデフォルト "orchestration" を返す（DDD-04 §6.4）
     md = tmp_path / "t.md"
     md.write_text("---\ntitle: T\n---\n本文")
     parsed = parse_markdown(md)
     fields = frontmatter_to_task_fields(parsed)
-    assert fields["section"] is None
+    assert fields["section"] == "orchestration"
 
 
 def test_frontmatter_to_task_fields_maps_tags(tmp_path: Path):
@@ -178,3 +178,67 @@ def test_frontmatter_to_task_fields_top_level_task_type(tmp_path: Path):
     parsed = parse_markdown(md)
     fields = frontmatter_to_task_fields(parsed)
     assert fields["features"]["task_type"] == "summarize"
+
+
+# ── infer_section ─────────────────────────────────────
+
+def test_infer_section_uses_explicit_section():
+    fm = {"section": "engineering", "category": "content"}
+    assert infer_section(fm) == "engineering"
+
+
+def test_infer_section_maps_architecture_to_engineering():
+    assert infer_section({"category": "architecture"}) == "engineering"
+
+
+def test_infer_section_maps_blog_to_content():
+    assert infer_section({"category": "blog"}) == "content"
+
+
+def test_infer_section_maps_marketing_to_business():
+    assert infer_section({"category": "marketing"}) == "business"
+
+
+def test_infer_section_maps_concept_to_orchestration():
+    assert infer_section({"category": "concept"}) == "orchestration"
+
+
+def test_infer_section_defaults_to_orchestration_for_unknown():
+    assert infer_section({"category": "unknown_category"}) == "orchestration"
+
+
+def test_infer_section_defaults_when_no_category():
+    assert infer_section({}) == "orchestration"
+
+
+# ── normalize_path ────────────────────────────────────
+
+def test_normalize_path_converts_windows_backslash():
+    assert normalize_path(r"D:\vaults\notes") == "/mnt/d/vaults/notes"
+
+
+def test_normalize_path_converts_windows_forward_slash():
+    assert normalize_path("D:/vaults/notes") == "/mnt/d/vaults/notes"
+
+
+def test_normalize_path_lowercases_drive_letter():
+    assert normalize_path(r"C:\Users\me") == "/mnt/c/Users/me"
+
+
+def test_normalize_path_leaves_posix_unchanged():
+    assert normalize_path("/home/user/notes") == "/home/user/notes"
+
+
+def test_normalize_path_converts_mixed_slashes_on_posix():
+    assert normalize_path("/home/user\\notes") == "/home/user/notes"
+
+
+# ── frontmatter_to_task_fields uses infer_section ────
+
+def test_frontmatter_to_task_fields_infers_section_from_category(tmp_path):
+    from airflow_mcp.ingester.parser import parse_markdown, frontmatter_to_task_fields
+    md = tmp_path / "note.md"
+    md.write_text("---\ncategory: architecture\n---\n# body")
+    parsed = parse_markdown(md)
+    fields = frontmatter_to_task_fields(parsed)
+    assert fields["section"] == "engineering"

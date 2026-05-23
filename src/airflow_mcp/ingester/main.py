@@ -15,12 +15,15 @@ import yaml
 
 from ..common.audit import log_event, new_audit_id
 from ..taskboard.store import TaskStore
-from .parser import frontmatter_to_task_fields, parse_markdown
+from .notes_index import load_index, note_id_for_path, save_index, upsert_note
+from .parser import frontmatter_to_task_fields, normalize_path, parse_markdown
 
 logger = logging.getLogger(__name__)
 
 # 既処理ファイルの content_hash セット（dedup, DDD-04 §5.3）
 _seen_hashes: set[str] = set()
+
+_notes_index_path: Path = Path(".airflow/notes/index.json")
 
 
 def load_config(config_path: str = ".airflow/config/ingester.yaml") -> dict[str, Any]:
@@ -30,24 +33,55 @@ def load_config(config_path: str = ".airflow/config/ingester.yaml") -> dict[str,
     return {}
 
 
+def _write_processed_at(path: Path, processed_at: str) -> None:
+    """フロントマターに processed_at を追記する（DDD-04 §6.2 step 9）。
+    失敗してもタスクは既に登録済みなので例外を抑制する。"""
+    try:
+        raw = path.read_text(encoding="utf-8")
+        if raw.startswith("---"):
+            parts = raw.split("---", 2)
+            if len(parts) >= 3:
+                raw = f"---{parts[1]}processed_at: {processed_at}\n---{parts[2]}"
+        path.write_text(raw, encoding="utf-8")
+    except OSError:
+        pass
+
+
 def run_once(store: TaskStore, config: dict[str, Any]) -> int:
     """監視パスをスキャンして未処理 .md をタスク化する。作成数を返す。"""
-    watch_paths: list[str] = [
-        p.replace("${VAULT_ROOT}", os.environ.get("VAULT_ROOT", ""))
-        for p in (config.get("watch", {}).get("paths") or [])
-    ]
-    if not watch_paths:
+    # watch_paths: list of {path, auto_dispatch, recursive} (DDD-04 §5.1)
+    # Also supports legacy watch.paths flat list (auto_dispatch defaults to True)
+    watch_entries: list[dict[str, Any]] = []
+    if "watch_paths" in config:
+        for entry in config["watch_paths"]:
+            raw_path = entry.get("path", "").replace(
+                "${VAULT_ROOT}", os.environ.get("VAULT_ROOT", "")
+            )
+            watch_entries.append({
+                "path": normalize_path(raw_path),
+                "auto_dispatch": entry.get("auto_dispatch", True),
+            })
+    else:
+        for p in (config.get("watch", {}).get("paths") or []):
+            raw = p.replace("${VAULT_ROOT}", os.environ.get("VAULT_ROOT", ""))
+            watch_entries.append({"path": normalize_path(raw), "auto_dispatch": True})
+
+    if not watch_entries:
         vault_root = os.environ.get("VAULT_ROOT", "")
         if vault_root:
-            watch_paths = [vault_root]
+            watch_entries = [{"path": vault_root, "auto_dispatch": True}]
 
     settle_ms: int = config.get("stability", {}).get("settle_ms", 500)
     max_bytes: int = config.get("stability", {}).get("max_file_size_bytes", 524288)
     glob_pattern: str = config.get("watch", {}).get("glob", "**/*.md")
     exclude: list[str] = config.get("watch", {}).get("exclude", [])
 
+    notes_index = load_index(_notes_index_path)
     created = 0
-    for watch_path in watch_paths:
+
+    for entry in watch_entries:
+        watch_path = entry["path"]
+        auto_dispatch: bool = entry["auto_dispatch"]
         base = Path(watch_path)
         if not base.exists():
             continue
@@ -67,11 +101,30 @@ def run_once(store: TaskStore, config: dict[str, Any]) -> int:
                 continue
 
             content_hash = parsed["content_hash"]
+            source_path = parsed["source_path"]
+            note_id = note_id_for_path(source_path)
+            confidential: bool = parsed["frontmatter"].get("confidential", False)
+
+            # notes index に upsert（confidential 問わず記録）
+            upsert_note(
+                notes_index,
+                note_id=note_id,
+                source_path=source_path,
+                title=parsed["title"],
+                content_hash=content_hash,
+                frontmatter=parsed["frontmatter"],
+                confidential=confidential,
+            )
+
+            # auto_dispatch=False または confidential=True のパスはタスク生成しない
+            if not auto_dispatch or confidential:
+                _seen_hashes.add(content_hash)
+                continue
+
             if content_hash in _seen_hashes:
                 continue
 
-            # dedup: 全ステータスに同一 content_hash がないか確認（DDD-04 §6.3）
-            # done/cancelled を含めることでプロセス再起動後の再取り込みも防ぐ。
+            # dedup: 全ステータスに同一 content_hash がないか確認
             existing = (
                 store.list_by_status("inbox")
                 + store.list_by_status("in_progress")
@@ -85,18 +138,22 @@ def run_once(store: TaskStore, config: dict[str, Any]) -> int:
                 continue
 
             fields = frontmatter_to_task_fields(parsed)
-            task = store.create({
-                **fields,
-                "owner": None,
-            })
+            fields["source_note_id"] = note_id
+            task = store.create({**fields, "owner": None})
             _seen_hashes.add(content_hash)
+
+            from ..common.audit import now_iso
+            processed_at = now_iso()
+            _write_processed_at(md_path, processed_at)
+
             aid = new_audit_id()
             log_event("info", "task.ingested", "ingester", aid,
                       task_id=task["id"],
-                      data={"source_path": str(md_path), "title": task["title"]})
+                      data={"source_path": source_path, "title": task["title"]})
             logger.info("ingested: %s → %s", md_path.name, task["id"])
             created += 1
 
+    save_index(notes_index, _notes_index_path)
     return created
 
 

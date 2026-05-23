@@ -269,3 +269,153 @@ def test_cli_entry_point(tmp_path, monkeypatch):
         _cli()
 
     assert "store" in call_args
+
+
+def test_run_once_skips_task_creation_when_auto_dispatch_false(tmp_path, task_store):
+    """auto_dispatch=False のパスではノートはインデックスされるがタスクは生成されない（DDD-04 §5.1）。"""
+    import airflow_mcp.ingester.main as im
+    im._seen_hashes.clear()
+
+    md = tmp_path / "note.md"
+    md.write_text("---\ntitle: 参照ノート\nsection: engineering\n---\n本文")
+
+    config = {
+        "watch_paths": [{"path": str(tmp_path), "auto_dispatch": False}],
+        "watch": {"glob": "*.md", "exclude": []},
+        "stability": {"settle_ms": 0, "max_file_size_bytes": 524288},
+    }
+    n = run_once(task_store, config)
+    assert n == 0
+    assert task_store.list_by_status("inbox") == []
+
+
+def test_run_once_skips_task_creation_for_confidential_notes(tmp_path, task_store):
+    """confidential: true のノートはタスク生成しない（DDD-04 §5.5）。"""
+    import airflow_mcp.ingester.main as im
+    im._seen_hashes.clear()
+
+    md = tmp_path / "secret.md"
+    md.write_text("---\ntitle: 機密ノート\nsection: engineering\nconfidential: true\n---\n本文")
+
+    config = {
+        "watch_paths": [{"path": str(tmp_path), "auto_dispatch": True}],
+        "watch": {"glob": "*.md", "exclude": []},
+        "stability": {"settle_ms": 0, "max_file_size_bytes": 524288},
+    }
+    n = run_once(task_store, config)
+    assert n == 0
+    assert task_store.list_by_status("inbox") == []
+
+
+def test_run_once_writes_processed_at_to_frontmatter(tmp_path, task_store):
+    """タスク生成後に processed_at をフロントマターに追記する（F-L28）。"""
+    import airflow_mcp.ingester.main as im
+    im._seen_hashes.clear()
+
+    md = tmp_path / "inbox.md"
+    md.write_text("---\ntitle: Inbox ノート\nsection: engineering\n---\n本文")
+
+    config = {
+        "watch_paths": [{"path": str(tmp_path), "auto_dispatch": True}],
+        "watch": {"glob": "*.md", "exclude": []},
+        "stability": {"settle_ms": 0, "max_file_size_bytes": 524288},
+    }
+    n = run_once(task_store, config)
+    assert n == 1
+    updated = md.read_text(encoding="utf-8")
+    assert "processed_at:" in updated
+
+
+def test_run_once_sets_source_note_id_on_task(tmp_path, task_store):
+    """タスクに source_note_id が設定されること（DDD-04 §6.2）。"""
+    import airflow_mcp.ingester.main as im
+    im._seen_hashes.clear()
+
+    md = tmp_path / "note.md"
+    md.write_text("---\ntitle: ノート\nsection: engineering\n---\n本文")
+
+    config = {
+        "watch_paths": [{"path": str(tmp_path), "auto_dispatch": True}],
+        "watch": {"glob": "*.md", "exclude": []},
+        "stability": {"settle_ms": 0, "max_file_size_bytes": 524288},
+    }
+    run_once(task_store, config)
+    tasks = task_store.list_by_status("inbox")
+    assert tasks[0].get("source_note_id", "").startswith("note_")
+
+
+def test_run_once_updates_notes_index(tmp_path, task_store, monkeypatch):
+    """notes/index.json が更新されること（DDD-04 §7）。"""
+    import airflow_mcp.ingester.main as im
+    im._seen_hashes.clear()
+
+    index_path = tmp_path / "notes_index.json"
+    monkeypatch.setattr(im, "_notes_index_path", index_path)
+
+    md = tmp_path / "note.md"
+    md.write_text("---\ntitle: インデックステスト\nsection: engineering\n---\n本文")
+
+    config = {
+        "watch_paths": [{"path": str(tmp_path), "auto_dispatch": True}],
+        "watch": {"glob": "*.md", "exclude": []},
+        "stability": {"settle_ms": 0, "max_file_size_bytes": 524288},
+    }
+    run_once(task_store, config)
+    assert index_path.exists()
+    import json
+    idx = json.loads(index_path.read_text())
+    assert len(idx["notes"]) == 1
+
+
+def test_run_once_indexes_confidential_note_without_creating_task(tmp_path, task_store, monkeypatch):
+    """confidential ノートはインデックスには記録されるがタスクは生成しない。"""
+    import airflow_mcp.ingester.main as im
+    im._seen_hashes.clear()
+
+    index_path = tmp_path / "notes_index.json"
+    monkeypatch.setattr(im, "_notes_index_path", index_path)
+
+    md = tmp_path / "secret.md"
+    md.write_text("---\ntitle: 機密\nsection: engineering\nconfidential: true\n---\n本文")
+
+    config = {
+        "watch_paths": [{"path": str(tmp_path), "auto_dispatch": True}],
+        "watch": {"glob": "*.md", "exclude": []},
+        "stability": {"settle_ms": 0, "max_file_size_bytes": 524288},
+    }
+    n = run_once(task_store, config)
+    assert n == 0
+    import json
+    idx = json.loads(index_path.read_text())
+    note = list(idx["notes"].values())[0]
+    assert note["confidential"] is True
+
+
+def test_write_processed_at_adds_to_existing_frontmatter(tmp_path):
+    """_write_processed_at が既存フロントマターに processed_at を追記する。"""
+    from airflow_mcp.ingester.main import _write_processed_at
+    md = tmp_path / "note.md"
+    md.write_text("---\ntitle: テスト\n---\n本文")
+    _write_processed_at(md, "2026-05-23T00:00:00Z")
+    content = md.read_text()
+    assert "processed_at: 2026-05-23T00:00:00Z" in content
+    assert "title: テスト" in content
+
+
+def test_write_processed_at_handles_file_without_frontmatter(tmp_path):
+    """フロントマターなしのファイルでも crash しないこと。"""
+    from airflow_mcp.ingester.main import _write_processed_at
+    md = tmp_path / "plain.md"
+    md.write_text("# 本文のみ\n内容")
+    _write_processed_at(md, "2026-05-23T00:00:00Z")
+    # crash しないことを確認
+
+
+def test_write_processed_at_suppresses_os_error(tmp_path):
+    """OSError を抑制すること。"""
+    from unittest.mock import patch
+    from airflow_mcp.ingester.main import _write_processed_at
+    md = tmp_path / "note.md"
+    md.write_text("---\ntitle: T\n---\n本文")
+    with patch.object(md.__class__, "write_text", side_effect=OSError("disk full")):
+        _write_processed_at(md, "2026-05-23T00:00:00Z")  # must not raise

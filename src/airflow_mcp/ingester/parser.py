@@ -8,6 +8,43 @@ from typing import Any
 
 import yaml
 
+_CATEGORY_SECTION_MAP: dict[str, str] = {
+    "architecture": "engineering",
+    "code": "engineering",
+    "tech": "engineering",
+    "content": "content",
+    "script": "content",
+    "blog": "content",
+    "business": "business",
+    "marketing": "business",
+    "legal": "business",
+    "workflow": "orchestration",
+    "concept": "orchestration",
+}
+
+
+def infer_section(frontmatter: dict[str, Any]) -> str:
+    """section / category から section を推定する（DDD-04 §6.4）。"""
+    if "section" in frontmatter:
+        return frontmatter["section"]
+    return _CATEGORY_SECTION_MAP.get(frontmatter.get("category", ""), "orchestration")
+
+
+def normalize_path(path_str: str) -> str:
+    """Windows パスを POSIX 絶対パスに正規化する（DDD-04 §5.6）。
+
+    D:\\vaults\\notes → /mnt/d/vaults/notes
+    D:/vaults/notes  → /mnt/d/vaults/notes
+    """
+    import re as _re
+    p = path_str.strip()
+    m = _re.match(r'^([A-Za-z]):[\\/](.*)', p)
+    if m:
+        drive = m.group(1).lower()
+        rest = m.group(2).replace('\\', '/')
+        return f"/mnt/{drive}/{rest}"
+    return p.replace('\\', '/')
+
 
 def parse_markdown(path: Path) -> dict[str, Any]:
     """
@@ -87,7 +124,7 @@ def frontmatter_to_task_fields(parsed: dict[str, Any]) -> dict[str, Any]:
         "description": parsed["body"][:500],  # 先頭 500 文字を description に
         "tags": tags,
         "priority": fm.get("priority", 5),
-        "section": fm.get("section"),          # None の場合 dispatcher が決定
+        "section": infer_section(fm),            # DDD-04 §6.4
         "features": features,
         "source_note_id": None,                # ingester が後で設定
         "content_hash": parsed["content_hash"],
