@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -42,7 +43,9 @@ server = Server("models-mcp")
 _REGISTRY_PATH = Path(os.environ.get("AIRFLOW_REGISTRY", ".airflow/models/registry.json"))
 _models: dict[str, dict[str, Any]] = {}
 _execution_logs: dict[str, dict[str, Any]] = {}
-_feedback_store: list[dict[str, Any]] = []
+
+# HTTP マルチ接続移行時の race condition 防止（DDD-08 §4 / 提案 A）
+_state_lock = threading.RLock()
 
 # リトライ設定（DDD-05 §7）
 _STRUCT_OUTPUT_RETRIES = 2
@@ -363,19 +366,20 @@ async def _model_execute(args: dict[str, Any], token: str | None) -> list[types.
     log_id = "log_" + aid[:16].lower()
 
     # インメモリ記録（model.stats 用）
-    _execution_logs[log_id] = {
-        "schema_version": "1.0.0",
-        "id": log_id,
-        "timestamp": now_iso(),
-        "task_id": task_id,
-        "agent_id": meta.get("agent_id"),
-        "model_id": model_id,
-        "latency_ms": latency_ms,
-        "success": schema_valid_a,
-        "schema_valid": schema_valid_a,
-        "audit_id": aid,
-        "parent_audit_id": meta.get("audit_id"),
-    }
+    with _state_lock:
+        _execution_logs[log_id] = {
+            "schema_version": "1.0.0",
+            "id": log_id,
+            "timestamp": now_iso(),
+            "task_id": task_id,
+            "agent_id": meta.get("agent_id"),
+            "model_id": model_id,
+            "latency_ms": latency_ms,
+            "success": schema_valid_a,
+            "schema_valid": schema_valid_a,
+            "audit_id": aid,
+            "parent_audit_id": meta.get("audit_id"),
+        }
 
     # JSONL 永続化（DDD-05 §9）。task_id がある場合のみ学習データとして記録。
     if task_id:
@@ -524,8 +528,9 @@ async def _model_feedback(args: dict[str, Any], token: str | None) -> list[types
 async def _model_stats(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "models:read")
     model_id = args.get("model_id")
-    logs = [log for log in _execution_logs.values()
-            if not model_id or log.get("model_id") == model_id]
+    with _state_lock:
+        logs = [log for log in _execution_logs.values()
+                if not model_id or log.get("model_id") == model_id]
     total = len(logs)
     success = sum(1 for log in logs if log.get("success"))
     avg_latency = sum(log.get("latency_ms", 0) for log in logs) / total if total else 0
@@ -540,7 +545,8 @@ async def _model_stats(args: dict[str, Any], token: str | None) -> list[types.Te
 async def _model_register(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "models:write")
     model = args["model"]
-    _models[model["id"]] = model
+    with _state_lock:
+        _models[model["id"]] = model
     return mcp_result({"registered": model["id"]})
 
 

@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import threading
 from collections import defaultdict
 from typing import Any
 
@@ -25,15 +26,19 @@ _audit_log: list[dict[str, Any]] = []
 
 server = Server("taskboard-mcp")
 
+# HTTP マルチ接続移行時の race condition 防止（DDD-08 §4 / 提案 A）
+_state_lock = threading.RLock()
+
 # ── TaskStore シングルトン ────────────────────────────────
 _store: TaskStore | None = None
 
 
 def _get_store() -> TaskStore:
     global _store
-    if _store is None:
-        _store = TaskStore()
-    return _store
+    with _state_lock:
+        if _store is None:
+            _store = TaskStore()
+        return _store
 
 
 
@@ -253,8 +258,9 @@ async def _tasks_create(args: dict[str, Any], token: str | None) -> list[types.T
         "features": args.get("features", {}),
         "owner": None,
     })
-    record_audit("task.created", sink=_audit_log, task_id=task["id"],
-                 agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"))
+    with _state_lock:
+        record_audit("task.created", sink=_audit_log, task_id=task["id"],
+                     agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"))
     return mcp_result(task)
 
 
@@ -263,8 +269,9 @@ async def _tasks_update(args: dict[str, Any], token: str | None) -> list[types.T
     meta = args.get("_meta", {})
     # immutable fields are silently stripped by TaskStore.update()
     task = _get_store().update(args["id"], args["expected_version"], args["patch"])
-    record_audit("task.updated", sink=_audit_log, task_id=task["id"],
-                 agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"))
+    with _state_lock:
+        record_audit("task.updated", sink=_audit_log, task_id=task["id"],
+                     agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"))
     return mcp_result(task)
 
 
@@ -272,9 +279,10 @@ async def _tasks_transition(args: dict[str, Any], token: str | None) -> list[typ
     require_scope(token, "tasks:write")
     meta = args.get("_meta", {})
     task = _get_store().transition(args["id"], args["to_status"], reason=args.get("reason"))
-    record_audit("task.transitioned", sink=_audit_log, task_id=task["id"],
-                 agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"),
-                 data={"to": args["to_status"], "reason": args.get("reason")})
+    with _state_lock:
+        record_audit("task.transitioned", sink=_audit_log, task_id=task["id"],
+                     agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"),
+                     data={"to": args["to_status"], "reason": args.get("reason")})
     return mcp_result(task)
 
 
@@ -282,8 +290,9 @@ async def _tasks_claim(args: dict[str, Any], token: str | None) -> list[types.Te
     require_scope(token, "tasks:write")
     meta = args.get("_meta", {})
     task = _get_store().claim(args["task_id"], args["agent_id"])
-    record_audit("task.claimed", sink=_audit_log, task_id=task["id"],
-                 agent_id=args["agent_id"], parent_audit_id=meta.get("audit_id"))
+    with _state_lock:
+        record_audit("task.claimed", sink=_audit_log, task_id=task["id"],
+                     agent_id=args["agent_id"], parent_audit_id=meta.get("audit_id"))
     return mcp_result(task)
 
 
@@ -295,8 +304,9 @@ async def _tasks_add_handoff_note(
     task = _get_store().add_handoff_note(
         args["task_id"], args["content"], author=args.get("author", "unknown")
     )
-    record_audit("task.handoff_note_added", sink=_audit_log, task_id=task["id"],
-                 agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"))
+    with _state_lock:
+        record_audit("task.handoff_note_added", sink=_audit_log, task_id=task["id"],
+                     agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"))
     return mcp_result(task)
 
 
@@ -308,9 +318,10 @@ async def _tasks_assign(args: dict[str, Any], token: str | None) -> list[types.T
     meta = args.get("_meta", {})
 
     task = store.assign(task_id, new_owner["id"])  # atomic: lock → check → write (M-6)
-    record_audit("task.assigned", sink=_audit_log, task_id=task_id,
-                 agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"),
-                 data={"new_owner": new_owner, "reason": args.get("reason")})
+    with _state_lock:
+        record_audit("task.assigned", sink=_audit_log, task_id=task_id,
+                     agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"),
+                     data={"new_owner": new_owner, "reason": args.get("reason")})
     return mcp_result(task)
 
 
@@ -358,8 +369,11 @@ async def _audit_trace(args: dict[str, Any], token: str | None) -> list[types.Te
     root_id = args["audit_id"]
     depth = min(args.get("depth", 5), 20)  # clamp to prevent DoS
 
+    with _state_lock:
+        log_snapshot = list(_audit_log)
+
     by_parent: dict[str | None, list[dict]] = defaultdict(list)
-    for entry in _audit_log:
+    for entry in log_snapshot:
         by_parent[entry.get("parent_audit_id")].append(entry)
 
     events: list[dict] = []
@@ -369,7 +383,7 @@ async def _audit_trace(args: dict[str, Any], token: str | None) -> list[types.Te
         if current_depth > depth or aid in visited:
             return
         visited.add(aid)
-        for entry in _audit_log:
+        for entry in log_snapshot:
             if entry["audit_id"] == aid:
                 events.append(entry)
                 break
@@ -382,7 +396,8 @@ async def _audit_trace(args: dict[str, Any], token: str | None) -> list[types.Te
 
 async def _audit_query(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "tasks:read")
-    results = list(_audit_log)
+    with _state_lock:
+        results = list(_audit_log)
 
     if event_filter := args.get("event"):
         # fnmatch を使ってReDoSを回避（re.match の代わり）

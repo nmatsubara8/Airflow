@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +35,9 @@ _current_profile: str | None = None
 _degraded: bool = False
 _fair_share: dict[str, float] = {}
 _registry: dict[str, dict] = {}
+
+# HTTP マルチ接続移行時の race condition 防止（DDD-08 §4 / 提案 A）
+_state_lock = threading.RLock()
 
 
 def _load_config() -> None:
@@ -85,19 +89,20 @@ def suggest_profile_switch() -> str | None:
     global _current_profile
     if not _profiles:
         return _current_profile
-    depths = _scheduler_queue.model_depths()
-    registry = _load_registry_cache()
-    current_models = get_profile_models(_profiles, _current_profile)
-    best = select_best_profile(
-        _profiles, depths, _current_profile, current_models,
-        _gpu.free_vram_gb, registry,
-    )
-    if best and best != _current_profile:
-        old = _current_profile
-        _current_profile = best
-        log_event("info", "scheduler.auto_profile_switch", "gpu-mcp", new_audit_id(),
-                  data={"from": old, "to": best})
-    return _current_profile
+    with _state_lock:
+        depths = _scheduler_queue.model_depths()
+        registry = _load_registry_cache()
+        current_models = get_profile_models(_profiles, _current_profile)
+        best = select_best_profile(
+            _profiles, depths, _current_profile, current_models,
+            _gpu.free_vram_gb, registry,
+        )
+        if best and best != _current_profile:
+            old = _current_profile
+            _current_profile = best
+            log_event("info", "scheduler.auto_profile_switch", "gpu-mcp", new_audit_id(),
+                      data={"from": old, "to": best})
+        return _current_profile
 
 
 @server.list_tools()
@@ -166,8 +171,9 @@ async def list_tools() -> list[types.Tool]:
 async def _gpu_state(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "gpu:read")
     snap = _gpu.snapshot()
-    snap["active_profile"] = _current_profile
-    snap["degraded"] = _degraded
+    with _state_lock:
+        snap["active_profile"] = _current_profile
+        snap["degraded"] = _degraded
     return mcp_result(snap)
 
 
@@ -177,18 +183,20 @@ async def _gpu_reserve(args: dict[str, Any], token: str | None) -> list[types.Te
     wait = args.get("wait", True)
 
     registry = _load_registry_cache()
-    result = _gpu.reserve(model_id=model_id, wait=wait, registry=registry)
-    _gpu.touch(model_id)
+    with _state_lock:
+        result = _gpu.reserve(model_id=model_id, wait=wait, registry=registry)
+        _gpu.touch(model_id)
     return mcp_result(result)
 
 
 async def _gpu_release(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "gpu:reserve")
     model_id = args["model_id"]
-    result = _gpu.release(model_id)
-    # GPU 使用時間をフェアシェア計算に記録する（DDD-07 §6.4）
-    if result.get("released") and result.get("duration_ms", 0) > 0:
-        _scheduler_queue.record_completion(model_id, result["duration_ms"])
+    with _state_lock:
+        result = _gpu.release(model_id)
+        # GPU 使用時間をフェアシェア計算に記録する（DDD-07 §6.4）
+        if result.get("released") and result.get("duration_ms", 0) > 0:
+            _scheduler_queue.record_completion(model_id, result["duration_ms"])
     return mcp_result(result)
 
 
@@ -196,9 +204,10 @@ async def _scheduler_queue_status(
     args: dict[str, Any], token: str | None
 ) -> list[types.TextContent]:
     require_scope(token, "gpu:read")
-    depths = _scheduler_queue.model_depths()
-    queues = {model_id: {"depth": d, "oldest_wait_s": 0} for model_id, d in depths.items()}
-    return mcp_result({"queues": queues, "current_profile": _current_profile, "degraded": _degraded})
+    with _state_lock:
+        depths = _scheduler_queue.model_depths()
+        queues = {model_id: {"depth": d, "oldest_wait_s": 0} for model_id, d in depths.items()}
+        return mcp_result({"queues": queues, "current_profile": _current_profile, "degraded": _degraded})
 
 
 async def _scheduler_profile_switch(
@@ -210,8 +219,9 @@ async def _scheduler_profile_switch(
     known = [p["name"] for p in _profiles]
     if profile_name not in known:
         raise SchedulerProfileNotFound(profile_name, known)
-    old = _current_profile
-    _current_profile = profile_name
+    with _state_lock:
+        old = _current_profile
+        _current_profile = profile_name
     log_event("info", "scheduler.profile_switched", "gpu-mcp", new_audit_id(),
               data={"from": old, "to": profile_name})
     return mcp_result({"switched": True, "from": old, "to": profile_name})
@@ -222,12 +232,14 @@ async def _scheduler_degrade(
 ) -> list[types.TextContent]:
     global _degraded
     require_scope(token, "gpu:reserve")
-    _degraded = args["enabled"]
-    log_event("warn" if _degraded else "info",
-              "scheduler.degraded" if _degraded else "scheduler.degraded_recovered",
+    with _state_lock:
+        _degraded = args["enabled"]
+        degraded_val = _degraded
+    log_event("warn" if degraded_val else "info",
+              "scheduler.degraded" if degraded_val else "scheduler.degraded_recovered",
               "gpu-mcp", new_audit_id(),
               data={"reason": args.get("reason")})
-    return mcp_result({"degraded": _degraded})
+    return mcp_result({"degraded": degraded_val})
 
 
 _HANDLERS = {
