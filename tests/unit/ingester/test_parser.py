@@ -143,3 +143,39 @@ def test_frontmatter_to_task_fields_maps_features(tmp_path: Path):
     parsed = parse_markdown(md)
     fields = frontmatter_to_task_fields(parsed)
     assert fields["features"]["required_accuracy"] == "high"
+
+
+def test_frontmatter_to_task_fields_tags_as_comma_string(tmp_path: Path):
+    """tags が カンマ区切り文字列のとき list に変換されること（line 74）。"""
+    md = tmp_path / "t.md"
+    md.write_text("---\ntitle: T\ntags: api, backend, docs\n---\n本文")
+    parsed = parse_markdown(md)
+    fields = frontmatter_to_task_fields(parsed)
+    assert fields["tags"] == ["api", "backend", "docs"]
+
+
+def test_frontmatter_to_task_fields_top_level_required_accuracy(tmp_path: Path):
+    """required_accuracy が features: 外のトップレベルに書かれても features に入ること（line 79）。"""
+    md = tmp_path / "t.md"
+    md.write_text("---\ntitle: T\nrequired_accuracy: medium\n---\n本文")
+    parsed = parse_markdown(md)
+    fields = frontmatter_to_task_fields(parsed)
+    assert fields["features"]["required_accuracy"] == "medium"
+
+
+def test_frontmatter_to_task_fields_top_level_latency_sensitivity(tmp_path: Path):
+    """latency_sensitivity がトップレベルに書かれても features に入ること（line 81）。"""
+    md = tmp_path / "t.md"
+    md.write_text("---\ntitle: T\nlatency_sensitivity: batch\n---\n本文")
+    parsed = parse_markdown(md)
+    fields = frontmatter_to_task_fields(parsed)
+    assert fields["features"]["latency_sensitivity"] == "batch"
+
+
+def test_frontmatter_to_task_fields_top_level_task_type(tmp_path: Path):
+    """task_type がトップレベルに書かれても features に入ること（line 83）。"""
+    md = tmp_path / "t.md"
+    md.write_text("---\ntitle: T\ntask_type: summarize\n---\n本文")
+    parsed = parse_markdown(md)
+    fields = frontmatter_to_task_fields(parsed)
+    assert fields["features"]["task_type"] == "summarize"
