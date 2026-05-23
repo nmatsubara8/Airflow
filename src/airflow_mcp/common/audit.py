@@ -57,3 +57,43 @@ def log_event(
         entry["data"] = data
 
     print(json.dumps(entry, ensure_ascii=False), file=sys.stderr)
+
+
+def record_audit(
+    event: str,
+    *,
+    sink: list[dict[str, Any]],
+    component: str = "taskboard-mcp",
+    task_id: str | None = None,
+    agent_id: str | None = None,
+    parent_audit_id: str | None = None,
+    data: dict[str, Any] | None = None,
+) -> str:
+    """監査イベントを記録し audit_id を返す。
+
+    sink（プロセス内ログリスト）への追記と stderr への構造化ログ出力を同時に行う。
+    """
+    aid = new_audit_id()
+    entry: dict[str, Any] = {
+        "audit_id": aid,
+        "event": event,
+        "component": component,
+        "timestamp": now_iso(),
+    }
+    if task_id:
+        entry["task_id"] = task_id
+    if agent_id:
+        entry["agent_id"] = agent_id
+    if parent_audit_id:
+        entry["parent_audit_id"] = parent_audit_id
+    if data:
+        entry["data"] = data
+    sink.append(entry)
+    log_event(
+        "info", event, component, aid,
+        parent_audit_id=parent_audit_id,
+        task_id=task_id,
+        agent_id=agent_id,
+        data=data,
+    )
+    return aid

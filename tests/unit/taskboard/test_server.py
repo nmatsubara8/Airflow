@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 
 import airflow_mcp.taskboard.server as srv_mod
+from airflow_mcp.common.audit import record_audit
 from airflow_mcp.taskboard.store import TaskStore
 from tests.helpers import make_mcp_caller
 
@@ -330,8 +331,8 @@ async def test_audit_trace_follows_child_events(isolated_store):
     """parent_audit_id を持つ子イベントも収集すること。"""
     await _call("tasks.create", {"title": "親タスク", "section": "engineering"})
     parent_aid = srv_mod._audit_log[0]["audit_id"]
-    child_aid = srv_mod._record_audit(
-        "task.updated", task_id="dummy", parent_audit_id=parent_aid
+    child_aid = record_audit(
+        "task.updated", sink=srv_mod._audit_log, task_id="dummy", parent_audit_id=parent_aid
     )
     trace = await _call("audit.trace", {"audit_id": parent_aid, "depth": 5})
     event_ids = [e["audit_id"] for e in trace["events"]]
@@ -344,7 +345,7 @@ async def test_audit_trace_depth_limit_stops_recursion(isolated_store):
     """depth=0 のとき子イベントの収集が打ち切られること（line 426）。"""
     await _call("tasks.create", {"title": "深さ制限テスト", "section": "engineering"})
     parent_aid = srv_mod._audit_log[0]["audit_id"]
-    srv_mod._record_audit("task.updated", task_id="dummy", parent_audit_id=parent_aid)
+    record_audit("task.updated", sink=srv_mod._audit_log, task_id="dummy", parent_audit_id=parent_aid)
     # depth=0 → collect(parent, 0) は処理するが collect(child, 1) で return
     trace = await _call("audit.trace", {"audit_id": parent_aid, "depth": 0})
     event_ids = [e["audit_id"] for e in trace["events"]]
@@ -373,7 +374,7 @@ async def test_audit_query_filters_by_agent_id(isolated_store):
     """agent_id フィルタが機能すること（line 450）。"""
     t = _make_task(isolated_store)
     isolated_store.claim(t["id"], "agent_docs")
-    srv_mod._record_audit("task.claimed", task_id=t["id"], agent_id="agent_docs")
+    record_audit("task.claimed", sink=srv_mod._audit_log, task_id=t["id"], agent_id="agent_docs")
     result = await _call("audit.query", {"agent_id": "agent_docs"})
     assert len(result["events"]) >= 1
     assert all(e.get("agent_id") == "agent_docs" for e in result["events"])

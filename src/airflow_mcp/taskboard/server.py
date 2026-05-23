@@ -12,7 +12,7 @@ from typing import Any
 import mcp.types as types
 from mcp.server import Server
 
-from ..common.audit import log_event, new_audit_id, now_iso
+from ..common.audit import now_iso, record_audit
 from ..common.auth import require_scope
 from ..common.errors import TaskNotFound
 from ..common.mcp import dispatch, mcp_result, run_stdio_server
@@ -35,17 +35,6 @@ def _get_store() -> TaskStore:
         _store = TaskStore()
     return _store
 
-
-def _record_audit(event: str, component: str = "taskboard-mcp", **kw: Any) -> str:
-    aid = new_audit_id()
-    entry = {"audit_id": aid, "event": event, "component": component,
-             "timestamp": now_iso(), **kw}
-    _audit_log.append(entry)
-    log_event("info", event, component, aid, **{
-        k: v for k, v in kw.items()
-        if k in ("parent_audit_id", "task_id", "agent_id", "data")
-    })
-    return aid
 
 
 # ── ツール定義 ────────────────────────────────────────────
@@ -264,8 +253,8 @@ async def _tasks_create(args: dict[str, Any], token: str | None) -> list[types.T
         "features": args.get("features", {}),
         "owner": None,
     })
-    _record_audit("task.created", task_id=task["id"],
-                  agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"))
+    record_audit("task.created", sink=_audit_log, task_id=task["id"],
+                 agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"))
     return mcp_result(task)
 
 
@@ -274,8 +263,8 @@ async def _tasks_update(args: dict[str, Any], token: str | None) -> list[types.T
     meta = args.get("_meta", {})
     # immutable fields are silently stripped by TaskStore.update()
     task = _get_store().update(args["id"], args["expected_version"], args["patch"])
-    _record_audit("task.updated", task_id=task["id"],
-                  agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"))
+    record_audit("task.updated", sink=_audit_log, task_id=task["id"],
+                 agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"))
     return mcp_result(task)
 
 
@@ -283,9 +272,9 @@ async def _tasks_transition(args: dict[str, Any], token: str | None) -> list[typ
     require_scope(token, "tasks:write")
     meta = args.get("_meta", {})
     task = _get_store().transition(args["id"], args["to_status"], reason=args.get("reason"))
-    _record_audit("task.transitioned", task_id=task["id"],
-                  agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"),
-                  data={"to": args["to_status"], "reason": args.get("reason")})
+    record_audit("task.transitioned", sink=_audit_log, task_id=task["id"],
+                 agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"),
+                 data={"to": args["to_status"], "reason": args.get("reason")})
     return mcp_result(task)
 
 
@@ -293,8 +282,8 @@ async def _tasks_claim(args: dict[str, Any], token: str | None) -> list[types.Te
     require_scope(token, "tasks:write")
     meta = args.get("_meta", {})
     task = _get_store().claim(args["task_id"], args["agent_id"])
-    _record_audit("task.claimed", task_id=task["id"], agent_id=args["agent_id"],
-                  parent_audit_id=meta.get("audit_id"))
+    record_audit("task.claimed", sink=_audit_log, task_id=task["id"],
+                 agent_id=args["agent_id"], parent_audit_id=meta.get("audit_id"))
     return mcp_result(task)
 
 
@@ -306,8 +295,8 @@ async def _tasks_add_handoff_note(
     task = _get_store().add_handoff_note(
         args["task_id"], args["content"], author=args.get("author", "unknown")
     )
-    _record_audit("task.handoff_note_added", task_id=task["id"],
-                  agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"))
+    record_audit("task.handoff_note_added", sink=_audit_log, task_id=task["id"],
+                 agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"))
     return mcp_result(task)
 
 
@@ -319,9 +308,9 @@ async def _tasks_assign(args: dict[str, Any], token: str | None) -> list[types.T
     meta = args.get("_meta", {})
 
     task = store.assign(task_id, new_owner["id"])  # atomic: lock → check → write (M-6)
-    _record_audit("task.assigned", task_id=task_id,
-                  agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"),
-                  data={"new_owner": new_owner, "reason": args.get("reason")})
+    record_audit("task.assigned", sink=_audit_log, task_id=task_id,
+                 agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"),
+                 data={"new_owner": new_owner, "reason": args.get("reason")})
     return mcp_result(task)
 
 
