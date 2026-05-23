@@ -20,7 +20,11 @@ dev = [
 ]
 
 [project.scripts]
-airflow-mcp = "airflow_mcp.__main__:main"
+airflow-mcp        = "airflow_mcp.__main__:main"
+airflow-mvp        = "airflow_mcp.mvp:run_all"
+airflow-ingester   = "airflow_mcp.ingester.main:_cli"
+airflow-dispatcher = "airflow_mcp.dispatcher.main:_cli"
+airflow-runner     = "airflow_mcp.runner.main:_cli"
 
 [build-system]
 requires = ["hatchling"]

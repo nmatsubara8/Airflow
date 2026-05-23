@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["summary", "key_points"],
+  "properties": {
+    "summary": {
+      "type": "string",
+      "maxLength": 200,
+      "description": "ドキュメントの要約（200 文字以内）"
+    },
+    "key_points": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "maxItems": 5,
+      "description": "重要ポイント（3〜5 点）"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "出力への確信度"
+    },
+    "suggested_tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "推奨タグ"
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,284 @@
+"""エージェント実行ループ（DDD-05 §9）。
+
+in_progress タスクをポーリングし、Ollama 経由で処理して done に遷移。
+
+Flow per DDD-05 §9:
+  1. in_progress タスクを取得（自分が owner のもの）
+  2. system prompt + タスク内容でメッセージ構築
+  3. models-mcp model.execute（構造化出力強制）
+  4. schema_valid チェック、失敗時リトライ最大 3 回
+  5. handoff_note に parsed.summary を格納
+  6. tasks.transition(done)  or  tasks.transition(needs_human) on final failure
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+import time
+from pathlib import Path
+from typing import Any
+
+import httpx
+import yaml
+from jsonschema import Draft202012Validator
+
+from ..common.audit import log_event, new_audit_id, now_iso
+from ..common.errors import ModelStructuredOutputInvalid
+from ..taskboard.store import TaskStore
+
+logger = logging.getLogger(__name__)
+
+_SYSTEM_PROMPT_PATH = Path("prompts/system/document-summary.md")
+_OUTPUT_SCHEMA_PATH = Path("prompts/output-schemas/summary.json")
+_MAX_RETRY = 3
+
+
+def load_model_config(path: str = ".airflow/config/model-config.yaml") -> dict[str, Any]:
+    p = Path(path)
+    if p.exists():
+        return yaml.safe_load(p.read_text()) or {}
+    return {}
+
+
+def _load_registry(path: str = ".airflow/models/registry.json") -> dict[str, dict]:
+    p = Path(path)
+    if not p.exists():
+        return {}
+    data = json.loads(p.read_text())
+    return {m["id"]: m for m in data.get("models", [])}
+
+
+def _select_model(task: dict[str, Any], model_config: dict[str, Any]) -> str:
+    """タスク features から推奨モデルを選択（Phase 2 MVP: 単純ルール）。"""
+    features = task.get("features", {})
+    accuracy = features.get("required_accuracy", "medium")
+    latency = features.get("latency_sensitivity", "batch")
+    if accuracy == "high" and latency != "interactive":
+        return "model_qwen25_32b_q3"
+    return "model_qwen25_14b_q4"
+
+
+def _model_id_to_ollama_tag(model_id: str, registry: dict[str, dict]) -> str:
+    if model_id in registry:
+        return registry[model_id].get("ollama_tag", model_id)
+    # フォールバック
+    return model_id.replace("model_", "").replace("_", ":")
+
+
+def _build_messages(task: dict[str, Any], system_prompt: str) -> list[dict[str, Any]]:
+    """DDD-05 §9 の prompt 構築。"""
+    user_content = f"""## タスク: {task['title']}
+
+{task.get('description', '')}
+
+---
+タグ: {', '.join(task.get('tags', []))}
+セクション: {task.get('section', 'engineering')}
+"""
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user",   "content": user_content},
+    ]
+
+
+def _call_ollama(
+    ollama_url: str,
+    model_tag: str,
+    messages: list[dict],
+    output_schema: dict,
+    temperature: float,
+    max_tokens: int,
+    retry_attempt: int,
+) -> tuple[str, dict | None, bool]:
+    """
+    Ollama API 呼び出し + structured output 検証（DDD-05 §6）。
+    OLLAMA_STUB=true の場合はスタブ応答。
+    """
+    if os.environ.get("OLLAMA_STUB", "false").lower() == "true":
+        stub = {
+            "summary": f"[STUB] タスク '{messages[1]['content'][:30]}...' の要約",
+            "key_points": ["スタブ応答 1", "スタブ応答 2", "スタブ応答 3"],
+            "confidence": 0.99,
+            "suggested_tags": ["stub"],
+        }
+        return json.dumps(stub, ensure_ascii=False), stub, True
+
+    payload: dict[str, Any] = {
+        "model": model_tag,
+        "messages": messages,
+        "stream": False,
+        "format": output_schema,
+        "options": {
+            "temperature": temperature + retry_attempt * 0.1,  # retry ごとに温度を上げる
+            "num_predict": max_tokens,
+        },
+    }
+    resp = httpx.post(f"{ollama_url}/api/chat", json=payload, timeout=180.0)
+    resp.raise_for_status()
+    content = resp.json()["message"]["content"]
+
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError as exc:
+        return content, None, False
+
+    errors = list(Draft202012Validator(output_schema).iter_errors(parsed))
+    if errors:
+        return content, parsed, False
+
+    return content, parsed, True
+
+
+def process_task(
+    task: dict[str, Any],
+    store: TaskStore,
+    model_config: dict[str, Any],
+    registry: dict[str, dict],
+    agent_id: str,
+    ollama_url: str,
+) -> bool:
+    """
+    タスク 1 件を処理する。成功時 True、最終失敗時 False。
+    DDD-05 §9 の end-to-end フロー。
+    """
+    task_id = task["id"]
+    aid = new_audit_id()
+
+    # system prompt & output schema 読み込み
+    system_prompt = (
+        _SYSTEM_PROMPT_PATH.read_text() if _SYSTEM_PROMPT_PATH.exists()
+        else "与えられたタスクを JSON 形式で要約してください。"
+    )
+    output_schema = (
+        json.loads(_OUTPUT_SCHEMA_PATH.read_text()) if _OUTPUT_SCHEMA_PATH.exists()
+        else {"type": "object", "required": ["summary"],
+              "properties": {"summary": {"type": "string"}}}
+    )
+
+    model_id = _select_model(task, model_config)
+    model_tag = _model_id_to_ollama_tag(model_id, registry)
+    messages = _build_messages(task, system_prompt)
+    temperature = 0.3
+    max_tokens = 512
+
+    start_ms = int(time.time() * 1000)
+    content = ""
+    parsed: dict | None = None
+    schema_valid = False
+    retry_count = 0
+
+    for attempt in range(_MAX_RETRY):
+        retry_count = attempt
+        try:
+            content, parsed, schema_valid = _call_ollama(
+                ollama_url, model_tag, messages, output_schema,
+                temperature, max_tokens, attempt
+            )
+            if schema_valid:
+                break
+            logger.warning("schema invalid attempt %d/%d for %s", attempt + 1, _MAX_RETRY, task_id)
+        except httpx.HTTPError as exc:
+            logger.error("ollama call failed attempt %d: %s", attempt + 1, exc)
+            if attempt == _MAX_RETRY - 1:
+                break
+        time.sleep(0.5)
+
+    latency_ms = int(time.time() * 1000) - start_ms
+    log_id = "log_" + aid[:16].lower()
+
+    log_event(
+        "info" if schema_valid else "error",
+        "model.executed" if schema_valid else "escalation.triggered",
+        "models-mcp", aid,
+        model_id=model_id, task_id=task_id, agent_id=agent_id,
+        duration_ms=latency_ms,
+        error=None if schema_valid else {
+            "class": "escalate",
+            "code": "MODEL_STRUCTURED_OUTPUT_INVALID",
+            "message": f"{retry_count + 1}回リトライ後も schema 不適合",
+        },
+        data={"retry_count": retry_count, "schema_valid": schema_valid},
+    )
+
+    if not schema_valid:
+        # 最終失敗 → needs_human に遷移（DDD-03 §3.4）
+        store.add_handoff_note(
+            task_id,
+            f"[FAILED] {retry_count + 1}回試行後も構造化出力が schema に不適合。"
+            f"生の出力: {content[:300]}",
+            author=agent_id,
+        )
+        store.transition(task_id, "needs_human",
+                         reason="MODEL_STRUCTURED_OUTPUT_INVALID after retries")
+        logger.error("task %s → needs_human (schema invalid)", task_id)
+        return False
+
+    # 成功: handoff_note に summary を格納
+    summary = parsed.get("summary", "") if parsed else content[:200]
+    key_points = parsed.get("key_points", []) if parsed else []
+    confidence = parsed.get("confidence", 0.0) if parsed else 0.0
+
+    handoff_content = (
+        f"**要約**: {summary}\n\n"
+        f"**重要ポイント**:\n" + "\n".join(f"- {p}" for p in key_points) + "\n\n"
+        f"**確信度**: {confidence:.2f} | **モデル**: {model_id} | "
+        f"**レイテンシ**: {latency_ms}ms | **リトライ**: {retry_count}回 | "
+        f"**実行ログ**: {log_id}"
+    )
+    store.add_handoff_note(task_id, handoff_content, author=agent_id)
+    store.transition(task_id, "done", reason="agent completed successfully")
+
+    logger.info("task %s → done (%.1fs, schema_valid=%s)", task_id, latency_ms / 1000, schema_valid)
+    return True
+
+
+def run_once(
+    store: TaskStore,
+    model_config: dict[str, Any],
+    registry: dict[str, dict],
+    agent_id: str,
+    ollama_url: str,
+) -> int:
+    """in_progress で自分が owner のタスクを処理する。処理数を返す。"""
+    tasks = [t for t in store.list_by_status("in_progress")
+             if t.get("owner") == agent_id]
+    processed = 0
+    for task in tasks:
+        try:
+            process_task(task, store, model_config, registry, agent_id, ollama_url)
+            processed += 1
+        except Exception as exc:
+            logger.error("runner error for %s: %s", task["id"], exc)
+    return processed
+
+
+def run_loop(
+    store: TaskStore,
+    model_config: dict[str, Any],
+    registry: dict[str, dict],
+    agent_id: str = "agent_docs",
+    ollama_url: str | None = None,
+    poll_interval_s: float = 5.0,
+) -> None:
+    url = ollama_url or os.environ.get("OLLAMA_URL", "http://localhost:11434")
+    logger.info("runner started: agent=%s ollama=%s poll=%.1fs", agent_id, url, poll_interval_s)
+    while True:
+        try:
+            n = run_once(store, model_config, registry, agent_id, url)
+            if n > 0:
+                logger.info("runner processed %d tasks", n)
+        except Exception as exc:
+            logger.error("runner loop error: %s", exc)
+        time.sleep(poll_interval_s)
+
+
+def _cli() -> None:
+    import logging
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s %(levelname)s [%(name)s] %(message)s")
+    from ..taskboard.store import TaskStore
+    store = TaskStore()
+    model_config = load_model_config()
+    registry = _load_registry()
+    run_loop(store, model_config, registry)
