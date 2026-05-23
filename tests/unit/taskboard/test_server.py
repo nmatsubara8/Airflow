@@ -410,7 +410,7 @@ async def test_run_starts_stdio_server():
         yield MagicMock(), MagicMock()
 
     mock_server_run = AsyncMock()
-    with patch("airflow_mcp.taskboard.server.stdio_server", fake_stdio_server), \
+    with patch("airflow_mcp.common.mcp.stdio_server", fake_stdio_server), \
          patch.object(srv_mod.server, "run", mock_server_run):
         await srv_mod.run()
 

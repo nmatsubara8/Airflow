@@ -14,12 +14,11 @@ from typing import Any
 
 import mcp.types as types
 from mcp.server import Server
-from mcp.server.stdio import stdio_server
 
 from ..common.audit import log_event, new_audit_id, now_iso
-from ..common.auth import get_token_from_env, require_scope
-from ..common.rate_limiter import check_rate_limit
+from ..common.auth import require_scope
 from ..common.errors import AirflowError, ModelNotFound, ModelStructuredOutputInvalid
+from ..common.mcp import dispatch, mcp_result, run_stdio_server
 from ..common.url_validator import validate_ollama_url
 from ..orchestrator.execution_log import update_feedback
 
@@ -36,10 +35,6 @@ def _load_registry() -> None:
         data = json.loads(_REGISTRY_PATH.read_text())
         for m in data.get("models", []):
             _models[m["id"]] = m
-
-
-def _result(data: Any) -> list[types.TextContent]:
-    return [types.TextContent(type="text", text=json.dumps(data, ensure_ascii=False))]
 
 
 @server.list_tools()
@@ -127,34 +122,9 @@ async def list_tools() -> list[types.Tool]:
     ]
 
 
-@server.call_tool()
-async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
-    token = get_token_from_env()
-    try:
-        check_rate_limit(token)
-        if name == "model.list":
-            return await _model_list(arguments, token)
-        elif name == "model.get":
-            return await _model_get(arguments, token)
-        elif name == "model.recommend":
-            return await _model_recommend(arguments, token)
-        elif name == "model.execute":
-            return await _model_execute(arguments, token)
-        elif name == "model.feedback":
-            return await _model_feedback(arguments, token)
-        elif name == "model.stats":
-            return await _model_stats(arguments, token)
-        elif name == "model.register":
-            return await _model_register(arguments, token)
-        else:
-            return _result({"error": {"code": "UNKNOWN_TOOL", "message": name}})
-    except AirflowError as e:
-        return e.to_mcp_result()
-
-
 async def _model_list(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "models:read")
-    return _result({"models": list(_models.values())})
+    return mcp_result({"models": list(_models.values())})
 
 
 async def _model_get(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
@@ -162,7 +132,7 @@ async def _model_get(args: dict[str, Any], token: str | None) -> list[types.Text
     model_id = args["model_id"]
     if model_id not in _models:
         raise ModelNotFound(model_id)
-    return _result(_models[model_id])
+    return mcp_result(_models[model_id])
 
 
 async def _model_recommend(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
@@ -194,7 +164,7 @@ async def _model_recommend(args: dict[str, Any], token: str | None) -> list[type
         reason = f"ε-greedy 探索（ε={epsilon}）"
 
     model = _models.get(selected, {})
-    return _result({
+    return mcp_result({
         "recommendations": [{
             "model_id": selected,
             "score": 0.85,
@@ -247,7 +217,7 @@ async def _model_execute(args: dict[str, Any], token: str | None) -> list[types.
               model_id=model_id, task_id=args.get("task_id"),
               duration_ms=latency_ms, parent_audit_id=meta.get("audit_id"))
 
-    return _result({
+    return mcp_result({
         "content": content,
         "parsed": parsed,
         "execution_log_id": log_id,
@@ -327,7 +297,7 @@ async def _model_feedback(args: dict[str, Any], token: str | None) -> list[types
               data={"human_feedback": human_feedback,
                     "auto_score": updated.get("auto_score") if updated else None})
 
-    return _result({
+    return mcp_result({
         "task_id": task_id,
         "human_feedback": human_feedback,
         "updated_record": updated,
@@ -343,7 +313,7 @@ async def _model_stats(args: dict[str, Any], token: str | None) -> list[types.Te
     total = len(logs)
     success = sum(1 for log in logs if log.get("success"))
     avg_latency = sum(log.get("latency_ms", 0) for log in logs) / total if total else 0
-    return _result({
+    return mcp_result({
         "model_id": model_id or "all",
         "total_executions": total,
         "success_rate": success / total if total else 0,
@@ -355,10 +325,24 @@ async def _model_register(args: dict[str, Any], token: str | None) -> list[types
     require_scope(token, "models:write")
     model = args["model"]
     _models[model["id"]] = model
-    return _result({"registered": model["id"]})
+    return mcp_result({"registered": model["id"]})
+
+
+_HANDLERS = {
+    "model.list": _model_list,
+    "model.get": _model_get,
+    "model.recommend": _model_recommend,
+    "model.execute": _model_execute,
+    "model.feedback": _model_feedback,
+    "model.stats": _model_stats,
+    "model.register": _model_register,
+}
+
+
+@server.call_tool()
+async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
+    return await dispatch(name, arguments, _HANDLERS)
 
 
 async def run() -> None:
-    _load_registry()
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream, server.create_initialization_options())
+    await run_stdio_server(server, init_fn=_load_registry)

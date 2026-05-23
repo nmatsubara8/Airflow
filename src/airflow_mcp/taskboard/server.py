@@ -6,21 +6,16 @@
 """
 from __future__ import annotations
 
-import json
 from collections import defaultdict
 from typing import Any
 
 import mcp.types as types
 from mcp.server import Server
-from mcp.server.stdio import stdio_server
 
 from ..common.audit import log_event, new_audit_id, now_iso
-from ..common.auth import get_token_from_env, require_scope
-from ..common.rate_limiter import check_rate_limit
-from ..common.errors import (
-    AirflowError,
-    TaskNotFound,
-)
+from ..common.auth import require_scope
+from ..common.errors import TaskNotFound
+from ..common.mcp import dispatch, mcp_result, run_stdio_server
 from .store import TaskStore
 
 _ALL_STATUSES = ["inbox", "in_progress", "done", "needs_human", "blocked", "cancelled"]
@@ -39,10 +34,6 @@ def _get_store() -> TaskStore:
     if _store is None:
         _store = TaskStore()
     return _store
-
-
-def _result(data: Any) -> list[types.TextContent]:
-    return [types.TextContent(type="text", text=json.dumps(data, ensure_ascii=False))]
 
 
 def _record_audit(event: str, component: str = "taskboard-mcp", **kw: Any) -> str:
@@ -226,40 +217,6 @@ async def list_tools() -> list[types.Tool]:
     ]
 
 
-# ── ツール実装 ────────────────────────────────────────────
-@server.call_tool()
-async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
-    token = get_token_from_env()
-    try:
-        check_rate_limit(token)
-        if name == "tasks.list":
-            return await _tasks_list(arguments, token)
-        elif name == "tasks.get":
-            return await _tasks_get(arguments, token)
-        elif name == "tasks.create":
-            return await _tasks_create(arguments, token)
-        elif name == "tasks.update":
-            return await _tasks_update(arguments, token)
-        elif name == "tasks.transition":
-            return await _tasks_transition(arguments, token)
-        elif name == "tasks.claim":
-            return await _tasks_claim(arguments, token)
-        elif name == "tasks.add_handoff_note":
-            return await _tasks_add_handoff_note(arguments, token)
-        elif name == "tasks.assign":
-            return await _tasks_assign(arguments, token)
-        elif name == "tasks.join":
-            return await _tasks_join(arguments, token)
-        elif name == "audit.trace":
-            return await _audit_trace(arguments, token)
-        elif name == "audit.query":
-            return await _audit_query(arguments, token)
-        else:
-            return _result({"error": {"code": "UNKNOWN_TOOL", "message": f"未知のツール: {name}"}})
-    except AirflowError as e:
-        return e.to_mcp_result()
-
-
 async def _tasks_list(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "tasks:read")
     store = _get_store()
@@ -285,13 +242,13 @@ async def _tasks_list(args: dict[str, Any], token: str | None) -> list[types.Tex
 
     page = results[start:start + limit]
     next_cursor = page[-1]["id"] if len(results) > start + limit else None
-    return _result({"tasks": page, "next_cursor": next_cursor})
+    return mcp_result({"tasks": page, "next_cursor": next_cursor})
 
 
 async def _tasks_get(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "tasks:read")
     task = _get_store().get(args["id"])  # raises TaskNotFound
-    return _result(task)
+    return mcp_result(task)
 
 
 async def _tasks_create(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
@@ -309,7 +266,7 @@ async def _tasks_create(args: dict[str, Any], token: str | None) -> list[types.T
     })
     _record_audit("task.created", task_id=task["id"],
                   agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"))
-    return _result(task)
+    return mcp_result(task)
 
 
 async def _tasks_update(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
@@ -319,7 +276,7 @@ async def _tasks_update(args: dict[str, Any], token: str | None) -> list[types.T
     task = _get_store().update(args["id"], args["expected_version"], args["patch"])
     _record_audit("task.updated", task_id=task["id"],
                   agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"))
-    return _result(task)
+    return mcp_result(task)
 
 
 async def _tasks_transition(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
@@ -329,7 +286,7 @@ async def _tasks_transition(args: dict[str, Any], token: str | None) -> list[typ
     _record_audit("task.transitioned", task_id=task["id"],
                   agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"),
                   data={"to": args["to_status"], "reason": args.get("reason")})
-    return _result(task)
+    return mcp_result(task)
 
 
 async def _tasks_claim(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
@@ -338,7 +295,7 @@ async def _tasks_claim(args: dict[str, Any], token: str | None) -> list[types.Te
     task = _get_store().claim(args["task_id"], args["agent_id"])
     _record_audit("task.claimed", task_id=task["id"], agent_id=args["agent_id"],
                   parent_audit_id=meta.get("audit_id"))
-    return _result(task)
+    return mcp_result(task)
 
 
 async def _tasks_add_handoff_note(
@@ -351,7 +308,7 @@ async def _tasks_add_handoff_note(
     )
     _record_audit("task.handoff_note_added", task_id=task["id"],
                   agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"))
-    return _result(task)
+    return mcp_result(task)
 
 
 async def _tasks_assign(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
@@ -365,7 +322,7 @@ async def _tasks_assign(args: dict[str, Any], token: str | None) -> list[types.T
     _record_audit("task.assigned", task_id=task_id,
                   agent_id=meta.get("agent_id"), parent_audit_id=meta.get("audit_id"),
                   data={"new_owner": new_owner, "reason": args.get("reason")})
-    return _result(task)
+    return mcp_result(task)
 
 
 async def _tasks_join(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
@@ -400,7 +357,7 @@ async def _tasks_join(args: dict[str, Any], token: str | None) -> list[types.Tex
             "join": {"status": "fulfilled", "fulfilled_at": now}
         })
 
-    return _result({
+    return mcp_result({
         "ready": ready,
         "completed_children": completed,
         "pending_children": pending,
@@ -431,7 +388,7 @@ async def _audit_trace(args: dict[str, Any], token: str | None) -> list[types.Te
             collect(child["audit_id"], current_depth + 1)
 
     collect(root_id, 0)
-    return _result({"root": root_id, "events": events})
+    return mcp_result({"root": root_id, "events": events})
 
 
 async def _audit_query(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
@@ -448,9 +405,29 @@ async def _audit_query(args: dict[str, Any], token: str | None) -> list[types.Te
         results = [e for e in results if e.get("agent_id") == agent_id]
 
     limit = args.get("limit", 100)
-    return _result({"events": results[-limit:]})
+    return mcp_result({"events": results[-limit:]})
+
+
+# ── ツール実装 ────────────────────────────────────────────
+_HANDLERS = {
+    "tasks.list": _tasks_list,
+    "tasks.get": _tasks_get,
+    "tasks.create": _tasks_create,
+    "tasks.update": _tasks_update,
+    "tasks.transition": _tasks_transition,
+    "tasks.claim": _tasks_claim,
+    "tasks.add_handoff_note": _tasks_add_handoff_note,
+    "tasks.assign": _tasks_assign,
+    "tasks.join": _tasks_join,
+    "audit.trace": _audit_trace,
+    "audit.query": _audit_query,
+}
+
+
+@server.call_tool()
+async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
+    return await dispatch(name, arguments, _HANDLERS)
 
 
 async def run() -> None:
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream, server.create_initialization_options())
+    await run_stdio_server(server)

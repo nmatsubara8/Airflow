@@ -169,8 +169,9 @@ async def test_reindex_requires_notes_write_scope(monkeypatch):
     """notes:read しか持たないトークンで reindex を呼ぶと AUTH_SCOPE_INSUFFICIENT になること。"""
     import airflow_mcp.common.auth as auth_mod
     import airflow_mcp.notes.server as srv
+    import airflow_mcp.common.mcp as mcp_mod
     monkeypatch.setattr(auth_mod, "_LOCALHOST_BYPASS", False)
-    monkeypatch.setattr(srv, "get_token_from_env", lambda: "limited_token")
+    monkeypatch.setattr(mcp_mod, "get_token_from_env", lambda: "limited_token")
     # tokens.json なし → env var トークンと一致しない → AUTH_TOKEN_INVALID
     # tokens.json ありの場合の notes:write なしテストは auth 単体テストで担保
     monkeypatch.setenv("AIRFLOW_MCP_TOKEN", "different_token")
@@ -216,7 +217,7 @@ async def test_run_starts_stdio_server():
         yield MagicMock(), MagicMock()
 
     mock_run = AsyncMock()
-    with patch("airflow_mcp.notes.server.stdio_server", fake_stdio_server), \
+    with patch("airflow_mcp.common.mcp.stdio_server", fake_stdio_server), \
          patch.object(notes_mod.server, "run", mock_run):
         await notes_mod.run()
 

@@ -172,7 +172,8 @@ async def test_model_register_requires_models_write_scope(monkeypatch):
     import airflow_mcp.common.auth as auth_mod
     import airflow_mcp.models.server as srv
     monkeypatch.setattr(auth_mod, "_LOCALHOST_BYPASS", False)
-    monkeypatch.setattr(srv, "get_token_from_env", lambda: "execute_only_token")
+    import airflow_mcp.common.mcp as mcp_mod
+    monkeypatch.setattr(mcp_mod, "get_token_from_env", lambda: "execute_only_token")
     monkeypatch.setenv("AIRFLOW_MCP_TOKEN", "different_token")
 
     result = await srv.call_tool("model.register", {"model": {"id": "m_evil", "name": "evil"}})
@@ -409,7 +410,7 @@ async def test_run_calls_load_registry_and_server(tmp_path, monkeypatch):
         yield MagicMock(), MagicMock()
 
     mock_server_run = AsyncMock()
-    with patch("airflow_mcp.models.server.stdio_server", fake_stdio_server), \
+    with patch("airflow_mcp.common.mcp.stdio_server", fake_stdio_server), \
          patch.object(models_mod.server, "run", mock_server_run):
         await models_mod.run()
 

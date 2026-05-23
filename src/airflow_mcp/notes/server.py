@@ -6,26 +6,20 @@ Phase 2 MVP: Qdrant 未接続のため search は fixture ベースのスタブ�
 """
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import mcp.types as types
 from mcp.server import Server
-from mcp.server.stdio import stdio_server
 
 from ..common.audit import log_event, new_audit_id
-from ..common.auth import get_token_from_env, require_scope
-from ..common.rate_limiter import check_rate_limit
-from ..common.errors import AirflowError, NoteNotFound
+from ..common.auth import require_scope
+from ..common.errors import NoteNotFound
+from ..common.mcp import dispatch, mcp_result, run_stdio_server
 
 server = Server("notes-mcp")
 
 # インメモリノートストア（ingester が登録、または fixture から初期化）
 _notes: dict[str, dict[str, Any]] = {}
-
-
-def _result(data: Any) -> list[types.TextContent]:
-    return [types.TextContent(type="text", text=json.dumps(data, ensure_ascii=False))]
 
 
 @server.list_tools()
@@ -95,27 +89,6 @@ async def list_tools() -> list[types.Tool]:
     ]
 
 
-@server.call_tool()
-async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
-    token = get_token_from_env()
-    try:
-        check_rate_limit(token)
-        if name == "notes.search":
-            return await _notes_search(arguments, token)
-        elif name == "notes.get":
-            return await _notes_get(arguments, token)
-        elif name == "notes.list_by_category":
-            return await _notes_list_by_category(arguments, token)
-        elif name == "notes.related":
-            return await _notes_related(arguments, token)
-        elif name == "notes.reindex":
-            return await _notes_reindex(arguments, token)
-        else:
-            return _result({"error": {"code": "UNKNOWN_TOOL", "message": name}})
-    except AirflowError as e:
-        return e.to_mcp_result()
-
-
 async def _notes_search(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "notes:read")
     query = args["query"]
@@ -145,7 +118,7 @@ async def _notes_search(args: dict[str, Any], token: str | None) -> list[types.T
 
     log_event("info", "notes.searched", "notes-mcp", new_audit_id(),
               data={"query_len": len(query), "results": len(results)})
-    return _result({"results": results})
+    return mcp_result({"results": results})
 
 
 async def _notes_get(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
@@ -153,7 +126,7 @@ async def _notes_get(args: dict[str, Any], token: str | None) -> list[types.Text
     note_id = args["note_id"]
     if note_id not in _notes:
         raise NoteNotFound(note_id)
-    return _result(_notes[note_id])
+    return mcp_result(_notes[note_id])
 
 
 async def _notes_list_by_category(
@@ -163,7 +136,7 @@ async def _notes_list_by_category(
     category = args["category"]
     limit = min(args.get("limit", 50), 200)
     results = [n for n in _notes.values() if n.get("section") == category][:limit]
-    return _result({"notes": results})
+    return mcp_result({"notes": results})
 
 
 async def _notes_related(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
@@ -180,15 +153,28 @@ async def _notes_related(args: dict[str, Any], token: str | None) -> list[types.
         n for n in _notes.values()
         if n["id"] != note_id and any(link.lower() in n.get("title", "").lower() for link in links)
     ]
-    return _result({"related": related[: args.get("depth", 1) * 5]})
+    return mcp_result({"related": related[: args.get("depth", 1) * 5]})
 
 
 async def _notes_reindex(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "notes:write")
     # Phase 2 スタブ: 実際のインデックス更新はなし
-    return _result({"status": "ok", "indexed": len(_notes), "note": "stub — Qdrant not connected"})
+    return mcp_result({"status": "ok", "indexed": len(_notes), "note": "stub — Qdrant not connected"})
+
+
+_HANDLERS = {
+    "notes.search": _notes_search,
+    "notes.get": _notes_get,
+    "notes.list_by_category": _notes_list_by_category,
+    "notes.related": _notes_related,
+    "notes.reindex": _notes_reindex,
+}
+
+
+@server.call_tool()
+async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
+    return await dispatch(name, arguments, _HANDLERS)
 
 
 async def run() -> None:
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream, server.create_initialization_options())
+    await run_stdio_server(server)

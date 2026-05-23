@@ -5,18 +5,16 @@
 """
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 from typing import Any
 
 import mcp.types as types
 from mcp.server import Server
-from mcp.server.stdio import stdio_server
 import yaml
 
-from ..common.auth import get_token_from_env, require_scope
-from ..common.errors import AirflowError
+from ..common.auth import require_scope
+from ..common.mcp import dispatch, mcp_result, run_stdio_server
 
 server = Server("agents-mcp")
 
@@ -43,10 +41,6 @@ def _load_agents() -> None:
                         _agents[agent_id] = meta
         except Exception:
             pass
-
-
-def _result(data: Any) -> list[types.TextContent]:
-    return [types.TextContent(type="text", text=json.dumps(data, ensure_ascii=False))]
 
 
 @server.list_tools()
@@ -102,26 +96,6 @@ async def list_tools() -> list[types.Tool]:
     ]
 
 
-@server.call_tool()
-async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
-    token = get_token_from_env()
-    try:
-        if name == "agents.list":
-            return await _agents_list(arguments, token)
-        elif name == "agents.get":
-            return await _agents_get(arguments, token)
-        elif name == "agents.find_for_task":
-            return await _agents_find_for_task(arguments, token)
-        elif name == "agents.extract_features":
-            return await _agents_extract_features(arguments, token)
-        elif name == "agents.register":
-            return await _agents_register(arguments, token)
-        else:
-            return _result({"error": {"code": "UNKNOWN_TOOL", "message": name}})
-    except AirflowError as e:
-        return e.to_mcp_result()
-
-
 async def _agents_list(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "agents:read")
     results = list(_agents.values())
@@ -131,16 +105,16 @@ async def _agents_list(args: dict[str, Any], token: str | None) -> list[types.Te
         results = [a for a in results if a.get("platform") == platform]
     # body は省略して概要のみ
     summary = [{k: v for k, v in a.items() if k != "body"} for a in results]
-    return _result({"agents": summary, "total": len(summary)})
+    return mcp_result({"agents": summary, "total": len(summary)})
 
 
 async def _agents_get(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "agents:read")
     agent_id = args["agent_id"]
     if agent_id not in _agents:
-        return _result({"error": {"code": "AGENT_NOT_FOUND",
+        return mcp_result({"error": {"code": "AGENT_NOT_FOUND",
                                   "message": f"エージェント '{agent_id}' が見つかりません"}})
-    return _result(_agents[agent_id])
+    return mcp_result(_agents[agent_id])
 
 
 async def _agents_find_for_task(
@@ -174,7 +148,7 @@ async def _agents_find_for_task(
             })
 
     candidates.sort(key=lambda x: x["score"], reverse=True)
-    return _result({"candidates": candidates[:5]})
+    return mcp_result({"candidates": candidates[:5]})
 
 
 async def _agents_extract_features(
@@ -214,7 +188,7 @@ async def _agents_extract_features(
         features["language"] = "ja" if any(ord(c) > 0x3000 for c in title) else "en"
         inferred.append("language")
 
-    return _result({"features": features, "inferred_fields": inferred})
+    return mcp_result({"features": features, "inferred_fields": inferred})
 
 
 async def _agents_register(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
@@ -223,10 +197,22 @@ async def _agents_register(args: dict[str, Any], token: str | None) -> list[type
     agent_id = agent.get("agent_id") or agent.get("id")
     if agent_id:
         _agents[agent_id] = agent
-    return _result({"registered": agent_id})
+    return mcp_result({"registered": agent_id})
+
+
+_HANDLERS = {
+    "agents.list": _agents_list,
+    "agents.get": _agents_get,
+    "agents.find_for_task": _agents_find_for_task,
+    "agents.extract_features": _agents_extract_features,
+    "agents.register": _agents_register,
+}
+
+
+@server.call_tool()
+async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
+    return await dispatch(name, arguments, _HANDLERS, rate_limit=False)
 
 
 async def run() -> None:
-    _load_agents()
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream, server.create_initialization_options())
+    await run_stdio_server(server, init_fn=_load_agents)

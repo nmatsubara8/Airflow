@@ -405,9 +405,9 @@ async def test_auth_scope_insufficient_returns_error_response(monkeypatch):
     def _bad_token():
         return "wrong_token_value"
 
-    monkeypatch.setattr(auth_mod, "get_token_from_env", _bad_token)
+    import airflow_mcp.common.mcp as mcp_mod
+    monkeypatch.setattr(mcp_mod, "get_token_from_env", _bad_token)
     import airflow_mcp.taskboard.server as tb_srv
-    monkeypatch.setattr(tb_srv, "get_token_from_env", _bad_token)
 
     result = await tb_srv.call_tool("tasks.list", {})
     data = json.loads(result[0].text)
@@ -458,8 +458,9 @@ async def test_rate_limit_enforced_in_mcp_tool(monkeypatch):
     def _always_limited(token, cost=1.0):
         raise AuthRateLimited(retry_after_ms=5000)
 
+    import airflow_mcp.common.mcp as mcp_mod
+    monkeypatch.setattr(mcp_mod, "check_rate_limit", _always_limited)
     import airflow_mcp.taskboard.server as tb_srv
-    monkeypatch.setattr(tb_srv, "check_rate_limit", _always_limited)
 
     result = await tb_srv.call_tool("tasks.list", {})
     data = json.loads(result[0].text)

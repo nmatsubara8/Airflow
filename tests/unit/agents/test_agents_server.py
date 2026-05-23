@@ -259,7 +259,7 @@ async def test_run_starts_stdio_server(monkeypatch):
         yield MagicMock(), MagicMock()
 
     mock_run = AsyncMock()
-    with patch("airflow_mcp.agents.server.stdio_server", fake_stdio_server), \
+    with patch("airflow_mcp.common.mcp.stdio_server", fake_stdio_server), \
          patch.object(agents_mod.server, "run", mock_run):
         await agents_mod.run()
 

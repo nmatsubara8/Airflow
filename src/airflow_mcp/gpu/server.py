@@ -13,12 +13,10 @@ from typing import Any
 import mcp.types as types
 import yaml
 from mcp.server import Server
-from mcp.server.stdio import stdio_server
 
 from ..common.audit import log_event, new_audit_id
-from ..common.auth import get_token_from_env, require_scope
-from ..common.rate_limiter import check_rate_limit
-from ..common.errors import AirflowError
+from ..common.auth import require_scope
+from ..common.mcp import dispatch, mcp_result, run_stdio_server
 from ..scheduler.profile import get_profile_models, select_best_profile
 from ..scheduler.queue import SchedulerQueue
 from .state_manager import GpuStateManager
@@ -70,10 +68,6 @@ def _load_registry_cache() -> dict[str, dict]:
         data = json.loads(registry_path.read_text())
         return {m["id"]: m for m in data.get("models", [])}
     return {}
-
-
-def _result(data: Any) -> list[types.TextContent]:
-    return [types.TextContent(type="text", text=json.dumps(data, ensure_ascii=False))]
 
 
 def _free_vram() -> float:
@@ -168,35 +162,12 @@ async def list_tools() -> list[types.Tool]:
     ]
 
 
-@server.call_tool()
-async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
-    token = get_token_from_env()
-    try:
-        check_rate_limit(token)
-        if name == "gpu.state":
-            return await _gpu_state(arguments, token)
-        elif name == "gpu.reserve":
-            return await _gpu_reserve(arguments, token)
-        elif name == "gpu.release":
-            return await _gpu_release(arguments, token)
-        elif name == "scheduler.queue_status":
-            return await _scheduler_queue_status(arguments, token)
-        elif name == "scheduler.profile_switch":
-            return await _scheduler_profile_switch(arguments, token)
-        elif name == "scheduler.degrade":
-            return await _scheduler_degrade(arguments, token)
-        else:
-            return _result({"error": {"code": "UNKNOWN_TOOL", "message": name}})
-    except AirflowError as e:
-        return e.to_mcp_result()
-
-
 async def _gpu_state(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "gpu:read")
     snap = _gpu.snapshot()
     snap["active_profile"] = _current_profile
     snap["degraded"] = _degraded
-    return _result(snap)
+    return mcp_result(snap)
 
 
 async def _gpu_reserve(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
@@ -207,7 +178,7 @@ async def _gpu_reserve(args: dict[str, Any], token: str | None) -> list[types.Te
     registry = _load_registry_cache()
     result = _gpu.reserve(model_id=model_id, wait=wait, registry=registry)
     _gpu.touch(model_id)
-    return _result(result)
+    return mcp_result(result)
 
 
 async def _gpu_release(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
@@ -217,7 +188,7 @@ async def _gpu_release(args: dict[str, Any], token: str | None) -> list[types.Te
     # GPU 使用時間をフェアシェア計算に記録する（DDD-07 §6.4）
     if result.get("released") and result.get("duration_ms", 0) > 0:
         _scheduler_queue.record_completion(model_id, result["duration_ms"])
-    return _result(result)
+    return mcp_result(result)
 
 
 async def _scheduler_queue_status(
@@ -226,7 +197,7 @@ async def _scheduler_queue_status(
     require_scope(token, "gpu:read")
     depths = _scheduler_queue.model_depths()
     queues = {model_id: {"depth": d, "oldest_wait_s": 0} for model_id, d in depths.items()}
-    return _result({"queues": queues, "current_profile": _current_profile, "degraded": _degraded})
+    return mcp_result({"queues": queues, "current_profile": _current_profile, "degraded": _degraded})
 
 
 async def _scheduler_profile_switch(
@@ -237,13 +208,13 @@ async def _scheduler_profile_switch(
     profile_name = args["profile_name"]
     known = [p["name"] for p in _profiles]
     if profile_name not in known:
-        return _result({"error": {"code": "UNKNOWN_PROFILE",
+        return mcp_result({"error": {"code": "UNKNOWN_PROFILE",
                                   "message": f"'{profile_name}' は未定義。既知: {known}"}})
     old = _current_profile
     _current_profile = profile_name
     log_event("info", "scheduler.profile_switched", "gpu-mcp", new_audit_id(),
               data={"from": old, "to": profile_name})
-    return _result({"switched": True, "from": old, "to": profile_name})
+    return mcp_result({"switched": True, "from": old, "to": profile_name})
 
 
 async def _scheduler_degrade(
@@ -256,10 +227,23 @@ async def _scheduler_degrade(
               "scheduler.degraded" if _degraded else "scheduler.degraded_recovered",
               "gpu-mcp", new_audit_id(),
               data={"reason": args.get("reason")})
-    return _result({"degraded": _degraded})
+    return mcp_result({"degraded": _degraded})
+
+
+_HANDLERS = {
+    "gpu.state": _gpu_state,
+    "gpu.reserve": _gpu_reserve,
+    "gpu.release": _gpu_release,
+    "scheduler.queue_status": _scheduler_queue_status,
+    "scheduler.profile_switch": _scheduler_profile_switch,
+    "scheduler.degrade": _scheduler_degrade,
+}
+
+
+@server.call_tool()
+async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
+    return await dispatch(name, arguments, _HANDLERS)
 
 
 async def run() -> None:
-    _load_config()
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream, server.create_initialization_options())
+    await run_stdio_server(server, init_fn=_load_config)
