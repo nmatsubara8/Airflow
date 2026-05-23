@@ -136,3 +136,22 @@ def test_select_best_model_uses_accuracy_scores():
         accuracy_scores={"model_14b": 0.6, "model_32b": 0.95},
     )
     assert best == "model_32b"
+
+
+# ── compute_affinity_score: swap_ms == inf (line 81) ─
+
+def test_affinity_score_returns_neg_infinity_when_swap_cost_is_infinite():
+    """compute_swap_cost が inf を返すときスコアが -inf になること（line 81）。"""
+    from unittest.mock import patch
+    from airflow_mcp.scheduler.affinity import compute_affinity_score, _INFINITY
+    task = {"features": {}}
+    with patch("airflow_mcp.scheduler.affinity.compute_swap_cost", return_value=_INFINITY):
+        score = compute_affinity_score(
+            task,
+            model_id="model_32b",
+            loaded_model_ids=[],
+            free_vram_gb=8.0,
+            registry={},
+            model_config={},
+        )
+    assert math.isinf(score) and score < 0

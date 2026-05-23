@@ -142,3 +142,35 @@ def test_get_profile_models_returns_empty_for_unknown():
 def test_get_profile_models_returns_empty_for_none():
     models = get_profile_models(_PROFILES, None)
     assert models == []
+
+
+# ── select_best_profile: no switch needed (line 78) ──
+
+def test_select_best_profile_returns_current_when_already_best():
+    """best が current と同じときそのまま返すこと（line 78）。"""
+    # single-14b が single-32b より深いキューを持つ → best=single-14b == current
+    queue_depths = {"model_14b": 10, "model_32b": 0}
+    best = select_best_profile(
+        _PROFILES, queue_depths,
+        current_profile_name="single-14b",
+        current_model_ids=["model_14b", "model_bge"],
+        available_vram_gb=15.0,
+        registry=_REGISTRY,
+    )
+    assert best == "single-14b"
+
+
+# ── select_best_profile: actual switch (lines 95-99) ─
+
+def test_select_best_profile_switches_when_cost_is_low():
+    """スイッチコストが閾値以下のとき実際に切り替わること（lines 95-99）。
+    current=single-14b, best=dual-8b, dual-8b のモデルは既にロード済み → cost=0 ≤ 30_000。"""
+    queue_depths = {"model_8b_a": 10, "model_8b_b": 8}
+    best = select_best_profile(
+        _PROFILES, queue_depths,
+        current_profile_name="single-14b",
+        current_model_ids=["model_8b_a", "model_8b_b"],  # 既にロード済み → cost=0
+        available_vram_gb=15.0,
+        registry=_REGISTRY,
+    )
+    assert best == "dual-8b"

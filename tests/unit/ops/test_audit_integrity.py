@@ -120,3 +120,13 @@ def test_verify_chain_since_filters_dates():
     # since=2026-01-02 なら 1 日目は検査しない
     failures = verify_chain(since="2026-01-02")
     assert failures == []
+
+
+# ── run_chain_hash date_str=None (line 48) ────────────
+
+def test_run_chain_hash_uses_today_when_no_date_given():
+    """date_str=None のとき今日の日付が使われること（line 48）。"""
+    from datetime import datetime, timezone
+    result = run_chain_hash()  # date_str 省略
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    assert result["date"] == today

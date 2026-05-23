@@ -188,3 +188,37 @@ async def test_reindex_requires_notes_write_scope(monkeypatch):
 async def test_unknown_tool_returns_error():
     result = await _call("notes.unknown", {})
     assert "error" in result
+
+
+# ── list_tools() body (line 33) ───────────────────────
+
+@pytest.mark.asyncio
+async def test_list_tools_returns_all_tool_names():
+    import airflow_mcp.notes.server as notes_mod
+    tools = await notes_mod.list_tools()
+    names = [t.name for t in tools]
+    assert "notes.search" in names
+    assert "notes.get" in names
+    assert "notes.list_by_category" in names
+    assert "notes.related" in names
+    assert "notes.reindex" in names
+
+
+# ── run() (lines 193-194) ─────────────────────────────
+
+@pytest.mark.asyncio
+async def test_run_starts_stdio_server():
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock, MagicMock, patch
+    import airflow_mcp.notes.server as notes_mod
+
+    @asynccontextmanager
+    async def fake_stdio_server():
+        yield MagicMock(), MagicMock()
+
+    mock_run = AsyncMock()
+    with patch("airflow_mcp.notes.server.stdio_server", fake_stdio_server), \
+         patch.object(notes_mod.server, "run", mock_run):
+        await notes_mod.run()
+
+    mock_run.assert_awaited_once()

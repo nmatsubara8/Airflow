@@ -11,6 +11,7 @@ from airflow_mcp.orchestrator.recommender import (
     _DEFAULT_WEIGHTS,
     _TASK_TYPES,
     _LANGUAGES,
+    _cold_start_model,
     encode_features,
     knn_recommend,
     select_model,
@@ -269,3 +270,37 @@ def test_simple_rule_medium_accuracy_returns_14b():
 
 def test_simple_rule_empty_features_returns_14b():
     assert simple_rule_select({}) == "model_qwen25_14b_q4"
+
+
+# ── knn_recommend: empty features_snapshot (line 96) ─
+
+def test_knn_recommend_skips_records_with_empty_snapshot():
+    """features_snapshot が空のレコードをスキップすること（line 96）。"""
+    history = [
+        {"features_snapshot": {}, "model_id": "model_qwen25_14b_q4", "auto_score": 0.8},
+        *_make_history("model_qwen25_14b_q4", "summarize", count=5, score=0.8),
+    ]
+    recs = knn_recommend(
+        {"task_type": "summarize"}, history, list(REGISTRY.keys()), KNN_CFG
+    )
+    # 空スナップショットはスキップ → 残り5件で推薦が返ること
+    assert any(r["model_id"] == "model_qwen25_14b_q4" for r in recs)
+
+
+# ── _cold_start_model branches (lines 144-145, 153) ──
+
+def test_cold_start_model_returns_preferred_model_in_registry():
+    """preferred_models に registry 存在モデルがあれば即返すこと（lines 144-145）。"""
+    features = {"preferred_models": ["model_qwen25_32b_q3"]}
+    result = _cold_start_model(features, REGISTRY, MODEL_CONFIG)
+    assert result == "model_qwen25_32b_q3"
+
+
+def test_cold_start_model_falls_back_to_default_when_no_match():
+    """preferred_models なし + task_type 不一致のときデフォルトを返すこと（line 153）。"""
+    features = {"task_type": "nonexistent_type_xyz"}
+    cfg = {**MODEL_CONFIG, "selection": {"default_model": "model_qwen25_14b_q4"}}
+    # REGISTRY に "nonexistent_type_xyz" を preferred_tasks に持つモデルはない
+    registry_no_match = {k: {**v, "preferred_tasks": ["review"]} for k, v in REGISTRY.items()}
+    result = _cold_start_model(features, registry_no_match, cfg)
+    assert result == "model_qwen25_14b_q4"
