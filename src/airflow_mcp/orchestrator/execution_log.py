@@ -5,6 +5,7 @@ KNN 推奨の学習データとして使用。
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from datetime import datetime, timezone
@@ -16,6 +17,12 @@ from ..common.audit import new_audit_id, now_iso
 _DEFAULT_LOG_DIR = Path(".airflow/execution_logs")
 
 
+def _log_id() -> str:
+    """スキーマ準拠の ID を生成: ^log_[a-f0-9]{8,}$（DDD-01 execution_log.schema.json）。"""
+    raw = new_audit_id().encode()
+    return "log_" + hashlib.sha256(raw).hexdigest()[:16]
+
+
 def compute_auto_score(
     schema_valid: bool,
     retry_count: int,
@@ -24,7 +31,7 @@ def compute_auto_score(
     """DDD-06 §5.2 の auto_score 算出。
 
     base: 0.7（二重実行なしで成功）、0.0（失敗）
-    補正: -0.3 if not schema_valid, -0.1 * retry_count
+    補正: -0.1 * retry_count
     人間フィードバック: +0.1 accepted / -0.2 modified / -0.5 rejected
     """
     if not schema_valid:
@@ -60,7 +67,8 @@ def append_execution_log(
     ts = now_iso()
     record: dict[str, Any] = {
         "schema_version": "1.0.0",
-        "id": "execlog_" + new_audit_id()[:16].lower(),
+        "id": _log_id(),          # ^log_[a-f0-9]{8,}$ に準拠
+        "timestamp": ts,          # execution_log.schema.json 必須フィールド
         "task_id": task_id,
         "agent_id": agent_id,
         "model_id": model_id,
@@ -72,7 +80,6 @@ def append_execution_log(
         "success": schema_valid,
         "human_feedback": None,
         "exploration_type": exploration_type,
-        "created_at": ts,
     }
 
     base = Path(log_dir)
