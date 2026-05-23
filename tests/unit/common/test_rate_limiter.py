@@ -96,3 +96,47 @@ def test_check_rate_limit_uses_global_limiter():
             check_rate_limit("tok_x")
     finally:
         mod._limiter = original
+
+
+# ── _load_rate_limit_config (lines 91-94) ────────────
+
+def test_load_rate_limit_config_reads_yaml(tmp_path, monkeypatch):
+    """config ファイルが存在するとき rate_limit セクションを返すこと（lines 91-93）。"""
+    from airflow_mcp.common import rate_limiter as mod
+    cfg = tmp_path / "auth.yaml"
+    cfg.write_text("rate_limit:\n  default:\n    capacity: 50\n    refill_rate: 5\n")
+    monkeypatch.setattr(mod, "_CONFIG_PATH", cfg)
+    result = mod._load_rate_limit_config()
+    assert result.get("default", {}).get("capacity") == 50
+
+
+def test_load_rate_limit_config_returns_empty_when_no_file(monkeypatch):
+    """config ファイルが存在しないとき {} を返すこと（line 94）。"""
+    from pathlib import Path
+    from airflow_mcp.common import rate_limiter as mod
+    monkeypatch.setattr(mod, "_CONFIG_PATH", Path("/nonexistent/auth.yaml"))
+    result = mod._load_rate_limit_config()
+    assert result == {}
+
+
+# ── build_rate_limiter (lines 99-103) ────────────────
+
+def test_build_rate_limiter_uses_config_values(tmp_path, monkeypatch):
+    """auth.yaml の値で RateLimiter が構築されること（lines 99-103）。"""
+    from airflow_mcp.common import rate_limiter as mod
+    cfg = tmp_path / "auth.yaml"
+    cfg.write_text("rate_limit:\n  default:\n    capacity: 42\n    refill_rate: 7\n")
+    monkeypatch.setattr(mod, "_CONFIG_PATH", cfg)
+    rl = mod.build_rate_limiter()
+    assert rl._default_capacity == 42
+    assert rl._default_refill_rate == pytest.approx(7.0)
+
+
+def test_build_rate_limiter_uses_defaults_when_no_config(monkeypatch):
+    """config なしのときデフォルト値が使われること。"""
+    from pathlib import Path
+    from airflow_mcp.common import rate_limiter as mod
+    monkeypatch.setattr(mod, "_CONFIG_PATH", Path("/nonexistent/auth.yaml"))
+    rl = mod.build_rate_limiter()
+    assert rl._default_capacity == mod._DEFAULT_CAPACITY
+    assert rl._default_refill_rate == pytest.approx(float(mod._DEFAULT_REFILL_RATE))
