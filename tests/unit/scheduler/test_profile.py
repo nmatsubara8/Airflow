@@ -1,0 +1,144 @@
+"""scheduler/profile.py の単体テスト（DDD-07 §4）。"""
+from __future__ import annotations
+
+import pytest
+
+from airflow_mcp.scheduler.profile import (
+    compute_switch_cost,
+    evaluate_profile,
+    get_profile_models,
+    select_best_profile,
+)
+
+_PROFILES = [
+    {"name": "single-14b", "models": ["model_14b", "model_bge"], "vram_required_gb": 10},
+    {"name": "single-32b", "models": ["model_32b", "model_bge"], "vram_required_gb": 15},
+    {"name": "dual-8b",    "models": ["model_8b_a", "model_8b_b"], "vram_required_gb": 8},
+]
+
+_REGISTRY = {
+    "model_14b": {"vram_gb": 9.0, "avg_load_time_ms": 20_000},
+    "model_32b": {"vram_gb": 14.0, "avg_load_time_ms": 40_000},
+    "model_bge": {"vram_gb": 1.0, "avg_load_time_ms": 3_000},
+    "model_8b_a": {"vram_gb": 4.5, "avg_load_time_ms": 8_000},
+    "model_8b_b": {"vram_gb": 4.5, "avg_load_time_ms": 8_000},
+}
+
+
+# ── compute_switch_cost ──────────────────────────────
+
+def test_switch_cost_zero_for_same_profile():
+    cost = compute_switch_cost(["model_14b", "model_bge"], ["model_14b", "model_bge"], _REGISTRY)
+    assert cost == 0.0
+
+
+def test_switch_cost_covers_load_plus_unload():
+    # 14b → 32b に切り替え: 14b アンロード(1500) + 32b ロード(40000) = 41500
+    cost = compute_switch_cost(
+        ["model_14b", "model_bge"], ["model_32b", "model_bge"], _REGISTRY
+    )
+    assert cost == pytest.approx(41_500)
+
+
+def test_switch_cost_shared_models_not_counted():
+    # bge は共通 → アンロード/ロードされない
+    cost = compute_switch_cost(["model_14b", "model_bge"], ["model_32b", "model_bge"], _REGISTRY)
+    # only: unload 14b (1500) + load 32b (40000) = 41500
+    assert cost == pytest.approx(41_500)
+
+
+# ── evaluate_profile ─────────────────────────────────
+
+def test_evaluate_profile_returns_covered_queue_depth():
+    queue_depths = {"model_14b": 5, "model_bge": 2, "model_32b": 3}
+    profile = {"name": "single-14b", "models": ["model_14b", "model_bge"]}
+    score = evaluate_profile(profile, queue_depths)
+    assert score == 7  # 5 + 2
+
+
+def test_evaluate_profile_zero_when_no_queued_tasks():
+    score = evaluate_profile({"models": ["model_14b"]}, {})
+    assert score == 0
+
+
+# ── select_best_profile ──────────────────────────────
+
+def test_select_best_profile_chooses_most_coverage():
+    queue_depths = {"model_32b": 10, "model_bge": 1}
+    # current=None で切替コスト比較をスキップ → カバレッジ最大のプロファイルを選ぶ
+    best = select_best_profile(
+        _PROFILES, queue_depths,
+        current_profile_name=None,
+        current_model_ids=[],
+        available_vram_gb=15.0,
+        registry=_REGISTRY,
+    )
+    assert best == "single-32b"
+
+
+def test_select_best_profile_defers_when_switch_too_costly():
+    # single-14b → single-32b は 41500ms > 30000ms 閾値 → 現プロファイル継続
+    queue_depths = {"model_32b": 10, "model_bge": 1}
+    best = select_best_profile(
+        _PROFILES, queue_depths,
+        current_profile_name="single-14b",
+        current_model_ids=["model_14b", "model_bge"],
+        available_vram_gb=15.0,
+        registry=_REGISTRY,
+    )
+    assert best == "single-14b"
+
+
+def test_select_best_profile_stays_on_current_when_switch_too_costly():
+    queue_depths = {"model_32b": 1}  # 切替の価値が小さい
+    # コスト > 30秒 なら現プロファイル継続（32b への切替は 41500ms > 30000ms）
+    best = select_best_profile(
+        _PROFILES, queue_depths,
+        current_profile_name="single-14b",
+        current_model_ids=["model_14b", "model_bge"],
+        available_vram_gb=15.0,
+        registry=_REGISTRY,
+    )
+    assert best == "single-14b"
+
+
+def test_select_best_profile_excludes_vram_insufficient():
+    queue_depths = {"model_32b": 100, "model_14b": 0}
+    best = select_best_profile(
+        _PROFILES, queue_depths,
+        current_profile_name=None,
+        current_model_ids=[],
+        available_vram_gb=10.0,  # 32b プロファイルには 15GB 必要
+        registry=_REGISTRY,
+    )
+    # single-32b は除外 → single-14b か dual-8b から選ぶ
+    assert best != "single-32b"
+
+
+def test_select_best_profile_returns_current_when_no_viable():
+    best = select_best_profile(
+        _PROFILES, {},
+        current_profile_name="single-14b",
+        current_model_ids=[],
+        available_vram_gb=1.0,  # どのプロファイルも VRAM 不足
+        registry=_REGISTRY,
+    )
+    assert best == "single-14b"
+
+
+# ── get_profile_models ────────────────────────────────
+
+def test_get_profile_models_returns_correct_list():
+    models = get_profile_models(_PROFILES, "single-32b")
+    assert "model_32b" in models
+    assert "model_bge" in models
+
+
+def test_get_profile_models_returns_empty_for_unknown():
+    models = get_profile_models(_PROFILES, "nonexistent")
+    assert models == []
+
+
+def test_get_profile_models_returns_empty_for_none():
+    models = get_profile_models(_PROFILES, None)
+    assert models == []
