@@ -647,6 +647,104 @@ def test_run_loop_catches_run_once_exception(task_store, monkeypatch):
     assert call_count["n"] == 2
 
 
+# ── reroute.skip_for interactive (DDD-06 §7.3) ───────
+
+def test_process_task_reroute_skips_for_interactive_latency(
+    task_store: TaskStore, sample_task_fields: dict, monkeypatch
+):
+    """interactive latency タスクは reroute せず即 needs_human に escalate すること。"""
+    monkeypatch.setenv("OLLAMA_STUB", "false")
+    fields = {**sample_task_fields, "features": {
+        **sample_task_fields.get("features", {}),
+        "latency_sensitivity": "interactive",
+    }}
+    task = task_store.create(fields)
+    task_store.claim(task["id"], "agent_docs")
+    task_in_progress = task_store.get(task["id"])
+
+    def always_fail(*args, **kwargs):
+        return '{"bad":"x"}', {"bad": "x"}, False
+
+    model_config = {
+        "reroute": {
+            "max_reroute_attempts": 1,
+            "skip_for": ["interactive"],
+            "fallback_chain": {"model_qwen25_14b_q4": ["model_qwen25_32b_q3"]},
+        }
+    }
+    registry = {
+        "model_qwen25_14b_q4": {"ollama_tag": "qwen2.5:14b", "preferred_tasks": []},
+        "model_qwen25_32b_q3": {"ollama_tag": "qwen2.5:32b", "preferred_tasks": []},
+    }
+
+    call_models: list[str] = []
+
+    def fake_call(url, model_tag, *args, **kwargs):
+        call_models.append(model_tag)
+        return '{"bad":"x"}', {"bad": "x"}, False
+
+    with patch("airflow_mcp.runner.main._select_model",
+               return_value=("model_qwen25_14b_q4", None)), \
+         patch("airflow_mcp.runner.main._call_ollama", side_effect=fake_call):
+        result = process_task(
+            task_in_progress, task_store, model_config, registry, "agent_docs", "http://localhost"
+        )
+
+    assert result is False
+    assert task_store.get(task["id"])["status"] == "needs_human"
+    # fallback モデルは呼ばれていないこと
+    assert not any("32b" in m for m in call_models)
+
+
+def test_process_task_reroute_on_low_auto_score(
+    task_store: TaskStore, sample_task_fields: dict, monkeypatch
+):
+    """schema_valid=True でも auto_score < 0.7 のとき reroute を試みること（DDD-06 §7.3）。"""
+    monkeypatch.setenv("OLLAMA_STUB", "false")
+    task = task_store.create(sample_task_fields)
+    task_store.claim(task["id"], "agent_docs")
+    task_in_progress = task_store.get(task["id"])
+
+    call_models: list[str] = []
+
+    def fake_call(url, model_tag, messages, output_schema, temperature, max_tokens, attempt):
+        call_models.append(model_tag)
+        if "14b" in model_tag:
+            # プライマリ: schema_valid=True だが retry_count=2（auto_score≈0.5 < 0.7）
+            if attempt < 2:
+                return '{"bad":"field"}', {"bad": "field"}, False
+            return '{"summary":"ok","key_points":[]}', \
+                   {"summary": "ok", "key_points": []}, True
+        # フォールバック: 成功（attempt=0 で True）
+        return '{"summary":"fallback ok","key_points":[]}', \
+               {"summary": "fallback ok", "key_points": []}, True
+
+    model_config = {
+        "reroute": {
+            "max_reroute_attempts": 1,
+            "skip_for": [],
+            "fallback_chain": {"model_qwen25_14b_q4": ["model_qwen25_32b_q3"]},
+        }
+    }
+    registry = {
+        "model_qwen25_14b_q4": {"ollama_tag": "qwen2.5:14b-q4", "preferred_tasks": []},
+        "model_qwen25_32b_q3": {"ollama_tag": "qwen2.5:32b-q3", "preferred_tasks": []},
+    }
+
+    with patch("airflow_mcp.runner.main._select_model",
+               return_value=("model_qwen25_14b_q4", None)), \
+         patch("airflow_mcp.runner.main._call_ollama", side_effect=fake_call):
+        result = process_task(
+            task_in_progress, task_store, model_config, registry, "agent_docs", "http://localhost"
+        )
+
+    assert result is True
+    done = task_store.get(task["id"])
+    assert done["status"] == "done"
+    # fallback モデルが呼ばれたこと
+    assert any("32b" in m for m in call_models)
+
+
 # ── _cli (lines 361-368) ─────────────────────────────
 
 def test_cli_entry_point(monkeypatch, tmp_path):

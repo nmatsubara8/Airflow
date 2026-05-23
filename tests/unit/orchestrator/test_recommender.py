@@ -11,6 +11,7 @@ from airflow_mcp.orchestrator.recommender import (
     _LANGUAGES,
     _cold_start_model,
     encode_features,
+    infer_features,
     knn_recommend,
     select_model,
     simple_rule_select,
@@ -292,6 +293,52 @@ def test_cold_start_model_returns_preferred_model_in_registry():
     features = {"preferred_models": ["model_qwen25_32b_q3"]}
     result = _cold_start_model(features, REGISTRY, MODEL_CONFIG)
     assert result == "model_qwen25_32b_q3"
+
+
+# ── infer_features ────────────────────────────────────────
+
+def test_infer_features_task_type_from_tag():
+    task = {"tags": ["review", "api"], "features": {}}
+    result = infer_features(task)
+    assert result["task_type"] == "review"
+
+
+def test_infer_features_code_tag_maps_to_code_gen():
+    task = {"tags": ["code", "backend"], "features": {}}
+    result = infer_features(task)
+    assert result["task_type"] == "code_gen"
+
+
+def test_infer_features_required_accuracy_from_section_business():
+    task = {"section": "business", "features": {}}
+    result = infer_features(task)
+    assert result["required_accuracy"] == "high"
+
+
+def test_infer_features_required_accuracy_from_section_legal():
+    task = {"section": "legal", "features": {}}
+    result = infer_features(task)
+    assert result["required_accuracy"] == "high"
+
+
+def test_infer_features_latency_from_urgent_tag():
+    task = {"tags": ["urgent"], "features": {}}
+    result = infer_features(task)
+    assert result["latency_sensitivity"] == "interactive"
+
+
+def test_infer_features_does_not_overwrite_existing():
+    task = {"tags": ["review"], "section": "business",
+            "features": {"task_type": "summarize", "required_accuracy": "medium"}}
+    result = infer_features(task)
+    assert result["task_type"] == "summarize"
+    assert result["required_accuracy"] == "medium"
+
+
+def test_infer_features_empty_task_returns_empty_extra():
+    task = {}
+    result = infer_features(task)
+    assert isinstance(result, dict)
 
 
 def test_cold_start_model_falls_back_to_default_when_no_match():

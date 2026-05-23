@@ -26,7 +26,8 @@ from ..common.errors import (
 )
 from ..common.mcp import dispatch, mcp_result, run_stdio_server
 from ..common.url_validator import validate_ollama_url
-from ..orchestrator.execution_log import append_execution_log, update_feedback
+from ..orchestrator.execution_log import append_execution_log, load_history, update_feedback
+from ..orchestrator.recommender import _cold_start_model, knn_recommend
 
 server = Server("models-mcp")
 
@@ -240,39 +241,73 @@ async def _model_recommend(args: dict[str, Any], token: str | None) -> list[type
     mode = args.get("mode", "recommend")
     candidates = args.get("candidate_models") or list(_models.keys())
 
-    # Phase 2 スタブ: KNN 未実装。features ベースの単純ルール。
-    # required_accuracy=high → 32b, それ以外 → 14b
-    required_accuracy = features.get("required_accuracy", "medium")
-    latency = features.get("latency_sensitivity", "batch")
-
+    # manual モード: 候補の先頭を返す（DDD-06 §4.1）
     if mode == "manual":
-        # manual モードは候補の先頭を返す
         selected = candidates[0] if candidates else "model_qwen25_14b_q4"
-        reason = "手動指定（manual モード）"
-    elif required_accuracy == "high" and latency != "interactive":
-        selected = "model_qwen25_32b_q3"
-        reason = "required_accuracy=high → 32B 推奨"
-    else:
-        selected = "model_qwen25_14b_q4"
-        reason = "デフォルト 14B（Phase 2 MVP）"
+        model = _models.get(selected, {})
+        return mcp_result({
+            "recommendations": [{
+                "model_id": selected,
+                "score": 1.0,
+                "expected_accuracy": 1.0,
+                "swap_cost_ms": model.get("avg_load_time_ms", 10000),
+                "confidence": 1.0,
+                "reason": "手動指定（manual モード）",
+            }],
+            "sample_count": 0,
+        })
 
-    # ε-greedy: 10% でランダム探索（DDD-06 §4.5）
+    # KNN 推奨（DDD-06 §4.3）
+    history = load_history()
+    knn_config: dict[str, Any] = {}
+    available = [c for c in candidates if c in _models]
+    recommendations = knn_recommend(features, history, available, knn_config)
+    total_samples = sum(r["sample_count"] for r in recommendations)
+
+    # コールドスタート（サンプル不足）
+    if not recommendations or total_samples < 5:
+        selected = _cold_start_model(features, _models, {})
+        if selected not in available:
+            selected = available[0] if available else (candidates[0] if candidates else "model_qwen25_14b_q4")
+        model = _models.get(selected, {})
+        return mcp_result({
+            "recommendations": [{
+                "model_id": selected,
+                "score": 0.5,
+                "expected_accuracy": 0.5,
+                "swap_cost_ms": model.get("avg_load_time_ms", 10000),
+                "confidence": 0.0,
+                "reason": "コールドスタート（履歴不足）",
+            }],
+            "sample_count": total_samples,
+        })
+
+    # ε-greedy 探索（auto モードのみ、DDD-06 §4.5）
     epsilon = 0.1
-    if random.random() < epsilon:
-        selected = random.choice([m for m in candidates if m in _models] or [selected])
-        reason = f"ε-greedy 探索（ε={epsilon}）"
+    if mode == "auto" and random.random() < epsilon:
+        others = [m for m in available if m != recommendations[0]["model_id"]]
+        if others:
+            selected = random.choice(others)
+            model = _models.get(selected, {})
+            return mcp_result({
+                "recommendations": [{
+                    "model_id": selected,
+                    "score": recommendations[0]["score"],
+                    "expected_accuracy": recommendations[0]["expected_accuracy"],
+                    "swap_cost_ms": model.get("avg_load_time_ms", 10000),
+                    "confidence": 0.0,
+                    "reason": f"ε-greedy 探索（ε={epsilon}）",
+                }],
+                "sample_count": total_samples,
+            })
 
-    model = _models.get(selected, {})
+    # 推奨リストに swap_cost を追加して返す
+    for r in recommendations:
+        r["swap_cost_ms"] = _models.get(r["model_id"], {}).get("avg_load_time_ms", 10000)
+
     return mcp_result({
-        "recommendations": [{
-            "model_id": selected,
-            "score": 0.85,
-            "expected_accuracy": 0.85 if selected == "model_qwen25_32b_q3" else 0.75,
-            "swap_cost_ms": model.get("avg_load_time_ms", 10000),
-            "confidence": 0.5,  # Phase 2: 履歴なしのため低め
-            "reason": reason,
-        }],
-        "sample_count": 0,  # Phase 2: 履歴未蓄積
+        "recommendations": recommendations,
+        "sample_count": total_samples,
     })
 
 

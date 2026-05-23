@@ -27,7 +27,7 @@ from jsonschema import Draft202012Validator
 
 from ..common.audit import log_event, new_audit_id
 from ..common.url_validator import validate_ollama_url
-from ..orchestrator.execution_log import append_execution_log, load_history
+from ..orchestrator.execution_log import append_execution_log, compute_auto_score, load_history
 from ..orchestrator.recommender import select_model, simple_rule_select
 from ..taskboard.store import TaskStore
 
@@ -232,9 +232,19 @@ def process_task(
         logger.warning("execution_log write failed: %s", exc)
         log_id = "log_" + aid[:16].lower()
 
-    # ── Reroute（DDD-06 §7.3）: プライマリ失敗時にフォールバックモデルで再試行 ──
+    # ── Reroute（DDD-06 §7.3）: プライマリ失敗または低スコア時にフォールバックモデルで再試行 ──
+    auto_score_primary = compute_auto_score(schema_valid, retry_count)
+    features = task.get("features", {})
+    skip_for: list[str] = model_config.get("reroute", {}).get("skip_for", [])
+    should_reroute = (not schema_valid or auto_score_primary < 0.7) and max_reroute > 0
+
+    # skip_for 対象（例: interactive）はリルートせず即 escalate
+    if should_reroute and features.get("latency_sensitivity") in skip_for:
+        schema_valid = False
+        should_reroute = False
+
     rerouted_from: str | None = None
-    if not schema_valid and max_reroute > 0:
+    if should_reroute:
         fallback_id = _get_fallback_model(model_id, model_config)
         if fallback_id and fallback_id in registry:
             rerouted_from = model_id

@@ -10,10 +10,13 @@ from tests.helpers import make_mcp_caller
 
 
 @pytest.fixture(autouse=True)
-def clean_models():
-    """各テスト前後にインメモリモデルストアをリセット。"""
+def clean_models(monkeypatch):
+    """各テスト前後にインメモリモデルストアをリセット。
+    load_history はデフォルトで空リストを返すようパッチ（実行ログに依存しないよう）。
+    """
     models_mod._models.clear()
     models_mod._execution_logs.clear()
+    monkeypatch.setattr("airflow_mcp.models.server.load_history", lambda: [])
     yield
     models_mod._models.clear()
     models_mod._execution_logs.clear()
@@ -242,7 +245,8 @@ async def test_model_recommend_medium_accuracy_returns_14b(monkeypatch):
         "features": {"required_accuracy": "medium", "latency_sensitivity": "batch"},
     })
     assert result["recommendations"][0]["model_id"] == "model_qwen25_14b_q4"
-    assert "14B" in result["recommendations"][0]["reason"]
+    # cold start 時はコールドスタート理由を返す
+    assert "reason" in result["recommendations"][0]
 
 
 @pytest.mark.asyncio
@@ -259,17 +263,75 @@ async def test_model_recommend_interactive_latency_returns_14b(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_model_recommend_epsilon_greedy_explores(monkeypatch):
+    """auto モードで ε-greedy 探索が発動すること（DDD-06 §4.5）。"""
     _add_model("model_qwen25_14b_q4")
     _add_model("model_qwen25_32b_q3")
+    # KNN で history がある場合のみ ε-greedy が発動するため, history をパッチ
+    history = [
+        {"model_id": "model_qwen25_14b_q4",
+         "features_snapshot": {"task_type": "review", "language": "ja",
+                                "required_accuracy": "high", "latency_sensitivity": "batch"},
+         "auto_score": 0.9}
+        for _ in range(10)
+    ]
+    monkeypatch.setattr("airflow_mcp.models.server.load_history", lambda: history)
     monkeypatch.setattr("airflow_mcp.models.server.random.random", lambda: 0.0)
     monkeypatch.setattr(
         "airflow_mcp.models.server.random.choice",
         lambda lst: lst[0],
     )
     result = await _call("model.recommend", {
-        "features": {"required_accuracy": "high", "latency_sensitivity": "batch"},
+        "features": {"required_accuracy": "high", "latency_sensitivity": "batch",
+                     "task_type": "review", "language": "ja"},
+        "mode": "auto",
     })
     assert "ε-greedy" in result["recommendations"][0]["reason"]
+
+
+@pytest.mark.asyncio
+async def test_model_recommend_knn_uses_history_when_available(monkeypatch):
+    """履歴がある場合に KNN 推奨リストを返すこと（DDD-06 §4.3）。"""
+    _add_model("model_qwen25_14b_q4")
+    _add_model("model_qwen25_32b_q3")
+    history = [
+        {"model_id": "model_qwen25_32b_q3",
+         "features_snapshot": {"task_type": "review", "language": "ja",
+                                "required_accuracy": "high", "latency_sensitivity": "batch"},
+         "auto_score": 0.95}
+        for _ in range(10)
+    ]
+    monkeypatch.setattr("airflow_mcp.models.server.load_history", lambda: history)
+    result = await _call("model.recommend", {
+        "features": {"task_type": "review", "language": "ja",
+                     "required_accuracy": "high", "latency_sensitivity": "batch"},
+        "mode": "recommend",
+    })
+    assert len(result["recommendations"]) >= 1
+    assert result["recommendations"][0]["model_id"] == "model_qwen25_32b_q3"
+    assert result["sample_count"] >= 5
+
+
+@pytest.mark.asyncio
+async def test_model_recommend_cold_start_reason(monkeypatch):
+    """履歴なしのとき cold start 理由が返ること。"""
+    _add_model("model_qwen25_14b_q4")
+    monkeypatch.setattr("airflow_mcp.models.server.load_history", lambda: [])
+    result = await _call("model.recommend", {"features": {}})
+    assert "コールドスタート" in result["recommendations"][0]["reason"]
+
+
+@pytest.mark.asyncio
+async def test_model_recommend_cold_start_fallback_when_selected_not_in_candidates(monkeypatch):
+    """cold_start_model が candidate にないモデルを返すとき available[0] にフォールバックすること（line 271）。"""
+    _add_model("model_preferred")   # _models に存在するが candidates には入れない
+    _add_model("model_candidate")   # candidates に指定するモデル
+    monkeypatch.setattr("airflow_mcp.models.server.load_history", lambda: [])
+    result = await _call("model.recommend", {
+        "features": {"preferred_models": ["model_preferred"]},
+        "candidate_models": ["model_candidate"],  # model_preferred は含まない
+    })
+    # cold_start が model_preferred を返すが available に無いため model_candidate にフォールバック
+    assert result["recommendations"][0]["model_id"] == "model_candidate"
 
 
 # ── _call_ollama 非スタブ ─────────────────────────────
