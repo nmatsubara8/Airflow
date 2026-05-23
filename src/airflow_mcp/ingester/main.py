@@ -38,6 +38,8 @@ def _write_processed_at(path: Path, processed_at: str) -> None:
     失敗してもタスクは既に登録済みなので例外を抑制する。"""
     try:
         raw = path.read_text(encoding="utf-8")
+        if "processed_at:" in raw:
+            return
         if raw.startswith("---"):
             parts = raw.split("---", 2)
             if len(parts) >= 3:
