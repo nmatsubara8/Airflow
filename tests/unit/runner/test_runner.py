@@ -10,9 +10,11 @@ import pytest
 
 from airflow_mcp.orchestrator.recommender import simple_rule_select
 from airflow_mcp.runner.main import (
+    _build_handoff_note,
     _build_messages,
     _call_ollama,
     _execute_with_retry,
+    _execute_with_reroute,
     _get_fallback_model,
     _model_id_to_ollama_tag,
     _select_model,
@@ -765,3 +767,105 @@ def test_cli_entry_point(monkeypatch, tmp_path):
         _cli()
 
     assert "store" in call_args
+
+
+# ── _build_handoff_note ───────────────────────────────
+
+def test_build_handoff_note_includes_summary_and_model():
+    note = _build_handoff_note(
+        parsed={"summary": "テスト要約", "key_points": ["p1", "p2"], "confidence": 0.92},
+        content="raw",
+        model_id="model_qwen25_14b_q4",
+        latency_ms=1200,
+        retry_count=0,
+        rerouted_from=None,
+        log_id="log_abc",
+    )
+    assert "テスト要約" in note
+    assert "model_qwen25_14b_q4" in note
+    assert "log_abc" in note
+    assert "reroute" not in note
+
+
+def test_build_handoff_note_includes_reroute_info():
+    note = _build_handoff_note(
+        parsed={"summary": "ok", "key_points": [], "confidence": 0.8},
+        content="raw",
+        model_id="model_qwen25_32b_q3",
+        latency_ms=3000,
+        retry_count=1,
+        rerouted_from="model_qwen25_14b_q4",
+        log_id="log_xyz",
+    )
+    assert "reroute" in note
+    assert "model_qwen25_14b_q4" in note
+    assert "model_qwen25_32b_q3" in note
+
+
+def test_build_handoff_note_falls_back_when_parsed_none():
+    note = _build_handoff_note(
+        parsed=None,
+        content="raw content fallback",
+        model_id="model_qwen25_14b_q4",
+        latency_ms=500,
+        retry_count=0,
+        rerouted_from=None,
+        log_id="log_001",
+    )
+    assert "raw content fallback" in note
+
+
+# ── _execute_with_reroute ─────────────────────────────
+
+def test_execute_with_reroute_stub_returns_exec_result(task_store, sample_task_fields):
+    """STUB モードで _ExecResult が返りスキーマ有効になること。"""
+    import os
+    os.environ["OLLAMA_STUB"] = "true"
+    task = task_store.create(sample_task_fields)
+    schema = {"type": "object", "required": ["summary"],
+              "properties": {"summary": {"type": "string"}}}
+    messages = [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}]
+    from airflow_mcp.common.audit import new_audit_id
+    r = _execute_with_reroute(
+        task, "model_qwen25_14b_q4", None, {}, {}, "agent_docs",
+        "http://localhost:11434", messages, schema, new_audit_id(),
+    )
+    assert r.schema_valid is True
+    assert r.rerouted_from is None
+    assert r.model_id == "model_qwen25_14b_q4"
+
+
+def test_execute_with_reroute_uses_fallback_on_primary_failure(
+    task_store, sample_task_fields, monkeypatch
+):
+    """プライマリ失敗時に fallback_chain のモデルで再試行すること。"""
+    monkeypatch.setenv("OLLAMA_STUB", "false")
+    task = task_store.create(sample_task_fields)
+    schema = {"type": "object", "required": ["summary"],
+              "properties": {"summary": {"type": "string"}}}
+    messages = [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}]
+    call_models: list[str] = []
+
+    def fake_call(url, model_tag, *args, **kwargs):
+        call_models.append(model_tag)
+        if "14b" in model_tag:
+            return '{"bad":"x"}', {"bad": "x"}, False
+        return '{"summary":"fb ok","key_points":[]}', {"summary": "fb ok", "key_points": []}, True
+
+    model_config = {"reroute": {
+        "max_reroute_attempts": 1,
+        "fallback_chain": {"model_qwen25_14b_q4": ["model_qwen25_32b_q3"]},
+    }}
+    registry = {
+        "model_qwen25_14b_q4": {"ollama_tag": "qwen2.5:14b", "preferred_tasks": []},
+        "model_qwen25_32b_q3": {"ollama_tag": "qwen2.5:32b", "preferred_tasks": []},
+    }
+    from airflow_mcp.common.audit import new_audit_id
+    with patch("airflow_mcp.runner.main._call_ollama", side_effect=fake_call):
+        r = _execute_with_reroute(
+            task, "model_qwen25_14b_q4", None, model_config, registry,
+            "agent_docs", "http://localhost", messages, schema, new_audit_id(),
+        )
+    assert r.schema_valid is True
+    assert r.rerouted_from == "model_qwen25_14b_q4"
+    assert r.model_id == "model_qwen25_32b_q3"

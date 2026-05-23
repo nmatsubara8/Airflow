@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -181,46 +182,41 @@ def _get_fallback_model(model_id: str, model_config: dict[str, Any]) -> str | No
     return fallbacks[0] if fallbacks else None
 
 
-def process_task(
+@dataclass
+class _ExecResult:
+    model_id: str
+    content: str
+    parsed: dict | None
+    schema_valid: bool
+    retry_count: int
+    latency_ms: int
+    log_id: str
+    rerouted_from: str | None
+
+
+def _execute_with_reroute(
     task: dict[str, Any],
-    store: TaskStore,
+    model_id: str,
+    exploration_type: str | None,
     model_config: dict[str, Any],
     registry: dict[str, dict],
     agent_id: str,
     ollama_url: str,
-) -> bool:
-    """
-    タスク 1 件を処理する。成功時 True、最終失敗時 False。
-    DDD-05 §9 + DDD-06 §7.3 の end-to-end フロー（reroute 含む）。
-    """
+    messages: list[dict],
+    output_schema: dict,
+    aid: str,
+) -> _ExecResult:
+    """プライマリ実行 + reroute を行い結果を返す（DDD-06 §7.3）。"""
     task_id = task["id"]
-    aid = new_audit_id()
     max_reroute = model_config.get("reroute", {}).get("max_reroute_attempts", 1)
 
-    # system prompt & output schema 読み込み
-    system_prompt = (
-        _SYSTEM_PROMPT_PATH.read_text() if _SYSTEM_PROMPT_PATH.exists()
-        else "与えられたタスクを JSON 形式で要約してください。"
-    )
-    output_schema = (
-        json.loads(_OUTPUT_SCHEMA_PATH.read_text()) if _OUTPUT_SCHEMA_PATH.exists()
-        else {"type": "object", "required": ["summary"],
-              "properties": {"summary": {"type": "string"}}}
-    )
-
-    # DDD-06 §4: KNN 推奨でモデルを選択
-    model_id, exploration_type = _select_model(task, model_config, registry)
-    messages = _build_messages(task, system_prompt)
-    start_ms = int(time.time() * 1000)
-
-    # ── プライマリ実行 ────────────────────────────────────
     model_tag = _model_id_to_ollama_tag(model_id, registry)
+    start_ms = int(time.time() * 1000)
     content, parsed, schema_valid, retry_count = _execute_with_retry(
         ollama_url, model_tag, messages, output_schema
     )
     latency_ms = int(time.time() * 1000) - start_ms
 
-    # DDD-06 §5: ExecutionLog 記録（プライマリ）
     try:
         exec_record = append_execution_log(
             task_id=task_id, agent_id=agent_id, model_id=model_id,
@@ -233,13 +229,14 @@ def process_task(
         logger.warning("execution_log write failed: %s", exc)
         log_id = "log_" + aid[:16].lower()
 
-    # ── Reroute（DDD-06 §7.3）: プライマリ失敗または低スコア時にフォールバックモデルで再試行 ──
     auto_score_primary = compute_auto_score(schema_valid, retry_count)
     features = task.get("features", {})
     skip_for: list[str] = model_config.get("reroute", {}).get("skip_for", [])
-    should_reroute = (not schema_valid or auto_score_primary < REROUTE_SCORE_THRESHOLD) and max_reroute > 0
+    should_reroute = (
+        (not schema_valid or auto_score_primary < REROUTE_SCORE_THRESHOLD)
+        and max_reroute > 0
+    )
 
-    # skip_for 対象（例: interactive）はリルートせず即 escalate
     if should_reroute and features.get("latency_sensitivity") in skip_for:
         schema_valid = False
         should_reroute = False
@@ -275,28 +272,94 @@ def process_task(
             except Exception as exc:
                 logger.warning("execution_log write failed (reroute): %s", exc)
 
-    log_event(
-        "info" if schema_valid else "error",
-        "model.executed" if schema_valid else "escalation.triggered",
-        "models-mcp", aid,
-        model_id=model_id, task_id=task_id, agent_id=agent_id,
-        duration_ms=latency_ms,
-        error=None if schema_valid else {
-            "class": "escalate",
-            "code": "MODEL_STRUCTURED_OUTPUT_INVALID",
-            "message": f"{retry_count + 1}回リトライ後も schema 不適合",
-        },
-        data={"retry_count": retry_count, "schema_valid": schema_valid,
-              "exploration_type": exploration_type,
-              "rerouted_from": rerouted_from},
+    return _ExecResult(
+        model_id=model_id,
+        content=content,
+        parsed=parsed,
+        schema_valid=schema_valid,
+        retry_count=retry_count,
+        latency_ms=latency_ms,
+        log_id=log_id,
+        rerouted_from=rerouted_from,
     )
 
-    if not schema_valid:
-        # 最終失敗 → needs_human に遷移（DDD-03 §3.4）
+
+def _build_handoff_note(
+    parsed: dict | None,
+    content: str,
+    model_id: str,
+    latency_ms: int,
+    retry_count: int,
+    rerouted_from: str | None,
+    log_id: str,
+) -> str:
+    """成功時の handoff_note 本文を組み立てる。"""
+    summary = parsed.get("summary", "") if parsed else content[:200]
+    key_points = parsed.get("key_points", []) if parsed else []
+    confidence = parsed.get("confidence", 0.0) if parsed else 0.0
+    reroute_note = f" | **reroute**: {rerouted_from}→{model_id}" if rerouted_from else ""
+    return (
+        f"**要約**: {summary}\n\n"
+        f"**重要ポイント**:\n" + "\n".join(f"- {p}" for p in key_points) + "\n\n"
+        f"**確信度**: {confidence:.2f} | **モデル**: {model_id} | "
+        f"**レイテンシ**: {latency_ms}ms | **リトライ**: {retry_count}回"
+        f"{reroute_note} | **実行ログ**: {log_id}"
+    )
+
+
+def process_task(
+    task: dict[str, Any],
+    store: TaskStore,
+    model_config: dict[str, Any],
+    registry: dict[str, dict],
+    agent_id: str,
+    ollama_url: str,
+) -> bool:
+    """
+    タスク 1 件を処理する。成功時 True、最終失敗時 False。
+    DDD-05 §9 + DDD-06 §7.3 の end-to-end フロー（reroute 含む）。
+    """
+    task_id = task["id"]
+    aid = new_audit_id()
+
+    system_prompt = (
+        _SYSTEM_PROMPT_PATH.read_text() if _SYSTEM_PROMPT_PATH.exists()
+        else "与えられたタスクを JSON 形式で要約してください。"
+    )
+    output_schema = (
+        json.loads(_OUTPUT_SCHEMA_PATH.read_text()) if _OUTPUT_SCHEMA_PATH.exists()
+        else {"type": "object", "required": ["summary"],
+              "properties": {"summary": {"type": "string"}}}
+    )
+
+    model_id, exploration_type = _select_model(task, model_config, registry)
+    messages = _build_messages(task, system_prompt)
+
+    r = _execute_with_reroute(
+        task, model_id, exploration_type, model_config, registry,
+        agent_id, ollama_url, messages, output_schema, aid,
+    )
+
+    log_event(
+        "info" if r.schema_valid else "error",
+        "model.executed" if r.schema_valid else "escalation.triggered",
+        "models-mcp", aid,
+        model_id=r.model_id, task_id=task_id, agent_id=agent_id,
+        duration_ms=r.latency_ms,
+        error=None if r.schema_valid else {
+            "class": "escalate",
+            "code": "MODEL_STRUCTURED_OUTPUT_INVALID",
+            "message": f"{r.retry_count + 1}回リトライ後も schema 不適合",
+        },
+        data={"retry_count": r.retry_count, "schema_valid": r.schema_valid,
+              "exploration_type": exploration_type, "rerouted_from": r.rerouted_from},
+    )
+
+    if not r.schema_valid:
         note = (
-            f"[FAILED] {retry_count + 1}回試行後も構造化出力が schema に不適合。"
-            + (f" reroute({rerouted_from}→{model_id})も失敗。" if rerouted_from else "")
-            + f" 生の出力: {content[:200]}"
+            f"[FAILED] {r.retry_count + 1}回試行後も構造化出力が schema に不適合。"
+            + (f" reroute({r.rerouted_from}→{r.model_id})も失敗。" if r.rerouted_from else "")
+            + f" 生の出力: {r.content[:200]}"
         )
         store.add_handoff_note(task_id, note, author=agent_id)
         store.transition(task_id, "needs_human",
@@ -304,24 +367,14 @@ def process_task(
         logger.error("task %s → needs_human (schema invalid)", task_id)
         return False
 
-    # 成功: handoff_note に summary を格納
-    summary = parsed.get("summary", "") if parsed else content[:200]
-    key_points = parsed.get("key_points", []) if parsed else []
-    confidence = parsed.get("confidence", 0.0) if parsed else 0.0
-    reroute_note = f" | **reroute**: {rerouted_from}→{model_id}" if rerouted_from else ""
-
-    handoff_content = (
-        f"**要約**: {summary}\n\n"
-        f"**重要ポイント**:\n" + "\n".join(f"- {p}" for p in key_points) + "\n\n"
-        f"**確信度**: {confidence:.2f} | **モデル**: {model_id} | "
-        f"**レイテンシ**: {latency_ms}ms | **リトライ**: {retry_count}回"
-        f"{reroute_note} | **実行ログ**: {log_id}"
+    handoff_content = _build_handoff_note(
+        r.parsed, r.content, r.model_id, r.latency_ms, r.retry_count, r.rerouted_from, r.log_id,
     )
     store.add_handoff_note(task_id, handoff_content, author=agent_id)
     store.transition(task_id, "done", reason="agent completed successfully")
 
-    logger.info("task %s → done (%.1fs, model=%s%s)", task_id, latency_ms / 1000, model_id,
-                f" via reroute from {rerouted_from}" if rerouted_from else "")
+    logger.info("task %s → done (%.1fs, model=%s%s)", task_id, r.latency_ms / 1000, r.model_id,
+                f" via reroute from {r.rerouted_from}" if r.rerouted_from else "")
     return True
 
 
