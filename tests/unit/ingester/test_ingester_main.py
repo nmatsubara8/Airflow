@@ -402,6 +402,18 @@ def test_write_processed_at_adds_to_existing_frontmatter(tmp_path):
     assert "title: テスト" in content
 
 
+def test_write_processed_at_is_idempotent(tmp_path):
+    """processed_at が既に存在する場合は書き込みをスキップすること（冪等性）。"""
+    from airflow_mcp.ingester.main import _write_processed_at
+    md = tmp_path / "note.md"
+    md.write_text("---\ntitle: テスト\nprocessed_at: 2026-05-01T00:00:00Z\n---\n本文")
+    _write_processed_at(md, "2026-05-23T00:00:00Z")
+    content = md.read_text()
+    # 元の processed_at が保持され、新しい値で上書きされないこと
+    assert "processed_at: 2026-05-01T00:00:00Z" in content
+    assert "2026-05-23" not in content
+
+
 def test_write_processed_at_handles_file_without_frontmatter(tmp_path):
     """フロントマターなしのファイルでも crash しないこと。"""
     from airflow_mcp.ingester.main import _write_processed_at

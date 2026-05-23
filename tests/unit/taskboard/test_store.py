@@ -354,3 +354,27 @@ def test_lock_cleanup_suppresses_oserror(task_store, sample_task_fields):
         # _lock コンテキスト内では unlink が呼ばれる → suppressed
         with task_store._lock(task["id"]):
             pass  # 正常終了（ロック解放後の unlink が OSError になる）
+
+
+def test_list_all_returns_tasks_across_all_statuses(task_store, sample_task_fields):
+    """list_all() が全ステータスのタスクを返すこと。"""
+    t1 = task_store.create(sample_task_fields)
+    t2 = task_store.create({**sample_task_fields, "title": "別タスク"})
+    task_store.claim(t2["id"], "agent_docs")  # → in_progress
+
+    all_tasks = task_store.list_all()
+    ids = [t["id"] for t in all_tasks]
+    assert t1["id"] in ids
+    assert t2["id"] in ids
+
+
+def test_list_all_excludes_corrupt_directory(task_store, sample_task_fields):
+    """list_all() が _corrupt ディレクトリを含まないこと。"""
+    task_store.create(sample_task_fields)
+    # _corrupt/ に直接ファイルを置いても list_all には出ない
+    corrupt_dir = task_store.base / "_corrupt"
+    corrupt_dir.mkdir(exist_ok=True)
+    (corrupt_dir / "task_fake.json").write_text('{"id": "task_fake"}')
+
+    all_tasks = task_store.list_all()
+    assert all(t.get("id") != "task_fake" for t in all_tasks)

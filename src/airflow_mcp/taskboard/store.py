@@ -156,6 +156,13 @@ class TaskStore:
                 pass
         return tasks
 
+    def list_all(self) -> list[dict[str, Any]]:
+        """全ステータスのタスクを返す（dedup 確認等に使用）。"""
+        result: list[dict[str, Any]] = []
+        for status in _STATUS_ALLOWLIST - {"_corrupt"}:
+            result.extend(self.list_by_status(status))
+        return result
+
     def update(
         self, task_id: str, expected_version: int, patch: dict[str, Any]
     ) -> dict[str, Any]:

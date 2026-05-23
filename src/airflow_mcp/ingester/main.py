@@ -127,15 +127,7 @@ def run_once(store: TaskStore, config: dict[str, Any]) -> int:
                 continue
 
             # dedup: 全ステータスに同一 content_hash がないか確認
-            existing = (
-                store.list_by_status("inbox")
-                + store.list_by_status("in_progress")
-                + store.list_by_status("needs_human")
-                + store.list_by_status("blocked")
-                + store.list_by_status("done")
-                + store.list_by_status("cancelled")
-            )
-            if any(t.get("content_hash") == content_hash for t in existing):
+            if any(t.get("content_hash") == content_hash for t in store.list_all()):
                 _seen_hashes.add(content_hash)
                 continue
 
