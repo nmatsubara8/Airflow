@@ -1,0 +1,171 @@
+"""notes/server.py の単体テスト（DDD-02 §4）。"""
+from __future__ import annotations
+
+import json
+
+import pytest
+
+import airflow_mcp.notes.server as notes_mod
+from airflow_mcp.common.errors import NoteNotFound
+
+
+@pytest.fixture(autouse=True)
+def clean_notes():
+    """各テスト前後にインメモリノートストアをリセット。"""
+    notes_mod._notes.clear()
+    yield
+    notes_mod._notes.clear()
+
+
+def _add_note(note_id: str, title: str, body: str,
+               section: str = "engineering", confidential: bool = False) -> dict:
+    note = {
+        "id": note_id,
+        "title": title,
+        "body": body,
+        "section": section,
+        "confidential": confidential,
+    }
+    notes_mod._notes[note_id] = note
+    return note
+
+
+async def _call(name: str, args: dict) -> dict:
+    result = await notes_mod.call_tool(name, args)
+    return json.loads(result[0].text)
+
+
+# ── notes.search ──────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_search_returns_matching_notes():
+    _add_note("n1", "Python入門", "Python は動的型付け言語です")
+    _add_note("n2", "JavaScript入門", "JSはブラウザで動く")
+    result = await _call("notes.search", {"query": "Python"})
+    assert len(result["results"]) == 1
+    assert result["results"][0]["note_id"] == "n1"
+
+
+@pytest.mark.asyncio
+async def test_search_excludes_confidential_by_default():
+    _add_note("secret", "秘密情報", "机密データ Python", confidential=True)
+    result = await _call("notes.search", {"query": "Python"})
+    assert all(r["note_id"] != "secret" for r in result["results"])
+
+
+@pytest.mark.asyncio
+async def test_search_includes_confidential_when_flag_false():
+    _add_note("secret", "秘密", "confidential Python", confidential=True)
+    result = await _call("notes.search", {
+        "query": "Python",
+        "filters": {"exclude_confidential": False},
+    })
+    assert any(r["note_id"] == "secret" for r in result["results"])
+
+
+@pytest.mark.asyncio
+async def test_search_respects_top_k():
+    for i in range(10):
+        _add_note(f"n{i}", f"Python {i}", f"Python コード {i}")
+    result = await _call("notes.search", {"query": "Python", "top_k": 3})
+    assert len(result["results"]) <= 3
+
+
+@pytest.mark.asyncio
+async def test_search_filters_by_category():
+    _add_note("eng", "エンジニアリング", "Python コード", section="engineering")
+    _add_note("biz", "ビジネス", "Python 分析", section="business")
+    result = await _call("notes.search", {
+        "query": "Python",
+        "filters": {"category": ["engineering"]},
+    })
+    ids = [r["note_id"] for r in result["results"]]
+    assert "eng" in ids
+    assert "biz" not in ids
+
+
+@pytest.mark.asyncio
+async def test_search_empty_store_returns_empty_list():
+    result = await _call("notes.search", {"query": "anything"})
+    assert result["results"] == []
+
+
+# ── notes.get ─────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_get_returns_note_by_id():
+    _add_note("note_001", "タイトル", "内容")
+    result = await _call("notes.get", {"note_id": "note_001"})
+    assert result["id"] == "note_001"
+    assert result["title"] == "タイトル"
+
+
+@pytest.mark.asyncio
+async def test_get_unknown_note_returns_error():
+    result = await _call("notes.get", {"note_id": "nonexistent"})
+    assert "error" in result
+    assert result["error"]["code"] == "NOTE_NOT_FOUND"
+
+
+# ── notes.list_by_category ───────────────────────────
+
+@pytest.mark.asyncio
+async def test_list_by_category_returns_matching():
+    _add_note("e1", "E1", "本文", section="engineering")
+    _add_note("e2", "E2", "本文", section="engineering")
+    _add_note("b1", "B1", "本文", section="business")
+    result = await _call("notes.list_by_category", {"category": "engineering"})
+    ids = [n["id"] for n in result["notes"]]
+    assert "e1" in ids and "e2" in ids
+    assert "b1" not in ids
+
+
+@pytest.mark.asyncio
+async def test_list_by_category_respects_limit():
+    for i in range(10):
+        _add_note(f"e{i}", f"E{i}", "本文", section="engineering")
+    result = await _call("notes.list_by_category", {"category": "engineering", "limit": 3})
+    assert len(result["notes"]) <= 3
+
+
+# ── notes.related ─────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_related_finds_linked_notes():
+    _add_note("source", "Source", "内容 [[Target Note]]")
+    _add_note("target", "Target Note", "リンク先の内容")
+    result = await _call("notes.related", {"note_id": "source"})
+    ids = [n["id"] for n in result["related"]]
+    assert "target" in ids
+
+
+@pytest.mark.asyncio
+async def test_related_unknown_note_returns_error():
+    result = await _call("notes.related", {"note_id": "nonexistent"})
+    assert "error" in result
+    assert result["error"]["code"] == "NOTE_NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_related_no_links_returns_empty():
+    _add_note("lonely", "孤立ノート", "リンクなしの内容")
+    result = await _call("notes.related", {"note_id": "lonely"})
+    assert result["related"] == []
+
+
+# ── notes.reindex ─────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_reindex_returns_ok_status():
+    _add_note("n1", "N1", "内容")
+    result = await _call("notes.reindex", {})
+    assert result["status"] == "ok"
+    assert result["indexed"] == 1
+
+
+# ── 不明ツール名 ──────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_unknown_tool_returns_error():
+    result = await _call("notes.unknown", {})
+    assert "error" in result
