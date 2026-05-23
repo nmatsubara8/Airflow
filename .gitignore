@@ -8,3 +8,5 @@ __pycache__/
 .airflow/audit_logs/
 .airflow/runtime/
 .coverage
+coverage.json
+htmlcov/
