@@ -4,7 +4,6 @@ Slack webhook + CLI（bell）で needs_human / critical / バッチ完了を通�
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 from pathlib import Path

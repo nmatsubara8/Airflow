@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import sys
 import pytest
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import patch
 
 
 def _main(args: list[str]):

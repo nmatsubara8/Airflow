@@ -117,7 +117,7 @@ async def test_tasks_list_filter_by_tags(isolated_store):
 
 @pytest.mark.asyncio
 async def test_tasks_list_cursor_pagination(isolated_store):
-    tasks = [_make_task(isolated_store, title=f"t{i}") for i in range(5)]
+    _tasks = [_make_task(isolated_store, title=f"t{i}") for i in range(5)]
     result1 = await _call("tasks.list", {"limit": 2})
     assert len(result1["tasks"]) == 2
     cursor = result1["next_cursor"]
@@ -321,7 +321,7 @@ async def test_audit_trace_returns_event_chain(isolated_store):
         "title": "監査テスト", "section": "engineering",
         "_meta": {"agent_id": "agent_docs"},
     })
-    task_id = result["id"]
+    _task_id = result["id"]
     aid = srv_mod._audit_log[0]["audit_id"]
     trace = await _call("audit.trace", {"audit_id": aid, "depth": 3})
     assert trace["root"] == aid

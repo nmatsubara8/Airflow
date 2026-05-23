@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import pytest
-import yaml
 
 from airflow_mcp.dispatcher.main import (
     dispatch_once,
@@ -117,8 +116,7 @@ def test_dispatch_once_handles_exception_gracefully(task_store, sample_task_fiel
 
 def test_dispatch_once_writes_section_when_missing(task_store):
     """タスクに section がない場合、store.update で section を書き込むこと（line 86）。"""
-    from airflow_mcp.taskboard.store import TaskStore
-    task = task_store.create({
+    _task = task_store.create({
         "title": "no section task",
         "description": "desc",
         "tags": [],

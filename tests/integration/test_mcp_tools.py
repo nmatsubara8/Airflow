@@ -19,7 +19,7 @@ import pytest
 os.environ.setdefault("OLLAMA_STUB", "true")
 
 import airflow_mcp.taskboard.server as tb_mod
-from airflow_mcp.common.errors import AuthScopeInsufficient, AuthRateLimited
+from airflow_mcp.common.errors import AuthRateLimited
 from airflow_mcp.common.rate_limiter import RateLimiter, _limiter
 from airflow_mcp.taskboard.store import TaskStore
 
@@ -269,7 +269,7 @@ async def test_assign_after_needs_human_then_reclaim():
 
 @pytest.mark.asyncio
 async def test_audit_trace_returns_root_event():
-    task = await _call("tasks.create", _make_task())
+    await _call("tasks.create", _make_task())
     assert len(tb_mod._audit_log) >= 1
     root_aid = tb_mod._audit_log[0]["audit_id"]
 
@@ -303,7 +303,7 @@ async def test_audit_trace_follows_child_events():
 @pytest.mark.asyncio
 async def test_audit_trace_depth_clamped_to_20():
     """depth > 20 を指定しても 20 にクランプされること（DoS 防止）。"""
-    task = await _call("tasks.create", _make_task())
+    await _call("tasks.create", _make_task())
     root_aid = tb_mod._audit_log[0]["audit_id"]
 
     # depth=100 を渡してもクラッシュしないこと
@@ -376,8 +376,6 @@ async def test_audit_query_respects_limit():
 def test_require_scope_raises_on_insufficient_scope():
     """wrong スコープのトークンで require_scope が AuthScopeInsufficient を raise すること。"""
     import os
-    from airflow_mcp.common.auth import require_scope
-    from airflow_mcp.common.errors import AuthScopeInsufficient
 
     os.environ["AIRFLOW_MCP_TOKEN"] = "wrong_scope_token"
     os.environ["AIRFLOW_AUTH_LOCALHOST_BYPASS"] = "false"
@@ -404,8 +402,6 @@ async def test_auth_scope_insufficient_returns_error_response(monkeypatch):
     monkeypatch.setenv("AIRFLOW_MCP_TOKEN", "correct_token")
 
     # 不正トークン（env var と異なる）で呼び出すと AuthTokenInvalid → MCP エラー応答
-    original_get = auth_mod.get_token_from_env
-
     def _bad_token():
         return "wrong_token_value"
 
@@ -424,7 +420,6 @@ async def test_auth_scope_insufficient_returns_error_response(monkeypatch):
 
 def test_rate_limiter_raises_after_capacity_exhausted():
     """バケット容量を超えたリクエストで AuthRateLimited が raise されること。"""
-    from airflow_mcp.common.rate_limiter import RateLimiter
     from airflow_mcp.common.errors import AuthRateLimited
 
     # default_capacity=3, 補充なし（非常に低いレート）
@@ -443,7 +438,6 @@ def test_rate_limiter_raises_after_capacity_exhausted():
 
 def test_rate_limiter_retry_after_is_positive():
     """AuthRateLimited の retry_after_ms が正の値であること。"""
-    from airflow_mcp.common.rate_limiter import RateLimiter
     from airflow_mcp.common.errors import AuthRateLimited
 
     limiter = RateLimiter(default_capacity=1, default_refill_rate=0.001)
@@ -460,8 +454,6 @@ def test_rate_limiter_retry_after_is_positive():
 @pytest.mark.asyncio
 async def test_rate_limit_enforced_in_mcp_tool(monkeypatch):
     """call_tool が rate limit を超えると error レスポンスを返すこと。"""
-    from airflow_mcp.common.rate_limiter import check_rate_limit
-    from airflow_mcp.common.errors import AuthRateLimited
 
     def _always_limited(token, cost=1.0):
         raise AuthRateLimited(retry_after_ms=5000)

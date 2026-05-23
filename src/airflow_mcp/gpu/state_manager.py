@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ..common.audit import log_event, new_audit_id, now_iso
+from ..common.audit import log_event, new_audit_id
 from ..common.errors import GpuBusy
 
 logger = logging.getLogger(__name__)

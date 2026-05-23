@@ -1,11 +1,8 @@
 """ingester/main.py の単体テスト（DDD-04 §5）。"""
 from __future__ import annotations
 
-import time
-from pathlib import Path
 
 import pytest
-import yaml
 
 from airflow_mcp.ingester.main import (
     _is_excluded,
@@ -215,7 +212,6 @@ def test_run_once_dedup_from_store(tmp_path, task_store):
 
 def test_run_loop_runs_once_then_stops(task_store, monkeypatch):
     """run_loop が run_once を呼び n>0 のときログを出力すること（lines 125-134）。"""
-    import pytest
     call_count = {"n": 0}
 
     def fake_run_once(store, config):
@@ -236,7 +232,6 @@ def test_run_loop_runs_once_then_stops(task_store, monkeypatch):
 
 def test_run_loop_catches_run_once_exception(task_store, monkeypatch):
     """run_loop が run_once の例外を catch してループを継続すること（lines 132-133）。"""
-    import pytest
     call_count = {"n": 0}
 
     def fake_run_once(store, config):
@@ -259,7 +254,6 @@ def test_run_loop_catches_run_once_exception(task_store, monkeypatch):
 
 def test_cli_entry_point(tmp_path, monkeypatch):
     """_cli が TaskStore と load_config を呼んで run_loop に渡すこと（lines 138-143）。"""
-    import pytest
     call_args = {}
 
     def fake_run_loop(store, config):

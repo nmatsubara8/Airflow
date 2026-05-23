@@ -138,7 +138,6 @@ async def test_gpu_release_increases_free_vram():
 
 @pytest.mark.asyncio
 async def test_scheduler_queue_status_returns_queues():
-    from datetime import datetime, timezone
     gpu_mod._scheduler_queue.enqueue(QueueEntry(task_id="task1", model_id="model_a"))
     gpu_mod._scheduler_queue.enqueue(QueueEntry(task_id="task2", model_id="model_a"))
     result = await _call("scheduler.queue_status", {})

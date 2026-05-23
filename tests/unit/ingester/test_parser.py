@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
 from airflow_mcp.ingester.parser import frontmatter_to_task_fields, parse_markdown
 

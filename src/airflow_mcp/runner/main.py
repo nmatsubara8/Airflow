@@ -132,7 +132,7 @@ def _call_ollama(
 
     try:
         parsed = json.loads(content)
-    except json.JSONDecodeError as exc:
+    except json.JSONDecodeError:
         return content, None, False
 
     errors = list(Draft202012Validator(output_schema).iter_errors(parsed))

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
 
 from airflow_mcp.ops.monitor import _format_dashboard, get_status_dict
 

@@ -121,7 +121,8 @@ def test_release_returns_false_for_not_loaded(mgr):
 def test_touch_updates_last_used_at(mgr):
     mgr.reserve("model_14b", registry=_REGISTRY)
     old_ts = mgr._loaded["model_14b"]["last_used_at"]
-    import time; time.sleep(0.01)
+    import time
+    time.sleep(0.01)
     mgr.touch("model_14b")
     new_ts = mgr._loaded["model_14b"]["last_used_at"]
     assert new_ts >= old_ts

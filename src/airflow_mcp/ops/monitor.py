@@ -107,7 +107,6 @@ def _format_dashboard(
 
     w = 66
     sep = "═" * w
-    thin = "─" * w
 
     lines = [
         f"╔{sep}╗",

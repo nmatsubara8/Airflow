@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-import pytest
 
 os.environ.setdefault("OLLAMA_STUB", "true")
 
@@ -220,7 +219,7 @@ def test_needs_human_when_both_primary_and_fallback_fail(tmp_tasks_dir: Path):
 def test_dispatcher_handles_unknown_section_gracefully(tmp_tasks_dir: Path):
     """未知のセクションのタスクが agent_docs にフォールバックすること。"""
     store = TaskStore(base_dir=tmp_tasks_dir)
-    task = store.create({
+    _task = store.create({
         "title": "未知セクションタスク",
         "section": "unknown_section_xyz",
         "description": "", "tags": [], "priority": 5, "features": {}, "owner": None,

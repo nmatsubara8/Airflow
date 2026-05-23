@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import json
-import re
 from collections import defaultdict
 from typing import Any
 
@@ -20,7 +19,6 @@ from ..common.auth import get_token_from_env, require_scope
 from ..common.rate_limiter import check_rate_limit
 from ..common.errors import (
     AirflowError,
-    TaskInvalidTransition,
     TaskNotFound,
 )
 from .store import TaskStore

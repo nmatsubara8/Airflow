@@ -380,7 +380,7 @@ def test_load_registry_reads_existing_json(tmp_path):
 # ── _call_ollama non-stub paths ───────────────────────
 
 def test_call_ollama_json_decode_error(monkeypatch):
-    import os, json as _json
+    import os
     from unittest.mock import MagicMock, patch
     os.environ["OLLAMA_STUB"] = "false"
     mock_resp = MagicMock()
@@ -398,7 +398,8 @@ def test_call_ollama_json_decode_error(monkeypatch):
 
 
 def test_call_ollama_schema_mismatch(monkeypatch):
-    import os, json as _json
+    import os
+    import json as _json
     from unittest.mock import MagicMock, patch
     os.environ["OLLAMA_STUB"] = "false"
     mock_resp = MagicMock()
@@ -471,7 +472,8 @@ def test_get_fallback_model_returns_none_when_not_in_chain():
 
 def test_call_ollama_non_stub_valid_schema(monkeypatch):
     """非 stub で schema 適合 JSON を返す場合 schema_valid=True になること（line 143）。"""
-    import os, json as _json
+    import os
+    import json as _json
     from unittest.mock import MagicMock, patch
     os.environ["OLLAMA_STUB"] = "false"
     mock_resp = MagicMock()
@@ -607,7 +609,6 @@ def test_run_once_catches_process_task_exception(task_store, sample_task_fields)
 
 def test_run_loop_runs_and_handles_results(task_store, monkeypatch):
     """run_loop が run_once を呼び出し、処理数 > 0 のときログを出力すること。"""
-    import time as time_mod
     call_count = {"n": 0}
 
     def fake_run_once(*args, **kwargs):

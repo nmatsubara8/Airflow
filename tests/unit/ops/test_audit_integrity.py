@@ -2,12 +2,10 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
 from airflow_mcp.ops.audit_integrity import (
-    _hash_path,
     _sha256_file,
     compute_chain_hash,
     run_chain_hash,

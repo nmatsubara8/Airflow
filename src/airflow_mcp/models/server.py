@@ -188,9 +188,6 @@ async def _model_recommend(args: dict[str, Any], token: str | None) -> list[type
         reason = "デフォルト 14B（Phase 2 MVP）"
 
     # ε-greedy: 10% でランダム探索（DDD-06 §4.5）
-    model_config_path = Path(
-        os.environ.get("AIRFLOW_MODEL_CONFIG", ".airflow/config/model-config.yaml")
-    )
     epsilon = 0.1
     if random.random() < epsilon:
         selected = random.choice([m for m in candidates if m in _models] or [selected])
@@ -341,11 +338,11 @@ async def _model_feedback(args: dict[str, Any], token: str | None) -> list[types
 async def _model_stats(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "models:read")
     model_id = args.get("model_id")
-    logs = [l for l in _execution_logs.values()
-            if not model_id or l.get("model_id") == model_id]
+    logs = [log for log in _execution_logs.values()
+            if not model_id or log.get("model_id") == model_id]
     total = len(logs)
-    success = sum(1 for l in logs if l.get("success"))
-    avg_latency = sum(l.get("latency_ms", 0) for l in logs) / total if total else 0
+    success = sum(1 for log in logs if log.get("success"))
+    avg_latency = sum(log.get("latency_ms", 0) for log in logs) / total if total else 0
     return _result({
         "model_id": model_id or "all",
         "total_executions": total,

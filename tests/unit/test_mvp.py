@@ -1,8 +1,6 @@
 """mvp.py の単体テスト。"""
 from __future__ import annotations
 
-import threading
-import pytest
 from unittest.mock import MagicMock, patch
 
 
@@ -10,10 +8,7 @@ def test_run_all_starts_three_threads_and_stops_on_keyboard_interrupt():
     """run_all() が ingester/dispatcher/runner スレッドを起動し KeyboardInterrupt で停止すること。"""
     import airflow_mcp.mvp as mvp_mod
 
-    started: list[str] = []
-
     def fake_loop(*args, **kwargs):
-        # スレッドが起動したことを記録し、即座に終了
         pass
 
     with patch("airflow_mcp.mvp.ingester_loop", side_effect=fake_loop), \

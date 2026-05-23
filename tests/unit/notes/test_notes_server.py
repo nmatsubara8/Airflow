@@ -6,7 +6,6 @@ import json
 import pytest
 
 import airflow_mcp.notes.server as notes_mod
-from airflow_mcp.common.errors import NoteNotFound
 
 
 @pytest.fixture(autouse=True)

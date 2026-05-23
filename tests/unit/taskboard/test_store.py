@@ -92,8 +92,10 @@ def test_concurrent_update_only_one_succeeds(task_store: TaskStore, sample_task_
 
     t0 = threading.Thread(target=try_update, args=(0,))
     t1 = threading.Thread(target=try_update, args=(1,))
-    t0.start(); t1.start()
-    t0.join(); t1.join()
+    t0.start()
+    t1.start()
+    t0.join()
+    t1.join()
 
     conflicts = sum(1 for r in results if isinstance(r, TaskLockConflict))
     assert conflicts == 1, "並行更新で片方だけが成功すること"
@@ -251,8 +253,10 @@ def test_assign_toctou_claim_wins(task_store: TaskStore, sample_task_fields: dic
 
     t_claim = threading.Thread(target=do_claim)
     t_assign = threading.Thread(target=do_assign)
-    t_claim.start(); t_assign.start()
-    t_claim.join(); t_assign.join()
+    t_claim.start()
+    t_assign.start()
+    t_claim.join()
+    t_assign.join()
 
     # claim か assign のどちらか一方だけが成功する
     failures = sum(1 for r in results if r is not None)
@@ -272,7 +276,6 @@ _VALID_MISSING = "task_" + "a" * 16  # 存在しない有効 task_id
 
 def test_find_task_path_returns_none_for_valid_missing_id(task_store):
     """_find_task_path が有効フォーマットかつ存在しない ID で None を返すこと（line 96）。"""
-    from airflow_mcp.taskboard.store import TaskStore as _TS
     path = task_store._find_task_path(_VALID_MISSING)
     assert path is None
 
@@ -323,7 +326,6 @@ def test_task_path_raises_value_error_for_invalid_status(task_store, sample_task
 def test_list_by_status_skips_corrupt_json(task_store):
     """list_by_status が破損 JSON をスキップして残りを返すこと（lines 156-157）。"""
     # 正常タスクを作成
-    from airflow_mcp.taskboard.store import TaskStore
     task_store.create({"title": "正常", "section": "engineering",
                        "description": "", "tags": [], "priority": 5, "owner": None})
     # inbox/ 配下に破損 JSON を直接書く

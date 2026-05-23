@@ -9,7 +9,6 @@ from jsonschema import Draft202012Validator
 
 from airflow_mcp.orchestrator.execution_log import (
     append_execution_log,
-    compute_auto_score,
     load_history,
     update_feedback,
 )
@@ -55,7 +54,7 @@ def test_append_record_passes_schema_validation(log_dir: Path):
     record = _append(log_dir)
     validator = Draft202012Validator(EXEC_LOG_SCHEMA)
     errors = list(validator.iter_errors(record))
-    assert errors == [], f"スキーマ不適合:\n" + "\n".join(str(e) for e in errors)
+    assert errors == [], "スキーマ不適合:\n" + "\n".join(str(e) for e in errors)
 
 
 def test_append_id_matches_schema_pattern(log_dir: Path):
@@ -76,7 +75,7 @@ def test_append_multiple_records_all_in_same_file(log_dir: Path):
     _append(log_dir, task_id="t2")
     files = list(log_dir.glob("*.jsonl"))
     assert len(files) == 1
-    lines = [l for l in files[0].read_text().splitlines() if l.strip()]
+    lines = [ln for ln in files[0].read_text().splitlines() if ln.strip()]
     assert len(lines) == 2
 
 
@@ -185,7 +184,7 @@ def test_load_history_skips_empty_lines(log_dir: Path):
     """空行を含む .jsonl でも正しくレコードを返すこと（lines 165-166）。"""
     import json as _json
     from airflow_mcp.orchestrator.execution_log import load_history
-    import datetime, uuid
+    import datetime
     log_dir.mkdir(parents=True, exist_ok=True)
     jsonl = log_dir / f"{datetime.date.today()}.jsonl"
     record = {"id": "log_abc", "task_id": "task_empty_line", "timestamp": "2026-05-23T00:00:00Z",
@@ -230,7 +229,6 @@ def test_update_feedback_oserror_on_read_is_skipped(log_dir: Path):
     """read_text が OSError を raise したファイルはスキップすること（lines 113-114）。
     chmod は root で効かないため read_text をモックする。"""
     from unittest.mock import patch
-    import datetime
     log_dir.mkdir(parents=True, exist_ok=True)
     bad = log_dir / "2020-01.jsonl"
     bad.write_text("")   # ファイルは存在する

@@ -326,7 +326,6 @@ def test_run_due_schedules_uses_utcnow_when_no_arg(monkeypatch):
 
 def test_run_loop_runs_once_then_stops(monkeypatch):
     """run_loop is an infinite loop; return a result first (covers lines 196-197), then stop."""
-    import unittest.mock as mock
 
     call_count = 0
 
@@ -351,7 +350,6 @@ def test_run_loop_runs_once_then_stops(monkeypatch):
 
 def test_run_loop_handles_exception(monkeypatch):
     """run_loop catches exceptions in the main loop body."""
-    import unittest.mock as mock
 
     call_count = 0
 
