@@ -23,6 +23,7 @@ from ..common.auth import require_scope
 from ..common.errors import (
     AirflowError,
     McpInvalidArgument,
+    ModelExecutionFailed,
     ModelLowConfidence,
     ModelNotFound,
     ModelStructuredOutputInvalid,
@@ -235,6 +236,11 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="model.ps",
             description="現在 VRAM にロードされているモデル一覧を返す（/api/ps）",
+            inputSchema={"type": "object", "properties": {}},
+        ),
+        types.Tool(
+            name="model.reload_registry",
+            description="registry.json を再ロードしてインメモリキャッシュを更新",
             inputSchema={"type": "object", "properties": {}},
         ),
     ]
@@ -526,12 +532,11 @@ def _call_ollama(
 
         return content, parsed, schema_valid
 
+    except AirflowError:
+        raise
     except Exception as exc:
-        if isinstance(exc, AirflowError):
-            raise
-        # Ollama 接続失敗はスタブ応答にフォールバック
-        stub = {"summary": f"Ollama 接続失敗: {exc}", "output": ""}
-        return json.dumps(stub, ensure_ascii=False), stub, True
+        # httpx 接続失敗・タイムアウト等は ModelExecutionFailed に変換して伝播させる
+        raise ModelExecutionFailed(model_id, str(exc)) from exc
 
 
 async def _model_feedback(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
@@ -646,6 +651,16 @@ async def _model_ps(args: dict[str, Any], token: str | None) -> list[types.TextC
         return mcp_result({"models": [], "status": f"ps_error: {exc}"})
 
 
+async def _model_reload_registry(
+    args: dict[str, Any], token: str | None
+) -> list[types.TextContent]:
+    require_scope(token, "models:write")
+    with _state_lock:
+        _models.clear()
+        _load_registry()
+    return mcp_result({"reloaded": len(_models)})
+
+
 _HANDLERS = {
     "model.list": _model_list,
     "model.get": _model_get,
@@ -657,6 +672,7 @@ _HANDLERS = {
     "model.load": _model_load,
     "model.unload": _model_unload,
     "model.ps": _model_ps,
+    "model.reload_registry": _model_reload_registry,
 }
 
 

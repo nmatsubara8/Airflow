@@ -154,8 +154,17 @@ async def test_related_no_links_returns_empty():
 # ── notes.reindex ─────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_reindex_returns_ok_status():
-    _add_note("n1", "N1", "内容")
+async def test_reindex_returns_ok_status(tmp_path, monkeypatch):
+    """reindex は notes/index.json を再ロードして indexed 件数を返す。"""
+    import json
+    index_path = tmp_path / "index.json"
+    index_path.write_text(json.dumps({
+        "schema_version": "1.0.0",
+        "notes": {
+            "n1": {"title": "N1", "body": "内容", "section": "engineering"},
+        },
+    }))
+    monkeypatch.setattr("airflow_mcp.notes.server._NOTES_INDEX_PATH", index_path)
     result = await _call("notes.reindex", {})
     assert result["status"] == "ok"
     assert result["indexed"] == 1

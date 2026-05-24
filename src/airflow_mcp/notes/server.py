@@ -6,6 +6,9 @@ Phase 2 MVP: Qdrant 未接続のため search は fixture ベースのスタブ�
 """
 from __future__ import annotations
 
+import logging
+import os
+from pathlib import Path
 from typing import Any
 
 import mcp.types as types
@@ -15,11 +18,25 @@ from ..common.audit import log_event, new_audit_id
 from ..common.auth import require_scope
 from ..common.errors import NoteNotFound
 from ..common.mcp import dispatch, mcp_result, run_stdio_server
+from ..ingester.notes_index import load_index
+
+logger = logging.getLogger(__name__)
 
 server = Server("notes-mcp")
 
-# インメモリノートストア（ingester が登録、または fixture から初期化）
+_NOTES_INDEX_PATH = Path(os.environ.get("AIRFLOW_NOTES_INDEX", ".airflow/notes/index.json"))
+
+# インメモリノートストア（起動時に index.json から初期化、reindex で更新）
 _notes: dict[str, dict[str, Any]] = {}
+
+
+def _load_notes() -> None:
+    """起動時に notes/index.json からノートをロードする。"""
+    index = load_index(_NOTES_INDEX_PATH)
+    _notes.clear()
+    for note_id, note in index.get("notes", {}).items():
+        _notes[note_id] = {"id": note_id, **note}
+    logger.info("notes: loaded %d notes from index", len(_notes))
 
 
 @server.list_tools()
@@ -158,8 +175,8 @@ async def _notes_related(args: dict[str, Any], token: str | None) -> list[types.
 
 async def _notes_reindex(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "notes:write")
-    # Phase 2 スタブ: 実際のインデックス更新はなし
-    return mcp_result({"status": "ok", "indexed": len(_notes), "note": "stub — Qdrant not connected"})
+    _load_notes()
+    return mcp_result({"status": "ok", "indexed": len(_notes)})
 
 
 _HANDLERS = {
@@ -177,4 +194,4 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
 
 
 async def run() -> None:
-    await run_stdio_server(server)
+    await run_stdio_server(server, init_fn=_load_notes)

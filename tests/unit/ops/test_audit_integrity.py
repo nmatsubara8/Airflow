@@ -172,3 +172,26 @@ def test_verify_chain_corrupted_first_file_does_not_crash():
     # 破損ファイルが failure に含まれること
     dates = [f["date"] for f in failures]
     assert "2026-01-01" in dates
+
+
+# ── パストラバーサル防止 ──────────────────────────────
+
+def test_run_chain_hash_rejects_traversal_date():
+    """date_str にパストラバーサル文字列を渡すと ValueError が発生すること。"""
+    import pytest
+    with pytest.raises(ValueError, match="Invalid date_str"):
+        run_chain_hash("../../../etc/passwd")
+
+
+def test_run_chain_hash_rejects_non_date_string():
+    """date_str が YYYY-MM-DD 形式でなければ ValueError が発生すること。"""
+    import pytest
+    with pytest.raises(ValueError, match="Invalid date_str"):
+        run_chain_hash("2026_01_01")
+
+
+def test_verify_chain_rejects_traversal_since():
+    """since にパストラバーサル文字列を渡すと ValueError が発生すること。"""
+    import pytest
+    with pytest.raises(ValueError, match="Invalid date_str"):
+        verify_chain(since="../../secret")

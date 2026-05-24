@@ -7,6 +7,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -15,12 +16,23 @@ logger = logging.getLogger(__name__)
 _LOGS_DIR = Path(".airflow/logs")
 _INTEGRITY_DIR = _LOGS_DIR / "integrity"
 
+# YYYY-MM-DD のみ許可（パストラバーサル防止）
+_DATE_STR_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _validate_date_str(date_str: str) -> None:
+    """date_str が YYYY-MM-DD 形式であることを検証する。"""
+    if not _DATE_STR_RE.match(date_str):
+        raise ValueError(f"Invalid date_str: {date_str!r} (must be YYYY-MM-DD)")
+
 
 def _date_log_path(date_str: str) -> Path:
+    _validate_date_str(date_str)
     return _LOGS_DIR / f"{date_str}.jsonl"
 
 
 def _hash_path(date_str: str) -> Path:
+    _validate_date_str(date_str)
     return _INTEGRITY_DIR / f"{date_str}.hash"
 
 
@@ -79,6 +91,9 @@ def verify_chain(since: str | None = None) -> list[dict[str, str]]:
     Returns:
         破断レコードのリスト。空なら整合。
     """
+    if since is not None:
+        _validate_date_str(since)
+
     _INTEGRITY_DIR.mkdir(parents=True, exist_ok=True)
     hash_files = sorted(_INTEGRITY_DIR.glob("*.hash"))
 

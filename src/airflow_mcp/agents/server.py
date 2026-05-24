@@ -99,6 +99,11 @@ async def list_tools() -> list[types.Tool]:
                 "properties": {"agent": {"type": "object"}},
             },
         ),
+        types.Tool(
+            name="agents.reload",
+            description="agents/ ディレクトリから skills.md を再ロード",
+            inputSchema={"type": "object", "properties": {}},
+        ),
     ]
 
 
@@ -177,12 +182,20 @@ async def _agents_register(args: dict[str, Any], token: str | None) -> list[type
     return mcp_result({"registered": agent_id})
 
 
+async def _agents_reload(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
+    require_scope(token, "agents:write")
+    _agents.clear()
+    _load_agents()
+    return mcp_result({"reloaded": len(_agents)})
+
+
 _HANDLERS = {
     "agents.list": _agents_list,
     "agents.get": _agents_get,
     "agents.find_for_task": _agents_find_for_task,
     "agents.extract_features": _agents_extract_features,
     "agents.register": _agents_register,
+    "agents.reload": _agents_reload,
 }
 
 

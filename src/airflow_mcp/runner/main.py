@@ -166,12 +166,17 @@ def _execute_with_retry(
     max_tokens: int = 512,
 ) -> tuple[str, dict | None, bool, int]:
     """モデルを最大 _MAX_RETRY 回試行する。(content, parsed, schema_valid, retry_count)。"""
+    # attempt をまたいで前回の失敗値が残らないよう最終結果用変数をここで宣言
     content = ""
     parsed: dict | None = None
     schema_valid = False
     retry_count = 0
     for attempt in range(_MAX_RETRY):
         retry_count = attempt
+        # attempt ごとに状態をリセットして前回の部分的な結果を引き継がない
+        content = ""
+        parsed = None
+        schema_valid = False
         try:
             content, parsed, schema_valid = _call_ollama(
                 ollama_url, model_tag, messages, output_schema, temperature, max_tokens, attempt

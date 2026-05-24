@@ -225,13 +225,13 @@ def test_load_registry_reads_file(tmp_path, monkeypatch):
 # ── list_tools ────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_list_tools_returns_all_ten_tools():
+async def test_list_tools_returns_all_tools():
     tools = await models_mod.list_tools()
-    names = [t.name for t in tools]
-    assert set(names) == {
+    names = {t.name for t in tools}
+    assert names == {
         "model.list", "model.get", "model.recommend",
         "model.execute", "model.feedback", "model.stats", "model.register",
-        "model.load", "model.unload", "model.ps",
+        "model.load", "model.unload", "model.ps", "model.reload_registry",
     }
 
 
@@ -466,8 +466,8 @@ async def test_model_execute_structured_output_json_decode_error(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_model_execute_ollama_connection_error_falls_back(monkeypatch):
-    """httpx 接続失敗 → スタブフォールバック応答。"""
+async def test_model_execute_ollama_connection_error_returns_execution_failed(monkeypatch):
+    """httpx 接続失敗 → MODEL_EXECUTION_FAILED エラーが返ること（偽成功しない）。"""
     import httpx as _httpx
     from unittest.mock import patch
     monkeypatch.setenv("OLLAMA_STUB", "false")
@@ -477,8 +477,8 @@ async def test_model_execute_ollama_connection_error_falls_back(monkeypatch):
             "model_id": "model_qwen25_14b_q4",
             "messages": [{"role": "user", "content": "hi"}],
         })
-    assert "content" in result
-    assert "Ollama 接続失敗" in result["content"]
+    assert "error" in result
+    assert result["error"]["code"] == "MODEL_EXECUTION_FAILED"
 
 
 # ── 構造化出力リトライ（DDD-05 §7）────────────────────
