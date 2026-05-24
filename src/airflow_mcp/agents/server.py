@@ -5,19 +5,22 @@
 """
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Any
 
 import mcp.types as types
-from mcp.server import Server
 import yaml
+from mcp.server import Server
 
 from ..common.auth import require_scope
 from ..common.errors import AgentNotFound
 from ..common.feature_extractor import extract_features
 from ..common.mcp import dispatch, mcp_result, run_stdio_server
 from ..common.thresholds import AGENT_SECTION_MATCH_SCORE, AGENT_TAG_MATCH_SCORE
+
+logger = logging.getLogger(__name__)
 
 server = Server("agents-mcp")
 
@@ -42,8 +45,8 @@ def _load_agents() -> None:
                     agent_id = meta.get("agent_id")
                     if agent_id:
                         _agents[agent_id] = meta
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("agents: failed to load %s: %s", skills_path, exc)
 
 
 @server.list_tools()

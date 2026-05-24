@@ -5,12 +5,15 @@ airflow-mcp status コマンドの実装。
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 _GPU_SNAPSHOT = Path(os.environ.get("AIRFLOW_GPU_SNAPSHOT", ".airflow/runtime/gpu_state.json"))
 _AUDIT_LOG_DIR = Path(".airflow/logs")
@@ -34,7 +37,8 @@ def _load_task_counts() -> dict[str, int]:
         for status in ("inbox", "in_progress", "done", "needs_human", "blocked", "cancelled"):
             counts[status] = len(store.list_by_status(status))
         return counts
-    except Exception:
+    except Exception as exc:
+        logger.warning("monitor: failed to load task counts: %s", exc)
         return {}
 
 
@@ -54,7 +58,8 @@ def _load_section_counts(counts_by_status: dict[str, int]) -> dict[str, dict[str
                 sections.setdefault(sec, {"active": 0, "total": 0})
                 sections[sec]["total"] += 1
         return sections
-    except Exception:
+    except Exception as exc:
+        logger.warning("monitor: failed to load section counts: %s", exc)
         return {}
 
 

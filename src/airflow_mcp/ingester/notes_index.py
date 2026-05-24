@@ -28,7 +28,7 @@ def load_index(index_path: Path = _DEFAULT_INDEX_PATH) -> dict[str, Any]:
 
 class _DateTimeEncoder(json.JSONEncoder):
     """datetime オブジェクトを ISO 文字列に変換する JSON エンコーダー。"""
-    def default(self, o: Any) -> Any:
+    def default(self, o: Any) -> str:
         import datetime
         if isinstance(o, (datetime.datetime, datetime.date)):
             return o.isoformat()

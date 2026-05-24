@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import random
 import threading
@@ -39,6 +40,8 @@ from ..orchestrator.execution_log import append_execution_log, load_history, upd
 from ..orchestrator.recommender import _cold_start_model, knn_recommend
 from ..scheduler.affinity import compute_swap_cost
 
+logger = logging.getLogger(__name__)
+
 server = Server("models-mcp")
 
 _REGISTRY_PATH = Path(os.environ.get("AIRFLOW_REGISTRY", ".airflow/models/registry.json"))
@@ -55,7 +58,13 @@ _STRUCT_OUTPUT_RETRIES = 2
 def _load_registry() -> None:
     if _REGISTRY_PATH.exists():
         data = json.loads(_REGISTRY_PATH.read_text())
+        if not isinstance(data, dict):
+            logger.warning("models: registry.json is not a JSON object")
+            return
         for m in data.get("models", []):
+            if not isinstance(m, dict) or "id" not in m:
+                logger.warning("models: registry entry missing 'id', skipping: %s", m)
+                continue
             _models[m["id"]] = m
 
 
@@ -256,7 +265,8 @@ async def _model_recommend(args: dict[str, Any], token: str | None) -> list[type
         loaded_ids: list[str] = _gpu.loaded_model_ids if _gpu else []
         free_vram: float = _gpu.free_vram_gb if _gpu else 0.0
         total_vram: float | None = _gpu._vram_total if _gpu else None
-    except Exception:
+    except Exception as exc:
+        logger.warning("models: failed to read GPU state: %s", exc)
         loaded_ids = []
         free_vram = 0.0
         total_vram = None

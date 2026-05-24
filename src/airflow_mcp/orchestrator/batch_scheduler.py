@@ -27,6 +27,9 @@ def _load_schedules() -> list[dict[str, Any]]:
     if not _SCHEDULES_PATH.exists():
         return []
     cfg = yaml.safe_load(_SCHEDULES_PATH.read_text())
+    if not isinstance(cfg, dict):
+        logger.warning("batch_scheduler: schedules.yaml is not a mapping (got %s)", type(cfg).__name__)
+        return []
     raw = cfg.get("schedules", {})
     # dict 形式（name がキー）をリストに正規化
     if isinstance(raw, dict):

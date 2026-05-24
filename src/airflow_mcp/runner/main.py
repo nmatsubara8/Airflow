@@ -52,7 +52,13 @@ def _load_registry(path: str = ".airflow/models/registry.json") -> dict[str, dic
     if not p.exists():
         return {}
     data = json.loads(p.read_text())
-    return {m["id"]: m for m in data.get("models", [])}
+    if not isinstance(data, dict):
+        return {}
+    return {
+        m["id"]: m
+        for m in data.get("models", [])
+        if isinstance(m, dict) and "id" in m
+    }
 
 
 def _select_model(
@@ -333,11 +339,11 @@ def process_task(
         _SYSTEM_PROMPT_PATH.read_text() if _SYSTEM_PROMPT_PATH.exists()
         else "与えられたタスクを JSON 形式で要約してください。"
     )
-    output_schema = (
-        json.loads(_OUTPUT_SCHEMA_PATH.read_text()) if _OUTPUT_SCHEMA_PATH.exists()
-        else {"type": "object", "required": ["summary"],
-              "properties": {"summary": {"type": "string"}}}
-    )
+    try:
+        output_schema = json.loads(_OUTPUT_SCHEMA_PATH.read_text())
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        output_schema = {"type": "object", "required": ["summary"],
+                         "properties": {"summary": {"type": "string"}}}
 
     model_id, exploration_type = _select_model(task, model_config, registry)
     messages = _build_messages(task, system_prompt)
