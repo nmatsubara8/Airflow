@@ -195,3 +195,53 @@ def test_original_features_not_mutated():
     features, _ = extract_features(task)
     features["extra"] = "injected"
     assert "extra" not in original
+
+
+# ── タグ大文字・混在ケース正規化 ─────────────────────────────────
+
+def test_tag_uppercase_maps_correctly():
+    """大文字タグ "REVIEW" は小文字化されて "review" にマッチする。"""
+    features, _ = extract_features({"tags": ["REVIEW"]})
+    assert features["task_type"] == "review"
+
+
+def test_tag_mixed_case_maps_correctly():
+    """混在ケース "Review" も正規化されて "review" にマッチする。"""
+    features, _ = extract_features({"tags": ["Review"]})
+    assert features["task_type"] == "review"
+
+
+def test_tag_uppercase_translate():
+    """大文字タグ "TRANSLATE" は "translate" として認識される。"""
+    features, _ = extract_features({"tags": ["TRANSLATE"]})
+    assert features["task_type"] == "translate"
+
+
+def test_tag_uppercase_alias_code_review():
+    """大文字エイリアス "CODE-REVIEW" はエイリアス解決後 "review" になる。"""
+    features, _ = extract_features({"tags": ["CODE-REVIEW"]})
+    assert features["task_type"] == "review"
+
+
+def test_tag_uppercase_code_maps_to_code_gen():
+    """大文字 "CODE" タグは "code_gen" にマッチする。"""
+    features, _ = extract_features({"tags": ["CODE"]})
+    assert features["task_type"] == "code_gen"
+
+
+def test_tag_urgent_uppercase_infers_interactive_latency():
+    """大文字 "URGENT" タグは latency_sensitivity=interactive を推論する。"""
+    features, _ = extract_features({"tags": ["URGENT"]})
+    assert features["latency_sensitivity"] == "interactive"
+
+
+def test_section_mixed_case_infers_high_accuracy():
+    """section="Business"（混在ケース）でも required_accuracy=high になる。"""
+    features, _ = extract_features({"section": "Business"})
+    assert features["required_accuracy"] == "high"
+
+
+def test_section_uppercase_legal_infers_high_accuracy():
+    """section="LEGAL" でも required_accuracy=high になる。"""
+    features, _ = extract_features({"section": "LEGAL"})
+    assert features["required_accuracy"] == "high"
