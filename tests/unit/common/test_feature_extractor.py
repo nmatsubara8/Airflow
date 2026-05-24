@@ -13,7 +13,7 @@ from airflow_mcp.common.feature_extractor import (
 # ── 定数 ─────────────────────────────────────────────────────
 
 def test_task_types_contains_core_types():
-    for t in ("review", "summarize", "code_gen", "document"):
+    for t in ("review", "summarize", "code_gen", "document", "translate"):
         assert t in TASK_TYPES
 
 
@@ -58,14 +58,14 @@ def test_task_type_translate_tag():
     assert features["task_type"] == "translate"
 
 
-def test_task_type_unknown_tag_defaults_to_draft():
+def test_task_type_unknown_tag_defaults_to_document():
     features, _ = extract_features({"tags": ["unknown-tag"]})
-    assert features["task_type"] == "draft"
+    assert features["task_type"] == "document"
 
 
-def test_task_type_no_tags_defaults_to_draft():
+def test_task_type_no_tags_defaults_to_document():
     features, _ = extract_features({})
-    assert features["task_type"] == "draft"
+    assert features["task_type"] == "document"
 
 
 def test_task_type_summarize_tag_direct():

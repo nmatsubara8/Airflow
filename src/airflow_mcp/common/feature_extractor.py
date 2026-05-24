@@ -10,7 +10,7 @@ from typing import Any
 # ── KNN エンコード定数（recommender.encode_features が参照） ──────
 TASK_TYPES: list[str] = [
     "code_gen", "review", "summarize", "classify",
-    "extract", "chat", "test", "document",
+    "extract", "chat", "test", "document", "translate",
 ]
 LANGUAGES: list[str] = ["ja", "en", "code", "mixed"]
 ACCURACY_MAP: dict[str, float] = {"low": 0.0, "medium": 0.5, "high": 1.0}
@@ -33,9 +33,7 @@ def _infer_task_type(tags: list[str]) -> str:
             return resolved
     if "code" in tags:
         return "code_gen"
-    if "translate" in tags:
-        return "translate"
-    return "draft"
+    return "document"
 
 
 def extract_features(task: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:

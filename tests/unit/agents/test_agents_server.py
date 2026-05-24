@@ -182,10 +182,10 @@ async def test_agents_extract_features_infers_task_type_translate():
 
 
 @pytest.mark.asyncio
-async def test_agents_extract_features_defaults_to_draft():
+async def test_agents_extract_features_defaults_to_document():
     task = {"tags": [], "title": "unknown task"}
     result = await _call("agents.extract_features", {"task": task})
-    assert result["features"]["task_type"] == "draft"
+    assert result["features"]["task_type"] == "document"
 
 
 @pytest.mark.asyncio
