@@ -32,20 +32,20 @@ def test_parse_cron_no_match_wrong_minute():
 
 
 def test_parse_cron_weekday_filter():
-    # 0=Mon in python weekday(), cron dow 1=Mon
+    # POSIX cron: 0=Sun, 1=Mon, ..., 6=Sat
     mon = datetime(2026, 5, 25, 9, 0, tzinfo=timezone.utc)  # Monday
     assert mon.weekday() == 0
-    assert _parse_cron("0 9 * * 0", mon) is True
+    assert _parse_cron("0 9 * * 1", mon) is True  # cron 1=Mon
 
 
 def test_parse_cron_comma_separated_weekdays():
-    # Tuesday (weekday=1) and Friday (weekday=4)
+    # POSIX cron: Tue=2, Fri=5
     tue = datetime(2026, 5, 26, 9, 0, tzinfo=timezone.utc)  # Tuesday
     fri = datetime(2026, 5, 29, 9, 0, tzinfo=timezone.utc)  # Friday
     assert tue.weekday() == 1
     assert fri.weekday() == 4
-    assert _parse_cron("0 9 * * 1,4", tue) is True
-    assert _parse_cron("0 9 * * 1,4", fri) is True
+    assert _parse_cron("0 9 * * 2,5", tue) is True
+    assert _parse_cron("0 9 * * 2,5", fri) is True
 
 
 def test_parse_cron_wildcard_matches_all():

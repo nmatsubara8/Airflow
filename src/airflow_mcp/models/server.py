@@ -255,12 +255,15 @@ async def _model_recommend(args: dict[str, Any], token: str | None) -> list[type
         _gpu = _gpu_server._gpu
         loaded_ids: list[str] = _gpu.loaded_model_ids if _gpu else []
         free_vram: float = _gpu.free_vram_gb if _gpu else 0.0
+        total_vram: float | None = _gpu._vram_total if _gpu else None
     except Exception:
         loaded_ids = []
         free_vram = 0.0
+        total_vram = None
 
     def _swap_ms(model_id: str) -> int:
-        return round(compute_swap_cost(model_id, loaded_ids, free_vram, _models))
+        return round(compute_swap_cost(model_id, loaded_ids, free_vram, _models,
+                                       total_vram_gb=total_vram))
 
     # manual モード: 候補の先頭を返す（DDD-06 §4.1）
     if mode == "manual":
@@ -286,6 +289,7 @@ async def _model_recommend(args: dict[str, Any], token: str | None) -> list[type
         loaded_model_ids=loaded_ids,
         free_vram_gb=free_vram,
         registry=_models,
+        total_vram_gb=total_vram,
     )
     total_samples = sum(r["sample_count"] for r in recommendations)
 

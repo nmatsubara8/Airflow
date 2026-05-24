@@ -87,6 +87,7 @@ def knn_recommend(
     loaded_model_ids: list[str] | None = None,
     free_vram_gb: float = 0.0,
     registry: dict[str, dict] | None = None,
+    total_vram_gb: float | None = None,
 ) -> list[dict[str, Any]]:
     """KNN で推奨モデルリストを返す（DDD-06 §4.3）。
 
@@ -133,7 +134,8 @@ def knn_recommend(
         mean_score = sum(scores) / len(scores)
         confidence = min(1.0, len(scores) / KNN_CONFIDENCE_SCALE)
         swap_ms = (
-            compute_swap_cost(model_id, loaded_model_ids or [], free_vram_gb, registry)
+            compute_swap_cost(model_id, loaded_model_ids or [], free_vram_gb, registry,
+                              total_vram_gb=total_vram_gb)
             if registry is not None
             else 0
         )
@@ -182,10 +184,11 @@ def select_model(
     *,
     loaded_model_ids: list[str] | None = None,
     free_vram_gb: float = 0.0,
+    total_vram_gb: float | None = None,
 ) -> tuple[str, str | None]:
     """タスクに対して最適モデルを選択する（DDD-06 §4〜6 を統合）。
 
-    loaded_model_ids / free_vram_gb を渡すと swap_cost_ms が正確に計算される。
+    loaded_model_ids / free_vram_gb / total_vram_gb を渡すと swap_cost_ms が正確に計算される。
 
     Returns:
         (model_id, exploration_type)
@@ -210,6 +213,7 @@ def select_model(
         loaded_model_ids=loaded_model_ids,
         free_vram_gb=free_vram_gb,
         registry=registry,
+        total_vram_gb=total_vram_gb,
     )
     total_samples = sum(r["sample_count"] for r in recommendations)
 

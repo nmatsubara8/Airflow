@@ -63,6 +63,7 @@ def _select_model(
     *,
     loaded_model_ids: list[str] | None = None,
     free_vram_gb: float = 0.0,
+    total_vram_gb: float | None = None,
 ) -> tuple[str, str | None]:
     """KNN 推奨でモデルを選択（DDD-06 §4）。履歴がなければ固定ルールにフォールバック。
 
@@ -73,7 +74,8 @@ def _select_model(
         hist = history if history is not None else load_history()
         return select_model(task, model_config, registry, hist,
                             loaded_model_ids=loaded_model_ids or [],
-                            free_vram_gb=free_vram_gb)
+                            free_vram_gb=free_vram_gb,
+                            total_vram_gb=total_vram_gb)
     # registry / config なし → Phase 2 固定ルール
     return simple_rule_select(task), None
 

@@ -101,6 +101,7 @@ def send_notification(
             sent = True
             logger.info("slack notification sent: event=%s", event)
         except httpx.HTTPError as exc:
+            sent = False
             logger.warning("slack notification failed: %s", exc)
 
     return sent

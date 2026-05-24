@@ -53,8 +53,12 @@ def run_chain_hash(date_str: str | None = None) -> dict[str, str]:
     prev_hash = ""
     hash_files = sorted(_INTEGRITY_DIR.glob("*.hash"))
     if hash_files:
-        last = json.loads(hash_files[-1].read_text())
-        prev_hash = last.get("hash", "")
+        try:
+            last = json.loads(hash_files[-1].read_text())
+            prev_hash = last.get("hash", "")
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning("audit: corrupted hash file %s, using empty prev_hash: %s",
+                           hash_files[-1].name, exc)
 
     chain_hash = compute_chain_hash(date_str, prev_hash)
 
@@ -85,11 +89,20 @@ def verify_chain(since: str | None = None) -> list[dict[str, str]]:
     # since が指定された場合、最初のレコードに保存された prev_hash を起点にする
     prev_hash = ""
     if hash_files:
-        first_record = json.loads(hash_files[0].read_text())
-        prev_hash = first_record.get("prev_hash", "")
+        try:
+            first_record = json.loads(hash_files[0].read_text())
+            prev_hash = first_record.get("prev_hash", "")
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning("audit: corrupted first hash file %s: %s", hash_files[0].name, exc)
 
     for hf in hash_files:
-        record = json.loads(hf.read_text())
+        try:
+            record = json.loads(hf.read_text())
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.error("audit: unreadable hash file %s: %s", hf.name, exc)
+            failures.append({"date": hf.stem, "expected_hash": "N/A",
+                             "actual_hash": f"CORRUPT: {exc}"})
+            continue
         date_str = record["date"]
         expected = compute_chain_hash(date_str, prev_hash)
 

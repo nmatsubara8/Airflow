@@ -73,12 +73,12 @@ class TestCronParser:
         assert _parse_cron("0 2 * * *", self._dt(2, 30, 0)) is False
 
     def test_weekday_match(self):
-        """曜日が一致するとマッチする（0=月曜）。"""
-        assert _parse_cron("0 0 * * 0", self._dt(0, 0, 0)) is True
+        """曜日が一致するとマッチする（POSIX: 1=月曜）。"""
+        assert _parse_cron("0 0 * * 1", self._dt(0, 0, 0)) is True
 
     def test_weekday_mismatch(self):
         """曜日が異なればマッチしない。"""
-        assert _parse_cron("0 0 * * 5", self._dt(0, 0, 0)) is False  # 金曜 vs 月曜
+        assert _parse_cron("0 0 * * 5", self._dt(0, 0, 0)) is False  # 金曜(5) vs 月曜(1)
 
     def test_comma_separated_hours(self):
         """カンマ区切りの複数値にマッチする。"""
@@ -196,7 +196,7 @@ class TestRunDueSchedules:
         now = datetime(2024, 1, 1, 2, 0, tzinfo=timezone.utc)  # 月曜 02:00
         _write_schedules(schedules_file, [{
             "name": "match_test",
-            "cron": "0 2 * * 0",  # 月曜 02:00
+            "cron": "0 2 * * 1",  # 月曜 02:00 (POSIX: 1=月)
             "actions": [{"cleaner": {}}],
         }])
 

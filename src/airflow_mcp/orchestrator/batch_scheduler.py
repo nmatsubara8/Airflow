@@ -51,10 +51,12 @@ def _parse_cron(cron: str, now: datetime) -> bool:
         except ValueError:
             return False
 
+    # POSIX cron: 0=日曜…6=土曜。Python weekday(): 0=月曜…6=日曜。
+    # 変換: cron_dow = (python_weekday + 1) % 7
     return (
         matches(minute, now.minute)
         and matches(hour, now.hour)
-        and matches(dow, now.weekday())
+        and matches(dow, (now.weekday() + 1) % 7)
     )
 
 

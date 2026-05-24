@@ -52,6 +52,7 @@ def compute_affinity_score(
     model_config: dict[str, Any],
     expected_accuracy: float = 0.75,
     starvation_boost: float = 0.0,
+    total_vram_gb: float | None = None,
 ) -> float:
     """タスク×モデルの親和性スコア（DDD-07 §3.1）。
 
@@ -75,7 +76,8 @@ def compute_affinity_score(
         accuracy_w /= total
         latency_w /= total
 
-    swap_ms = compute_swap_cost(model_id, loaded_model_ids, free_vram_gb, registry)
+    swap_ms = compute_swap_cost(model_id, loaded_model_ids, free_vram_gb, registry,
+                                total_vram_gb=total_vram_gb)
 
     if swap_ms == _INFINITY:
         return -_INFINITY
@@ -99,6 +101,7 @@ def select_best_model(
     model_config: dict[str, Any],
     accuracy_scores: dict[str, float] | None = None,
     starvation_boosts: dict[str, float] | None = None,
+    total_vram_gb: float | None = None,
 ) -> str | None:
     """candidate_model_ids の中で最高親和性スコアのモデルを返す。"""
     if not candidate_model_ids:
@@ -119,6 +122,7 @@ def select_best_model(
                 model_config=model_config,
                 expected_accuracy=acc.get(model_id, 0.75),
                 starvation_boost=boosts.get(model_id, 0.0),
+                total_vram_gb=total_vram_gb,
             ),
         )
         for model_id in candidate_model_ids
