@@ -47,6 +47,7 @@ logger = logging.getLogger(__name__)
 server = Server("models-mcp")
 
 _REGISTRY_PATH = Path(os.environ.get("AIRFLOW_REGISTRY", ".airflow/models/registry.json"))
+_OLLAMA_TIMEOUT_S = float(os.environ.get("AIRFLOW_OLLAMA_TIMEOUT_S", "120"))
 _models: dict[str, dict[str, Any]] = {}
 _execution_logs: dict[str, dict[str, Any]] = {}
 
@@ -513,7 +514,7 @@ def _call_ollama(
         if structured_output and structured_output.get("schema"):
             payload["format"] = structured_output["schema"]
 
-        resp = httpx.post(f"{_ollama_base_url()}/api/chat", json=payload, timeout=120.0)
+        resp = httpx.post(f"{_ollama_base_url()}/api/chat", json=payload, timeout=_OLLAMA_TIMEOUT_S)
         resp.raise_for_status()
         content = resp.json()["message"]["content"]
 

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -36,10 +37,7 @@ class QueueEntry:
 
 
 class SchedulerQueue:
-    """モデル別マルチキュー（DDD-07 §5）。
-
-    スレッドセーフではない（呼び出し元で同期すること）。
-    """
+    """モデル別マルチキュー（DDD-07 §5）。スレッドセーフ。"""
 
     def __init__(
         self,
@@ -52,12 +50,14 @@ class SchedulerQueue:
         self._consecutive: dict[str, int] = defaultdict(int)
         self._last_model: str | None = None
         self._gpu_time_ms: dict[str, float] = {}
+        self._lock = threading.RLock()
 
     # ── public API ─────────────────────────────────────────
 
     def enqueue(self, entry: QueueEntry) -> None:
         """タスクをモデル別サブキューに追加する（DDD-07 §5.2）。"""
-        self._queues[entry.model_id].append(entry)
+        with self._lock:
+            self._queues[entry.model_id].append(entry)
         logger.info("scheduler.enqueued task=%s model=%s", entry.task_id, entry.model_id)
 
     def dequeue(self, loaded_model_ids: list[str]) -> QueueEntry | None:
@@ -68,6 +68,11 @@ class SchedulerQueue:
           2. ロード済みモデルのキューから高優先度順
           3. 未ロードモデルのキューを探索
         """
+        with self._lock:
+            return self._dequeue_locked(loaded_model_ids)
+
+    def _dequeue_locked(self, loaded_model_ids: list[str]) -> QueueEntry | None:
+        """ロック保持済み前提での dequeue 実装。"""
         self._refresh_starvation_flags()
 
         # 1. 強制優先エントリ
@@ -125,25 +130,30 @@ class SchedulerQueue:
 
     def depth(self, model_id: str | None = None) -> int:
         """指定モデル（または全体）のキュー深度を返す。"""
-        if model_id:
-            return len(self._queues.get(model_id, []))
-        return sum(len(q) for q in self._queues.values())
+        with self._lock:
+            if model_id:
+                return len(self._queues.get(model_id, []))
+            return sum(len(q) for q in self._queues.values())
 
     def model_depths(self) -> dict[str, int]:
         """モデル別キュー深度マップを返す。"""
-        return {mid: len(entries) for mid, entries in self._queues.items() if entries}
+        with self._lock:
+            return {mid: len(entries) for mid, entries in self._queues.items() if entries}
 
     def all_entries(self) -> list[QueueEntry]:
         """全エントリのフラットリストを返す（スターベーション監視用）。"""
-        return [e for entries in self._queues.values() for e in entries]
+        with self._lock:
+            return [e for entries in self._queues.values() for e in entries]
 
     def record_completion(self, model_id: str, duration_ms: float) -> None:
         """GPU 使用時間を累積記録する（フェアシェア計算用）。"""
-        self._gpu_time_ms[model_id] = self._gpu_time_ms.get(model_id, 0.0) + max(0.0, duration_ms)
+        with self._lock:
+            self._gpu_time_ms[model_id] = self._gpu_time_ms.get(model_id, 0.0) + max(0.0, duration_ms)
 
     def gpu_time_stats(self) -> dict[str, float]:
         """モデル別 GPU 使用時間 (ms) を返す（モニタリング用）。"""
-        return dict(self._gpu_time_ms)
+        with self._lock:
+            return dict(self._gpu_time_ms)
 
     # ── private helpers ────────────────────────────────────
 

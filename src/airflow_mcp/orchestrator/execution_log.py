@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -92,8 +93,12 @@ def append_execution_log(
     month = datetime.now(timezone.utc).strftime("%Y-%m")
     log_path = base / f"{month}.jsonl"
 
-    with open(log_path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except OSError as exc:
+        logger.error("execution_log: failed to append log for task=%s: %s", task_id, exc)
+        raise
 
     return record
 
@@ -150,7 +155,14 @@ def update_feedback(
                 updated_lines.insert(0, line)
 
         if found is not None:
-            jsonl_path.write_text("\n".join(updated_lines) + "\n", encoding="utf-8")
+            tmp = jsonl_path.with_suffix(".jsonl.new")
+            try:
+                tmp.write_text("\n".join(updated_lines) + "\n", encoding="utf-8")
+                os.replace(tmp, jsonl_path)
+            except OSError as exc:
+                logger.error("execution_log: atomic write failed for %s: %s", jsonl_path.name, exc)
+                tmp.unlink(missing_ok=True)
+                raise
             return found
 
     return None

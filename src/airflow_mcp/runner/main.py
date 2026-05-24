@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 _SYSTEM_PROMPT_PATH = Path("prompts/system/document-summary.md")
 _OUTPUT_SCHEMA_PATH = Path("prompts/output-schemas/summary.json")
 _MAX_RETRY = 3
+_OLLAMA_TIMEOUT_S = float(os.environ.get("AIRFLOW_OLLAMA_TIMEOUT_S", "180"))
 
 
 def load_model_config(path: str = ".airflow/config/model-config.yaml") -> dict[str, Any]:
@@ -141,7 +142,7 @@ def _call_ollama(
             "num_predict": max_tokens,
         },
     }
-    resp = httpx.post(f"{ollama_url}/api/chat", json=payload, timeout=180.0)
+    resp = httpx.post(f"{ollama_url}/api/chat", json=payload, timeout=_OLLAMA_TIMEOUT_S)
     resp.raise_for_status()
     content = resp.json()["message"]["content"]
 
@@ -351,6 +352,10 @@ def process_task(
                          "properties": {"summary": {"type": "string"}}}
 
     model_id, exploration_type = _select_model(task, model_config, registry)
+    logger.info(
+        "runner.model_selected task=%s model=%s exploration=%s",
+        task_id, model_id, exploration_type,
+    )
     messages = _build_messages(task, system_prompt)
 
     r = _execute_with_reroute(

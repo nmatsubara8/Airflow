@@ -20,6 +20,7 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import json
+import logging
 import os
 import re
 from contextlib import contextmanager
@@ -27,8 +28,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Generator
 
-from ..common.audit import new_audit_id, now_iso
+from ..common.audit import log_event, new_audit_id, now_iso
 from ..common.errors import TaskAlreadyClaimed, TaskInvalidTransition, TaskLockConflict, TaskNotFound
+
+logger = logging.getLogger(__name__)
 
 # task_id は必ずこのパターンに一致する必要がある（パストラバーサル防止）
 _TASK_ID_RE = re.compile(r"^task_[a-z0-9]{16,32}$")
@@ -205,6 +208,12 @@ class TaskStore:
             # 元ファイルを削除（別ディレクトリへ移動の場合）
             if path != new_path:
                 path.unlink(missing_ok=True)
+        log_event(
+            "info", "task.transitioned", "taskboard", new_audit_id(),
+            task_id=task_id,
+            data={"from": from_status, "to": to_status, "reason": reason},
+        )
+        logger.info("store.transition task=%s %s→%s reason=%s", task_id, from_status, to_status, reason)
         return task
 
     def claim(self, task_id: str, agent_id: str) -> dict[str, Any]:
