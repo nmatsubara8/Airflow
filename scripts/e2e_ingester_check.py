@@ -22,7 +22,7 @@ os.environ["AIRFLOW_AUTH_LOCALHOST_BYPASS"] = "true"
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-import logging
+import logging  # noqa: E402
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
@@ -96,7 +96,6 @@ def main() -> None:
         # ── Step 1: Ingester ─────────────────────────────────────
         print_step(1, "ingester.run_once() — .md → TaskStore(inbox)")
         from airflow_mcp.ingester.main import run_once as ingest_once
-        from airflow_mcp.ingester.main import _notes_index_path
         import airflow_mcp.ingester.main as ingester_mod
         ingester_mod._notes_index_path = notes_dir / "index.json"
         ingester_mod._seen_hashes = set()   # reset dedup for this run
@@ -138,7 +137,7 @@ def main() -> None:
 
         # ── Step 3: Runner ───────────────────────────────────────
         print_step(3, "runner.run_once() — in_progress → done  [OLLAMA_STUB=true]")
-        from airflow_mcp.runner.main import run_once as runner_once, load_model_config
+        from airflow_mcp.runner.main import run_once as runner_once
         runner_config = {}
         registry: dict = {}
         agent_id = in_progress[0].get("owner", "agent_docs")

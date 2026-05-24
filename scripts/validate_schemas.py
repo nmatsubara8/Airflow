@@ -4,7 +4,6 @@
 Exit 0 if all pass, 1 if any fail.
 """
 
-import glob
 import json
 import sys
 from pathlib import Path
