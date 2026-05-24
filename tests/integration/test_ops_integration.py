@@ -23,15 +23,6 @@ os.environ.setdefault("OLLAMA_STUB", "true")
 
 # ── フィクスチャ ──────────────────────────────────────────────────
 
-@pytest.fixture(autouse=True)
-def isolated_taskboard(tmp_path: Path, monkeypatch):
-    """テストごとに独立した TaskStore ディレクトリを使用する。"""
-    tasks_dir = tmp_path / "tasks"
-    tasks_dir.mkdir()
-    monkeypatch.setenv("AIRFLOW_TASKBOARD_DIR", str(tasks_dir))
-    yield tasks_dir
-
-
 @pytest.fixture
 def integrity_dir(tmp_path: Path) -> Path:
     """audit_integrity テスト用の一時ディレクトリ。"""

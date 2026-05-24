@@ -955,6 +955,56 @@ def test_check_ollama_logs_warning_on_failure(monkeypatch):
     assert any("unreachable" in e for e in events)
 
 
+# ── GPU 例外フォールバック ────────────────────────────
+
+@pytest.mark.asyncio
+async def test_model_recommend_falls_back_when_gpu_server_import_fails(monkeypatch):
+    """gpu.server のインポートが失敗しても recommend が loaded_ids=[], free_vram=0.0 で続行する。"""
+    _add_model("model_qwen25_14b_q4")
+
+    # gpu.server をインポートしようとすると例外を発生させる
+    import builtins
+    real_import = builtins.__import__
+
+    def _bad_import(name, *args, **kwargs):
+        if name.endswith("gpu.server") or name == "airflow_mcp.gpu.server":
+            raise ImportError("gpu server not available")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _bad_import)
+
+    result = await _call("model.recommend", {"features": {}})
+    # GPU state 取得失敗でも推奨リストが返ること
+    assert "recommendations" in result
+    assert len(result["recommendations"]) >= 1
+
+
+@pytest.mark.asyncio
+async def test_model_recommend_falls_back_when_gpu_state_attribute_raises(monkeypatch):
+    """_gpu オブジェクトの属性アクセスが例外を起こしても loaded_ids=[], free_vram=0.0 で続行する。"""
+    _add_model("model_qwen25_14b_q4")
+
+    # gpu.server は import できるが _gpu 属性アクセスで例外
+    import types
+    fake_gpu_server = types.SimpleNamespace(_gpu=None)
+
+    class _BrokenGpu:
+        @property
+        def loaded_model_ids(self):
+            raise RuntimeError("GPU state unavailable")
+
+        @property
+        def free_vram_gb(self):
+            raise RuntimeError("GPU state unavailable")
+
+    fake_gpu_server._gpu = _BrokenGpu()
+    monkeypatch.setattr("airflow_mcp.gpu.server", fake_gpu_server, raising=False)
+
+    result = await _call("model.recommend", {"features": {}})
+    assert "recommendations" in result
+    assert len(result["recommendations"]) >= 1
+
+
 # ── _ollama_tag ───────────────────────────────────────
 
 def test_ollama_tag_uses_registry_value():
