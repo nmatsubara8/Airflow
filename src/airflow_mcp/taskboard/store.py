@@ -62,8 +62,13 @@ def _etag(task: dict[str, Any]) -> str:
     return "sha256:" + hashlib.sha256(_canonical(task).encode()).hexdigest()
 
 
+_DEFAULT_TASKS_DIR = ".airflow/tasks"
+
+
 class TaskStore:
-    def __init__(self, base_dir: str | Path = ".airflow/tasks") -> None:
+    def __init__(self, base_dir: str | Path | None = None) -> None:
+        if base_dir is None:
+            base_dir = os.environ.get("AIRFLOW_TASKBOARD_DIR", _DEFAULT_TASKS_DIR)
         self.base = Path(base_dir)
         for sub in ("inbox", "in_progress", "needs_human", "blocked", "cancelled", "_corrupt"):
             (self.base / sub).mkdir(parents=True, exist_ok=True)

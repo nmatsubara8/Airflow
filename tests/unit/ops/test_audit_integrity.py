@@ -128,3 +128,47 @@ def test_run_chain_hash_uses_today_when_no_date_given():
     result = run_chain_hash()  # date_str 省略
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     assert result["date"] == today
+
+
+# ── 破損ハッシュファイルの耐性 ────────────────────────
+
+def test_run_chain_hash_survives_corrupted_prev_hash_file():
+    """前回ハッシュファイルが破損していても prev_hash="" で続行する。"""
+    from airflow_mcp.ops.audit_integrity import _INTEGRITY_DIR
+    # 正常なハッシュを作成してから破損させる
+    run_chain_hash("2026-01-01")
+    corrupt_path = _INTEGRITY_DIR / "2026-01-01.hash"
+    corrupt_path.write_text("THIS IS NOT JSON")
+
+    # 破損ファイルがあっても翌日分は正常に生成される
+    result = run_chain_hash("2026-01-02")
+    assert result["date"] == "2026-01-02"
+    assert result["prev_hash"] == ""  # 破損から回復して空に
+    assert len(result["hash"]) == 64
+
+
+def test_verify_chain_reports_corrupted_file_as_failure():
+    """verify_chain() が破損ファイルを failure として報告すること。"""
+    from airflow_mcp.ops.audit_integrity import _INTEGRITY_DIR
+    run_chain_hash("2026-01-01")
+    # ファイルを破損させる
+    (_INTEGRITY_DIR / "2026-01-01.hash").write_text("{invalid json")
+
+    failures = verify_chain()
+    assert len(failures) >= 1
+    assert failures[0]["date"] == "2026-01-01"
+    assert "CORRUPT" in failures[0]["actual_hash"]
+
+
+def test_verify_chain_corrupted_first_file_does_not_crash():
+    """先頭ハッシュファイルが破損していても verify_chain はクラッシュしない。"""
+    from airflow_mcp.ops.audit_integrity import _INTEGRITY_DIR
+    run_chain_hash("2026-01-01")
+    run_chain_hash("2026-01-02")
+    # 先頭ファイルを破損
+    (_INTEGRITY_DIR / "2026-01-01.hash").write_text("CORRUPT")
+
+    failures = verify_chain()
+    # 破損ファイルが failure に含まれること
+    dates = [f["date"] for f in failures]
+    assert "2026-01-01" in dates

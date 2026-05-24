@@ -18,7 +18,13 @@ _CONFIG = {
     "deadline_warn_s": 300,
 }
 
-_NOW = datetime.now(timezone.utc)
+_NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+
+@pytest.fixture(autouse=True)
+def _freeze_now(monkeypatch):
+    """starvation モジュールの _now() を固定時刻に置き換える。"""
+    monkeypatch.setattr("airflow_mcp.scheduler.starvation._now", lambda: _NOW)
 
 
 def _ago(seconds: float) -> datetime:
@@ -38,13 +44,12 @@ def test_aging_score_zero_before_threshold():
 
 def test_aging_score_zero_at_threshold():
     score = compute_aging_score(_ago(600), _CONFIG)
-    assert score == pytest.approx(0.0, abs=0.05)  # 実行時間ズレを許容
+    assert score == 0.0
 
 
 def test_aging_score_positive_after_threshold():
     score = compute_aging_score(_ago(660), _CONFIG)  # 60秒超過 → 0.1
-    # abs=0.05: テスト実行時間のズレ（最大数秒）を許容
-    assert score == pytest.approx(0.1, abs=0.05)
+    assert score == pytest.approx(0.1, abs=0.001)
 
 
 def test_aging_score_increases_with_time():
@@ -68,7 +73,6 @@ def test_aging_flag_after_threshold():
 def test_force_run_flag_after_max_wait():
     flags = check_starvation_flags(_ago(3700), None, _CONFIG)
     assert "force_run" in flags
-    # force_run は最上位 → aging は含まれない
     assert "aging" not in flags
 
 
@@ -83,7 +87,6 @@ def test_no_deadline_flag_when_far():
 
 
 def test_force_run_overrides_deadline_flag():
-    # force_run 発動中は deadline_near は返さない
     flags = check_starvation_flags(_ago(3700), _future(100), _CONFIG)
     assert "force_run" in flags
     assert "deadline_near" not in flags
