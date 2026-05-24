@@ -17,7 +17,7 @@ from mcp.server import Server
 from ..common.auth import require_scope
 from ..common.errors import AgentNotFound
 from ..common.feature_extractor import extract_features
-from ..common.mcp import dispatch, mcp_result, run_stdio_server
+from ..common.mcp import dispatch, mcp_result, require_args, run_stdio_server
 from ..common.thresholds import AGENT_SECTION_MATCH_SCORE, AGENT_TAG_MATCH_SCORE
 
 logger = logging.getLogger(__name__)
@@ -116,6 +116,7 @@ async def _agents_list(args: dict[str, Any], token: str | None) -> list[types.Te
 
 async def _agents_get(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "agents:read")
+    require_args(args, "agent_id")
     agent_id = args["agent_id"]
     if agent_id not in _agents:
         raise AgentNotFound(agent_id)
@@ -126,6 +127,7 @@ async def _agents_find_for_task(
     args: dict[str, Any], token: str | None
 ) -> list[types.TextContent]:
     require_scope(token, "agents:read")
+    require_args(args, "task")
     task = args["task"]
     task_tags = set(task.get("tags", []))
     task_section = task.get("section", "")
@@ -160,12 +162,14 @@ async def _agents_extract_features(
     args: dict[str, Any], token: str | None
 ) -> list[types.TextContent]:
     require_scope(token, "agents:read")
+    require_args(args, "task")
     features, inferred = extract_features(args["task"])
     return mcp_result({"features": features, "inferred_fields": inferred})
 
 
 async def _agents_register(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "agents:write")
+    require_args(args, "agent")
     agent = args["agent"]
     agent_id = agent.get("agent_id") or agent.get("id")
     if agent_id:

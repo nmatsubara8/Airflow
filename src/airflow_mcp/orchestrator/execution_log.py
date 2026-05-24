@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,8 @@ from ..common.thresholds import (
     AUTO_SCORE_FEEDBACK_REJECTED,
     AUTO_SCORE_RETRY_PENALTY,
 )
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_LOG_DIR = Path(".airflow/execution_logs")
 
@@ -109,8 +112,13 @@ def update_feedback(
     if not base.exists():
         return None
 
+    _MAX_FEEDBACK_FILE_BYTES = 50 * 1024 * 1024  # 50 MB per JSONL file
+
     for jsonl_path in sorted(base.glob("*.jsonl"), reverse=True):
         try:
+            if jsonl_path.stat().st_size > _MAX_FEEDBACK_FILE_BYTES:
+                logger.warning("execution_log: skipping oversized file %s", jsonl_path.name)
+                continue
             lines = jsonl_path.read_text(encoding="utf-8").splitlines()
         except OSError:
             continue

@@ -16,7 +16,7 @@ from mcp.server import Server
 from ..common.audit import now_iso, record_audit
 from ..common.auth import require_scope
 from ..common.errors import TaskNotFound
-from ..common.mcp import dispatch, mcp_result, run_stdio_server
+from ..common.mcp import dispatch, mcp_result, require_args, run_stdio_server
 from .store import TaskStore
 
 _ALL_STATUSES = ["inbox", "in_progress", "done", "needs_human", "blocked", "cancelled"]
@@ -241,12 +241,14 @@ async def _tasks_list(args: dict[str, Any], token: str | None) -> list[types.Tex
 
 async def _tasks_get(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "tasks:read")
+    require_args(args, "id")
     task = _get_store().get(args["id"])  # raises TaskNotFound
     return mcp_result(task)
 
 
 async def _tasks_create(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "tasks:write")
+    require_args(args, "title", "section")
     meta = args.get("_meta", {})
     task = _get_store().create({
         "title": args["title"],
@@ -266,6 +268,7 @@ async def _tasks_create(args: dict[str, Any], token: str | None) -> list[types.T
 
 async def _tasks_update(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "tasks:write")
+    require_args(args, "id", "expected_version", "patch")
     meta = args.get("_meta", {})
     # immutable fields are silently stripped by TaskStore.update()
     task = _get_store().update(args["id"], args["expected_version"], args["patch"])
@@ -277,6 +280,7 @@ async def _tasks_update(args: dict[str, Any], token: str | None) -> list[types.T
 
 async def _tasks_transition(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "tasks:write")
+    require_args(args, "id", "to_status")
     meta = args.get("_meta", {})
     task = _get_store().transition(args["id"], args["to_status"], reason=args.get("reason"))
     with _state_lock:
@@ -288,6 +292,7 @@ async def _tasks_transition(args: dict[str, Any], token: str | None) -> list[typ
 
 async def _tasks_claim(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "tasks:write")
+    require_args(args, "task_id", "agent_id")
     meta = args.get("_meta", {})
     task = _get_store().claim(args["task_id"], args["agent_id"])
     with _state_lock:
@@ -300,6 +305,7 @@ async def _tasks_add_handoff_note(
     args: dict[str, Any], token: str | None
 ) -> list[types.TextContent]:
     require_scope(token, "tasks:write")
+    require_args(args, "task_id", "content")
     meta = args.get("_meta", {})
     task = _get_store().add_handoff_note(
         args["task_id"], args["content"], author=args.get("author", "unknown")
@@ -312,6 +318,7 @@ async def _tasks_add_handoff_note(
 
 async def _tasks_assign(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "tasks:write")
+    require_args(args, "task_id", "new_owner")
     store = _get_store()
     task_id = args["task_id"]
     new_owner = args["new_owner"]
@@ -327,6 +334,7 @@ async def _tasks_assign(args: dict[str, Any], token: str | None) -> list[types.T
 
 async def _tasks_join(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "tasks:write")
+    require_args(args, "parent_id", "child_ids")
     store = _get_store()
     parent_id = args["parent_id"]
     child_ids = args["child_ids"]

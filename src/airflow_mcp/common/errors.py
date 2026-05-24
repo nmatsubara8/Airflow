@@ -237,6 +237,17 @@ class GpuInsufficientVram(AirflowError):
         )
 
 
+# ── 入力バリデーションエラー ──────────────────────────
+class McpInvalidArgument(AirflowError):
+    def __init__(self, missing: list[str]) -> None:
+        super().__init__(
+            code="INVALID_ARGUMENT",
+            message=f"必須フィールドが不足しています: {missing}",
+            error_class="escalate",
+            data={"missing_fields": missing},
+        )
+
+
 class GpuReserveTimeout(AirflowError):
     def __init__(self, model_id: str, timeout_ms: int) -> None:
         super().__init__(

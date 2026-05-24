@@ -81,6 +81,15 @@ def run_once(store: TaskStore, config: dict[str, Any]) -> int:
     notes_index = load_index(_notes_index_path)
     created = 0
 
+    # content_hash の O(1) dedup セットをスキャン開始前に一度だけ構築。
+    # done は大量になり得るため inbox・in_progress のみを対象にする（_seen_hashes が補完）。
+    _active_hashes: set[str] = set()
+    for status in ("inbox", "in_progress"):
+        for t in store.list_by_status(status):
+            ch = t.get("content_hash")
+            if ch:
+                _active_hashes.add(ch)
+
     for entry in watch_entries:
         watch_path = entry["path"]
         auto_dispatch: bool = entry["auto_dispatch"]
@@ -126,8 +135,8 @@ def run_once(store: TaskStore, config: dict[str, Any]) -> int:
             if content_hash in _seen_hashes:
                 continue
 
-            # dedup: 全ステータスに同一 content_hash がないか確認
-            if any(t.get("content_hash") == content_hash for t in store.list_all()):
+            # dedup: アクティブタスク（inbox/in_progress）に同一 content_hash がないか確認
+            if content_hash in _active_hashes:
                 _seen_hashes.add(content_hash)
                 continue
 
@@ -135,6 +144,7 @@ def run_once(store: TaskStore, config: dict[str, Any]) -> int:
             fields["source_note_id"] = note_id
             task = store.create({**fields, "owner": None})
             _seen_hashes.add(content_hash)
+            _active_hashes.add(content_hash)
 
             from ..common.audit import now_iso
             processed_at = now_iso()

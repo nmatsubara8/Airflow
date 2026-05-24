@@ -22,11 +22,12 @@ from ..common.audit import log_event, new_audit_id, now_iso
 from ..common.auth import require_scope
 from ..common.errors import (
     AirflowError,
+    McpInvalidArgument,
     ModelLowConfidence,
     ModelNotFound,
     ModelStructuredOutputInvalid,
 )
-from ..common.mcp import dispatch, mcp_result, run_stdio_server
+from ..common.mcp import dispatch, mcp_result, require_args, run_stdio_server
 from ..common.url_validator import validate_ollama_url
 from ..common.thresholds import (
     DEFAULT_MODEL_ID,
@@ -345,6 +346,7 @@ async def _model_recommend(args: dict[str, Any], token: str | None) -> list[type
 
 async def _model_execute(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
     require_scope(token, "models:execute")
+    require_args(args, "model_id", "messages")
     model_id = args["model_id"]
     if model_id not in _models:
         raise ModelNotFound(model_id)
@@ -353,6 +355,8 @@ async def _model_execute(args: dict[str, Any], token: str | None) -> list[types.
     meta = args.get("_meta", {}) or {}
     aid = new_audit_id()
     messages = args["messages"]
+    if not isinstance(messages, list):
+        raise McpInvalidArgument(["messages (must be a list)"])
     structured_output = args.get("structured_output")
     temperature = args.get("temperature")
     max_tokens = args.get("max_tokens")

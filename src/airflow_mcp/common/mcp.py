@@ -16,8 +16,15 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 
 from .auth import get_token_from_env
-from .errors import AirflowError
+from .errors import AirflowError, McpInvalidArgument
 from .rate_limiter import check_rate_limit
+
+
+def require_args(args: dict[str, Any], *keys: str) -> None:
+    """必須キーが args に存在することを検証する。不足があれば McpInvalidArgument を raise。"""
+    missing = [k for k in keys if k not in args]
+    if missing:
+        raise McpInvalidArgument(missing)
 
 
 def mcp_result(data: Any) -> list[types.TextContent]:

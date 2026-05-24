@@ -64,14 +64,22 @@ def _load_section_counts(counts_by_status: dict[str, int]) -> dict[str, dict[str
 
 
 def _recent_events(n: int = 5) -> list[dict[str, Any]]:
-    """直近 n 件の監査ログイベントを返す。"""
+    """直近 n 件の監査ログイベントを返す（ファイル全体を読まずに末尾 n 行だけ処理）。"""
+    from collections import deque
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     log_file = _AUDIT_LOG_DIR / f"{today}.jsonl"
     if not log_file.exists():
         return []
-    lines = log_file.read_text().strip().splitlines()
+    tail: deque[str] = deque(maxlen=n)
+    try:
+        with log_file.open(encoding="utf-8") as fh:
+            for line in fh:
+                if line.strip():
+                    tail.append(line)
+    except OSError:
+        return []
     events = []
-    for line in lines[-n:]:
+    for line in tail:
         try:
             events.append(json.loads(line))
         except json.JSONDecodeError:

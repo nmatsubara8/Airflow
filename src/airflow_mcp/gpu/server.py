@@ -46,32 +46,41 @@ def _load_config() -> None:
         cfg = yaml.safe_load(_PARALLEL_CONFIG.read_text())
         sched = cfg.get("scheduler", {})
         pinned = cfg.get("gpu", {}).get("pinned_models", [])
-        _gpu = GpuStateManager(
+        new_gpu = GpuStateManager(
             vram_available_gb=sched.get("vram_available_gb", 15.0),
             vram_total_gb=sched.get("vram_total_gb", 16.0),
             pinned_models=pinned,
             snapshot_interval_s=5.0,
         )
-        _profiles.clear()
-        _profiles.extend(cfg.get("profiles", []))
-        _current_profile = cfg.get("mvp_profile")
 
         starvation_cfg = cfg.get("starvation_prevention", {})
         fair_share_cfg = cfg.get("fair_share", {})
-        _scheduler_queue = SchedulerQueue(
+        new_queue = SchedulerQueue(
             starvation_config=starvation_cfg,
             fair_share_config=fair_share_cfg,
         )
 
-        _fair_share.clear()
-        _fair_share.update(fair_share_cfg)
+        with _state_lock:
+            _gpu = new_gpu
+            _profiles.clear()
+            _profiles.extend(cfg.get("profiles", []))
+            _current_profile = cfg.get("mvp_profile")
+            _scheduler_queue = new_queue
+            _fair_share.clear()
+            _fair_share.update(fair_share_cfg)
 
 
 def _load_registry_cache() -> dict[str, dict]:
     registry_path = Path(os.environ.get("AIRFLOW_REGISTRY", ".airflow/models/registry.json"))
     if registry_path.exists():
         data = json.loads(registry_path.read_text())
-        return {m["id"]: m for m in data.get("models", [])}
+        if not isinstance(data, dict):
+            return {}
+        return {
+            m["id"]: m
+            for m in data.get("models", [])
+            if isinstance(m, dict) and "id" in m
+        }
     return {}
 
 
