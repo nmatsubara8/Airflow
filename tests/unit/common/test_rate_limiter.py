@@ -82,8 +82,18 @@ def test_stats_decreases_after_consume(limiter):
 
 # ── グローバル helper ─────────────────────────────────
 
-def test_check_rate_limit_skips_none_token():
-    check_rate_limit(None)  # should not raise
+def test_check_rate_limit_none_token_is_counted():
+    """token=None は __anonymous__ バケットで計測され、無制限ではないこと。"""
+    from airflow_mcp.common import rate_limiter as mod
+    original = mod._limiter
+    mod._limiter = RateLimiter(default_capacity=2, default_refill_rate=0.001)
+    try:
+        check_rate_limit(None)
+        check_rate_limit(None)
+        with pytest.raises(AuthRateLimited):
+            check_rate_limit(None)
+    finally:
+        mod._limiter = original
 
 
 def test_check_rate_limit_uses_global_limiter():

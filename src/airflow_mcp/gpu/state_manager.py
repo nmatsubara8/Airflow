@@ -61,7 +61,12 @@ class GpuStateManager:
     @property
     def free_vram_gb(self) -> float:
         used = sum(m["vram_gb"] for m in self._loaded.values())
-        return self._vram_available - used
+        free = self._vram_available - used
+        if free < 0:
+            logger.warning("free_vram_gb negative (%.2f), clamping to 0; vram_available=%.2f used=%.2f",
+                           free, self._vram_available, used)
+            return 0.0
+        return free
 
     @property
     def loaded_model_ids(self) -> list[str]:

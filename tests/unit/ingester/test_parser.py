@@ -61,8 +61,16 @@ def test_parse_markdown_content_hash_differs_for_different_content(tmp_path: Pat
 def test_parse_markdown_returns_source_path(tmp_path: Path):
     md = tmp_path / "doc.md"
     md.write_text("---\ntitle: パス確認\n---\n本文")
+    # vault_root 指定時は相対パスになること
+    parsed = parse_markdown(md, vault_root=tmp_path)
+    assert parsed["source_path"] == "doc.md"
+
+
+def test_parse_markdown_source_path_no_vault_root_uses_filename(tmp_path: Path):
+    md = tmp_path / "doc.md"
+    md.write_text("本文のみ")
     parsed = parse_markdown(md)
-    assert str(md) in parsed["source_path"]
+    assert parsed["source_path"] == "doc.md"
 
 
 def test_parse_markdown_handles_invalid_yaml_frontmatter_gracefully(tmp_path: Path):

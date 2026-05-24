@@ -13,6 +13,7 @@ from typing import Any
 import yaml
 
 from ..common.audit import log_event, new_audit_id
+from ..common.errors import TaskAlreadyClaimed, TaskLockConflict
 from ..taskboard.store import TaskStore
 
 logger = logging.getLogger(__name__)
@@ -92,8 +93,13 @@ def dispatch_once(store: TaskStore, config: dict[str, Any]) -> int:
                       data={"section": section})
             logger.info("dispatched %s → %s (%s)", task_id, agent_id, section)
             dispatched += 1
+        except TaskAlreadyClaimed:
+            # 別ディスパッチャーが先にクレーム済み — 次ポーリングで自然に消える
+            pass
+        except TaskLockConflict as exc:
+            logger.warning("lock conflict for %s, will retry next poll: %s", task_id, exc)
         except Exception as exc:
-            logger.warning("dispatch failed for %s: %s", task_id, exc)
+            logger.exception("unexpected dispatch error for %s", task_id)
 
     return dispatched
 

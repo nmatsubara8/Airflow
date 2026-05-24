@@ -107,8 +107,9 @@ def build_rate_limiter() -> RateLimiter:
 _limiter: RateLimiter = RateLimiter()
 
 
+_ANONYMOUS_KEY = "__anonymous__"
+
+
 def check_rate_limit(token: str | None, cost: float = 1.0) -> None:
-    """グローバルレート制限をチェックする。token が None の場合はスキップ。"""
-    if token is None:
-        return
-    _limiter.check(token, cost)
+    """グローバルレート制限をチェックする。未認証リクエストは共有バケットで計測する。"""
+    _limiter.check(token if token is not None else _ANONYMOUS_KEY, cost)

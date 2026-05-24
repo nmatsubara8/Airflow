@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 _CATEGORY_SECTION_MAP: dict[str, str] = {
     "architecture": "engineering",
@@ -46,7 +49,7 @@ def normalize_path(path_str: str) -> str:
     return p.replace('\\', '/')
 
 
-def parse_markdown(path: Path) -> dict[str, Any]:
+def parse_markdown(path: Path, vault_root: Path | None = None) -> dict[str, Any]:
     """
     .md ファイルを読み込み frontmatter + body を返す。
 
@@ -56,7 +59,7 @@ def parse_markdown(path: Path) -> dict[str, Any]:
           "body": str,
           "frontmatter": dict,
           "content_hash": "sha256:...",
-          "source_path": str,
+          "source_path": str,   # vault_root からの相対パス（なければファイル名のみ）
         }
     """
     raw = path.read_text(encoding="utf-8")
@@ -69,7 +72,8 @@ def parse_markdown(path: Path) -> dict[str, Any]:
         if len(parts) >= 3:
             try:
                 frontmatter = yaml.safe_load(parts[1]) or {}
-            except yaml.YAMLError:
+            except yaml.YAMLError as exc:
+                logger.warning("YAML parse failed for %s: %s", path, exc)
                 frontmatter = {}
             body = parts[2].strip()
 
@@ -81,12 +85,20 @@ def parse_markdown(path: Path) -> dict[str, Any]:
 
     content_hash = "sha256:" + hashlib.sha256(normalized_body.encode()).hexdigest()
 
+    if vault_root is not None:
+        try:
+            source_path = str(path.resolve().relative_to(vault_root.resolve()))
+        except ValueError:
+            source_path = path.name
+    else:
+        source_path = path.name
+
     return {
         "title": title,
         "body": normalized_body,
         "frontmatter": frontmatter,
         "content_hash": content_hash,
-        "source_path": str(path),
+        "source_path": source_path,
     }
 
 
