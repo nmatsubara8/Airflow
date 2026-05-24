@@ -33,6 +33,7 @@ from ..common.thresholds import (
     KNN_COLD_START_MIN_SAMPLES,
     KNN_CONFIDENCE_SCALE,
 )
+from ..scheduler.affinity import compute_swap_cost
 
 logger = logging.getLogger(__name__)
 
@@ -82,8 +83,15 @@ def knn_recommend(
     history: list[dict[str, Any]],
     available_model_ids: list[str],
     knn_config: dict[str, Any],
+    *,
+    loaded_model_ids: list[str] | None = None,
+    free_vram_gb: float = 0.0,
+    registry: dict[str, dict] | None = None,
 ) -> list[dict[str, Any]]:
     """KNN で推奨モデルリストを返す（DDD-06 §4.3）。
+
+    loaded_model_ids / free_vram_gb / registry を渡すと swap_cost_ms を
+    compute_swap_cost() で正確に計算する。省略時は 0。
 
     Returns:
         List of {"model_id", "score", "confidence", "sample_count", "reason"}
@@ -124,11 +132,16 @@ def knn_recommend(
             continue
         mean_score = sum(scores) / len(scores)
         confidence = min(1.0, len(scores) / KNN_CONFIDENCE_SCALE)
+        swap_ms = (
+            compute_swap_cost(model_id, loaded_model_ids or [], free_vram_gb, registry)
+            if registry is not None
+            else 0
+        )
         recommendations.append({
             "model_id": model_id,
             "score": round(mean_score, 4),
-            "expected_accuracy": round(mean_score, 4),  # Phase 3: 精度推定として score を使用
-            "swap_cost_ms": 0,  # Phase 3: 並列化前は常に 0（DDD-07 で実装）
+            "expected_accuracy": round(mean_score, 4),
+            "swap_cost_ms": round(swap_ms),
             "confidence": round(confidence, 4),
             "sample_count": len(scores),
             "reason": f"過去 {len(scores)} 件の類似タスクで平均スコア {mean_score:.2f}",
@@ -166,8 +179,13 @@ def select_model(
     model_config: dict[str, Any],
     registry: dict[str, dict],
     history: list[dict[str, Any]],
+    *,
+    loaded_model_ids: list[str] | None = None,
+    free_vram_gb: float = 0.0,
 ) -> tuple[str, str | None]:
     """タスクに対して最適モデルを選択する（DDD-06 §4〜6 を統合）。
+
+    loaded_model_ids / free_vram_gb を渡すと swap_cost_ms が正確に計算される。
 
     Returns:
         (model_id, exploration_type)
@@ -187,7 +205,12 @@ def select_model(
     ]
 
     # KNN 推奨
-    recommendations = knn_recommend(features, history, available, knn_config)
+    recommendations = knn_recommend(
+        features, history, available, knn_config,
+        loaded_model_ids=loaded_model_ids,
+        free_vram_gb=free_vram_gb,
+        registry=registry,
+    )
     total_samples = sum(r["sample_count"] for r in recommendations)
 
     # コールドスタート（サンプル不足）

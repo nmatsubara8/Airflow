@@ -37,6 +37,7 @@ from ..common.thresholds import (
 )
 from ..orchestrator.execution_log import append_execution_log, load_history, update_feedback
 from ..orchestrator.recommender import _cold_start_model, knn_recommend
+from ..scheduler.affinity import compute_swap_cost
 
 server = Server("models-mcp")
 
@@ -248,16 +249,28 @@ async def _model_recommend(args: dict[str, Any], token: str | None) -> list[type
     mode = args.get("mode", "recommend")
     candidates = args.get("candidate_models") or list(_models.keys())
 
+    # GPU 状態取得（gpu/server._gpu から遅延参照）
+    try:
+        from ..gpu import server as _gpu_server  # noqa: PLC0415
+        _gpu = _gpu_server._gpu
+        loaded_ids: list[str] = _gpu.loaded_model_ids if _gpu else []
+        free_vram: float = _gpu.free_vram_gb if _gpu else 0.0
+    except Exception:
+        loaded_ids = []
+        free_vram = 0.0
+
+    def _swap_ms(model_id: str) -> int:
+        return round(compute_swap_cost(model_id, loaded_ids, free_vram, _models))
+
     # manual モード: 候補の先頭を返す（DDD-06 §4.1）
     if mode == "manual":
         selected = candidates[0] if candidates else DEFAULT_MODEL_ID
-        model = _models.get(selected, {})
         return mcp_result({
             "recommendations": [{
                 "model_id": selected,
                 "score": 1.0,
                 "expected_accuracy": 1.0,
-                "swap_cost_ms": model.get("avg_load_time_ms", 10000),
+                "swap_cost_ms": _swap_ms(selected),
                 "confidence": 1.0,
                 "reason": "手動指定（manual モード）",
             }],
@@ -268,7 +281,12 @@ async def _model_recommend(args: dict[str, Any], token: str | None) -> list[type
     history = load_history()
     knn_config: dict[str, Any] = {}
     available = [c for c in candidates if c in _models]
-    recommendations = knn_recommend(features, history, available, knn_config)
+    recommendations = knn_recommend(
+        features, history, available, knn_config,
+        loaded_model_ids=loaded_ids,
+        free_vram_gb=free_vram,
+        registry=_models,
+    )
     total_samples = sum(r["sample_count"] for r in recommendations)
 
     # コールドスタート（サンプル不足）
@@ -276,13 +294,12 @@ async def _model_recommend(args: dict[str, Any], token: str | None) -> list[type
         selected = _cold_start_model(features, _models, {})
         if selected not in available:
             selected = available[0] if available else (candidates[0] if candidates else DEFAULT_MODEL_ID)
-        model = _models.get(selected, {})
         return mcp_result({
             "recommendations": [{
                 "model_id": selected,
                 "score": 0.5,
                 "expected_accuracy": 0.5,
-                "swap_cost_ms": model.get("avg_load_time_ms", 10000),
+                "swap_cost_ms": _swap_ms(selected),
                 "confidence": 0.0,
                 "reason": "コールドスタート（履歴不足）",
             }],
@@ -294,22 +311,17 @@ async def _model_recommend(args: dict[str, Any], token: str | None) -> list[type
         others = [m for m in available if m != recommendations[0]["model_id"]]
         if others:
             selected = random.choice(others)
-            model = _models.get(selected, {})
             return mcp_result({
                 "recommendations": [{
                     "model_id": selected,
                     "score": recommendations[0]["score"],
                     "expected_accuracy": recommendations[0]["expected_accuracy"],
-                    "swap_cost_ms": model.get("avg_load_time_ms", 10000),
+                    "swap_cost_ms": _swap_ms(selected),
                     "confidence": 0.0,
                     "reason": f"ε-greedy 探索（ε={EPSILON_GREEDY_RATE}）",
                 }],
                 "sample_count": total_samples,
             })
-
-    # 推奨リストに swap_cost を追加して返す
-    for r in recommendations:
-        r["swap_cost_ms"] = _models.get(r["model_id"], {}).get("avg_load_time_ms", 10000)
 
     return mcp_result({
         "recommendations": recommendations,

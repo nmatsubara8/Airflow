@@ -321,6 +321,67 @@ def test_infer_features_required_accuracy_from_section_legal():
     assert result["required_accuracy"] == "high"
 
 
+# ── knn_recommend: swap_cost_ms ─────────────────────────────
+
+_REGISTRY_WITH_VRAM = {
+    "model_qwen25_14b_q4": {"vram_gb": 9.0, "avg_load_time_ms": 20_000, "preferred_tasks": ["summarize"]},
+    "model_qwen25_32b_q3": {"vram_gb": 14.0, "avg_load_time_ms": 40_000, "preferred_tasks": ["review"]},
+}
+
+
+def test_knn_recommend_swap_cost_zero_when_model_loaded():
+    """ロード済みモデルは swap_cost_ms=0 で返る。"""
+    history = _make_history("model_qwen25_14b_q4", "summarize", 5, 0.8)
+    recs = knn_recommend(
+        {"task_type": "summarize"}, history,
+        list(_REGISTRY_WITH_VRAM.keys()), KNN_CFG,
+        loaded_model_ids=["model_qwen25_14b_q4"],
+        free_vram_gb=6.0,
+        registry=_REGISTRY_WITH_VRAM,
+    )
+    rec = next(r for r in recs if r["model_id"] == "model_qwen25_14b_q4")
+    assert rec["swap_cost_ms"] == 0
+
+
+def test_knn_recommend_swap_cost_nonzero_when_model_not_loaded():
+    """未ロードモデルは avg_load_time_ms 相当のコストが返る。"""
+    history = _make_history("model_qwen25_14b_q4", "summarize", 5, 0.8)
+    recs = knn_recommend(
+        {"task_type": "summarize"}, history,
+        list(_REGISTRY_WITH_VRAM.keys()), KNN_CFG,
+        loaded_model_ids=[],
+        free_vram_gb=15.0,
+        registry=_REGISTRY_WITH_VRAM,
+    )
+    rec = next(r for r in recs if r["model_id"] == "model_qwen25_14b_q4")
+    assert rec["swap_cost_ms"] > 0
+
+
+def test_knn_recommend_swap_cost_defaults_to_zero_without_registry():
+    """registry を渡さない場合は後方互換で swap_cost_ms=0。"""
+    history = _make_history("model_qwen25_14b_q4", "summarize", 5, 0.8)
+    recs = knn_recommend(
+        {"task_type": "summarize"}, history,
+        list(REGISTRY.keys()), KNN_CFG,
+    )
+    for r in recs:
+        assert r["swap_cost_ms"] == 0
+
+
+def test_select_model_passes_gpu_state_to_knn():
+    """loaded_model_ids を渡すと推奨結果の swap_cost_ms に反映される。"""
+    history = _make_history("model_qwen25_14b_q4", "summarize", 10, 0.8)
+    model_id, _ = select_model(
+        {"features": {"task_type": "summarize"}},
+        MODEL_CONFIG,
+        _REGISTRY_WITH_VRAM,
+        history,
+        loaded_model_ids=["model_qwen25_14b_q4"],
+        free_vram_gb=6.0,
+    )
+    assert model_id == "model_qwen25_14b_q4"
+
+
 def test_infer_features_latency_from_urgent_tag():
     task = {"tags": ["urgent"], "features": {}}
     result = infer_features(task)
