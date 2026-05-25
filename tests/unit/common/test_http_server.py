@@ -91,3 +91,71 @@ def test_query_string_passed_to_handle_get():
         assert received.get("x") == ["1"]
     finally:
         httpd.shutdown()
+
+
+# ── HTTP Bearer 認証 ──────────────────────────────────────
+
+def test_auth_token_required_returns_401_without_header(monkeypatch):
+    """AIRFLOW_HTTP_AUTH_TOKEN 設定時、Authorization ヘッダーなしで 401 が返ること。"""
+    monkeypatch.setenv("AIRFLOW_HTTP_AUTH_TOKEN", "secret123")
+    # モジュール側キャッシュをリセット（環境変数参照は動的なので不要だが念のため）
+    port = _free_port()
+    httpd = start_server(_EchoHandler, port, "test-auth")
+    try:
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/hello", timeout=5)
+            assert False, "Expected 401"
+        except urllib.error.HTTPError as e:
+            assert e.code == 401
+    finally:
+        httpd.shutdown()
+    monkeypatch.delenv("AIRFLOW_HTTP_AUTH_TOKEN", raising=False)
+
+
+def test_auth_token_correct_returns_200(monkeypatch):
+    """正しい Bearer トークンで 200 が返ること。"""
+    monkeypatch.setenv("AIRFLOW_HTTP_AUTH_TOKEN", "secret123")
+    port = _free_port()
+    httpd = start_server(_EchoHandler, port, "test-auth-ok")
+    try:
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/hello",
+            headers={"Authorization": "Bearer secret123"},
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            assert resp.status == 200
+    finally:
+        httpd.shutdown()
+    monkeypatch.delenv("AIRFLOW_HTTP_AUTH_TOKEN", raising=False)
+
+
+def test_auth_token_wrong_returns_401(monkeypatch):
+    """誤った Bearer トークンで 401 が返ること。"""
+    monkeypatch.setenv("AIRFLOW_HTTP_AUTH_TOKEN", "secret123")
+    port = _free_port()
+    httpd = start_server(_EchoHandler, port, "test-auth-bad")
+    try:
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/hello",
+            headers={"Authorization": "Bearer wrongtoken"},
+        )
+        try:
+            urllib.request.urlopen(req, timeout=5)
+            assert False, "Expected 401"
+        except urllib.error.HTTPError as e:
+            assert e.code == 401
+    finally:
+        httpd.shutdown()
+    monkeypatch.delenv("AIRFLOW_HTTP_AUTH_TOKEN", raising=False)
+
+
+def test_auth_token_empty_env_skips_auth(monkeypatch):
+    """AIRFLOW_HTTP_AUTH_TOKEN が空文字のとき認証スキップで 200 が返ること。"""
+    monkeypatch.setenv("AIRFLOW_HTTP_AUTH_TOKEN", "")
+    port = _free_port()
+    httpd = start_server(_EchoHandler, port, "test-auth-empty")
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/hello", timeout=5) as resp:
+            assert resp.status == 200
+    finally:
+        httpd.shutdown()

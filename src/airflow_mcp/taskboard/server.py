@@ -18,7 +18,7 @@ from ..common.audit import now_iso, record_audit
 from ..common.auth import require_scope
 from ..common.errors import TaskNotFound
 from ..common.mcp import dispatch, mcp_result, require_args, run_stdio_server
-from ..orchestrator.handoff_chain import load_chains, spawn_handoff_tasks
+from ..orchestrator.handoff_chain import load_chains, route_to_next_agent, spawn_handoff_tasks
 from .store import TaskStore
 
 _ALL_STATUSES = ["inbox", "in_progress", "done", "needs_human", "blocked", "cancelled"]
@@ -192,6 +192,19 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["task_id"],
                 "properties": {
                     "task_id": {"type": "string"},
+                    "_meta": {"type": "object"},
+                },
+            },
+        ),
+        types.Tool(
+            name="tasks.route_next_agent",
+            description="sequential chain に従い in_progress タスクを次エージェントへルーティングする",
+            inputSchema={
+                "type": "object",
+                "required": ["task_id", "current_agent_id"],
+                "properties": {
+                    "task_id": {"type": "string"},
+                    "current_agent_id": {"type": "string"},
                     "_meta": {"type": "object"},
                 },
             },
@@ -444,6 +457,18 @@ async def _tasks_spawn_handoff(args: dict[str, Any], token: str | None) -> list[
     return mcp_result({"spawned": created_ids, "count": len(created_ids)})
 
 
+async def _tasks_route_next_agent(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
+    require_scope(token, "tasks:write")
+    require_args(args, "task_id", "current_agent_id")
+    store = _get_store()
+    task = store.get(args["task_id"])  # raises TaskNotFound
+    chains = load_chains()
+    next_agent = route_to_next_agent(task, args["current_agent_id"], store, chains)
+    if next_agent is None:
+        return mcp_result({"routed": False, "next_agent": None})
+    return mcp_result({"routed": True, "next_agent": next_agent})
+
+
 # ── ツール実装 ────────────────────────────────────────────
 _HANDLERS = {
     "tasks.list": _tasks_list,
@@ -456,6 +481,7 @@ _HANDLERS = {
     "tasks.assign": _tasks_assign,
     "tasks.join": _tasks_join,
     "tasks.spawn_handoff": _tasks_spawn_handoff,
+    "tasks.route_next_agent": _tasks_route_next_agent,
     "audit.trace": _audit_trace,
     "audit.query": _audit_query,
 }

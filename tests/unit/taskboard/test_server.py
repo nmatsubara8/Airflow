@@ -408,3 +408,68 @@ async def test_run_starts_stdio_server(fake_stdio_ctx):
         await srv_mod.run()
 
     mock_server_run.assert_awaited_once()
+
+
+# ── tasks.route_next_agent ────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_tasks_route_next_agent_routes_successfully(isolated_store, tmp_path):
+    """sequential chain に従い次エージェントへルーティングされること。
+
+    route_to_next_agent は record_chain_step 後（chain に step0 が追加済み）に
+    呼ばれる前提なので、chain に agent_writer の完了ステップを事前に追加する。
+    """
+    from unittest.mock import patch
+    task = _make_task(isolated_store, section="content")
+    isolated_store.claim(task["id"], "agent_writer")
+    # record_chain_step 相当: agent_writer の完了ステップを追加
+    isolated_store.update(task["id"], isolated_store.get(task["id"])["lock"]["version"], {
+        "chain": [{"agent_id": "agent_writer", "completed_at": "2026-01-01T00:00:00Z", "result_ref": None}],
+    })
+    chains = [{
+        "name": "review_chain",
+        "mode": "sequential",
+        "trigger": {"section": "content"},
+        "agents": [{"id": "agent_writer"}, {"id": "agent_reviewer"}],
+    }]
+    with patch("airflow_mcp.taskboard.server.load_chains", return_value=chains):
+        result = await _call("tasks.route_next_agent", {
+            "task_id": task["id"],
+            "current_agent_id": "agent_writer",
+        })
+    assert result["routed"] is True
+    assert result["next_agent"] == "agent_reviewer"
+    refreshed = isolated_store.get(task["id"])
+    assert refreshed["owner"] == "agent_reviewer"
+
+
+@pytest.mark.asyncio
+async def test_tasks_route_next_agent_returns_false_at_chain_end(isolated_store):
+    """チェーン末端（次エージェントなし）のとき routed=False が返ること。"""
+    from unittest.mock import patch
+    task = _make_task(isolated_store, section="content")
+    isolated_store.claim(task["id"], "agent_reviewer")
+    isolated_store.update(task["id"], isolated_store.get(task["id"])["lock"]["version"], {
+        "chain": [{"agent_id": "agent_writer", "completed_at": "2026-01-01T00:00:00Z", "result_ref": None}],
+    })
+    chains = [{
+        "name": "review_chain",
+        "mode": "sequential",
+        "trigger": {"section": "content"},
+        "agents": [{"id": "agent_writer"}, {"id": "agent_reviewer"}],
+    }]
+    with patch("airflow_mcp.taskboard.server.load_chains", return_value=chains):
+        result = await _call("tasks.route_next_agent", {
+            "task_id": task["id"],
+            "current_agent_id": "agent_reviewer",
+        })
+    assert result["routed"] is False
+    assert result["next_agent"] is None
+
+
+@pytest.mark.asyncio
+async def test_tasks_route_next_agent_missing_args_returns_error(isolated_store):
+    """必須引数 current_agent_id 欠損でエラーが返ること。"""
+    task = _make_task(isolated_store)
+    result = await _call("tasks.route_next_agent", {"task_id": task["id"]})
+    assert "error" in result
