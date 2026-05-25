@@ -191,3 +191,21 @@ def test_cli_entry_point(tmp_path, monkeypatch):
         _cli()
 
     assert "store" in call_args
+
+
+# ── 追加テスト: YAML non-dict ガード ──────────────────
+
+def test_load_config_non_dict_yaml_returns_empty(tmp_path):
+    """dispatch.yaml が list などの非dict を返した場合 {} を返すこと。"""
+    cfg_file = tmp_path / "dispatch.yaml"
+    cfg_file.write_text("- item1\n- item2\n")
+    result = load_config(str(cfg_file))
+    assert result == {}
+
+
+def test_load_config_empty_yaml_returns_empty(tmp_path):
+    """dispatch.yaml が空ファイルの場合 {} を返すこと。"""
+    cfg_file = tmp_path / "dispatch.yaml"
+    cfg_file.write_text("")
+    result = load_config(str(cfg_file))
+    assert result == {}

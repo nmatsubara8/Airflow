@@ -48,7 +48,9 @@ _TEMPLATES = {
 
 def _load_config() -> dict[str, Any]:
     if _CONFIG_PATH.exists():
-        cfg = yaml.safe_load(_CONFIG_PATH.read_text())
+        cfg = yaml.safe_load(_CONFIG_PATH.read_text()) or {}
+        if not isinstance(cfg, dict):
+            return {}
         return cfg.get("notifications", {})
     return {}
 

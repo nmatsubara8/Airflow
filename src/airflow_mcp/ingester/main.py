@@ -29,7 +29,11 @@ _notes_index_path: Path = Path(".airflow/notes/index.json")
 def load_config(config_path: str = ".airflow/config/ingester.yaml") -> dict[str, Any]:
     p = Path(config_path)
     if p.exists():
-        return yaml.safe_load(p.read_text()) or {}
+        cfg = yaml.safe_load(p.read_text()) or {}
+        if not isinstance(cfg, dict):
+            logger.warning("ingester config is not a dict, using defaults")
+            return {}
+        return cfg
     return {}
 
 

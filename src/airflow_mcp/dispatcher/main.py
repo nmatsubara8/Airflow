@@ -30,7 +30,11 @@ _MVP_AGENT_MAP: dict[str, str] = {
 def load_config(config_path: str = ".airflow/config/dispatch.yaml") -> dict[str, Any]:
     p = Path(config_path)
     if p.exists():
-        return yaml.safe_load(p.read_text()) or {}
+        cfg = yaml.safe_load(p.read_text()) or {}
+        if not isinstance(cfg, dict):
+            logger.warning("dispatch config is not a dict, using defaults")
+            return {}
+        return cfg
     return {}
 
 

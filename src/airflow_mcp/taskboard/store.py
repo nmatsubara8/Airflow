@@ -150,7 +150,11 @@ class TaskStore:
         path = self._find_task_path(task_id)
         if path is None:
             raise TaskNotFound(task_id)
-        return json.loads(path.read_text())
+        try:
+            return json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("get: failed to read task %s: %s", task_id, exc)
+            raise TaskNotFound(task_id) from exc
 
     def list_by_status(self, status: str, limit: int = 200) -> list[dict[str, Any]]:
         if status == "done":

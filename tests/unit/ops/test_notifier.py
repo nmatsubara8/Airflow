@@ -155,3 +155,33 @@ def test_send_notification_slack_with_explicit_channel(monkeypatch):
             "name": "n", "success": 1, "total": 1, "duration_s": 1.0,
         }, channel="#override")
     assert captured["channel"] == "#override"
+
+
+# ── 追加テスト: _load_config YAML non-dict ガード ─────
+# _real_load_config を使って autouse patch を回避する
+
+def test_load_config_non_dict_yaml_returns_empty(tmp_path, monkeypatch):
+    """YAML が list などの非dict を返した場合 {} を返すこと。"""
+    cfg = tmp_path / "ops.yaml"
+    cfg.write_text("- item1\n- item2\n")
+    monkeypatch.setattr(_notifier_mod, "_CONFIG_PATH", cfg)
+    result = _real_load_config()
+    assert result == {}
+
+
+def test_load_config_empty_file_returns_empty(tmp_path, monkeypatch):
+    """YAML が空ファイルの場合 {} を返すこと。"""
+    cfg = tmp_path / "ops.yaml"
+    cfg.write_text("")
+    monkeypatch.setattr(_notifier_mod, "_CONFIG_PATH", cfg)
+    result = _real_load_config()
+    assert result == {}
+
+
+def test_load_config_comment_only_yaml_returns_empty(tmp_path, monkeypatch):
+    """yaml.safe_load が None を返すコメントのみの YAML でも {} を返すこと。"""
+    cfg = tmp_path / "ops.yaml"
+    cfg.write_text("# comment only\n")
+    monkeypatch.setattr(_notifier_mod, "_CONFIG_PATH", cfg)
+    result = _real_load_config()
+    assert result == {}

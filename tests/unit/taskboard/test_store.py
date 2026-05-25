@@ -405,3 +405,39 @@ def test_quarantine_moves_file_with_shutil(task_store: TaskStore, sample_task_fi
     corrupt_dir = task_store.base / "_corrupt"
     moved_files = list(corrupt_dir.glob(f"{task_id}.json"))
     assert len(moved_files) == 1
+
+
+# ── 追加テスト: store.get() TOCTOU 保護 ───────────────
+
+def test_get_raises_task_not_found_on_file_deleted_after_find(
+    task_store: TaskStore, sample_task_fields: dict
+):
+    """_find_task_path() 後にファイルが削除された場合 TaskNotFound が発生すること（TOCTOU）。"""
+    from unittest.mock import patch
+    from airflow_mcp.common.errors import TaskNotFound
+    task = task_store.create(sample_task_fields)
+    task_id = task["id"]
+
+    def fake_read_text(*args, **kwargs):
+        raise OSError("simulated file deleted")
+
+    with patch("pathlib.Path.read_text", side_effect=fake_read_text):
+        with pytest.raises(TaskNotFound):
+            task_store.get(task_id)
+
+
+def test_get_raises_task_not_found_on_corrupt_json(
+    task_store: TaskStore, sample_task_fields: dict, tmp_path
+):
+    """タスクファイルが破損 JSON の場合 TaskNotFound が発生すること。"""
+    from airflow_mcp.common.errors import TaskNotFound
+    task = task_store.create(sample_task_fields)
+    task_id = task["id"]
+
+    # ファイルを直接破損させる
+    path = task_store._find_task_path(task_id)
+    assert path is not None
+    path.write_text("{ this is not valid json }")
+
+    with pytest.raises(TaskNotFound):
+        task_store.get(task_id)

@@ -431,3 +431,23 @@ def test_write_processed_at_suppresses_os_error(tmp_path):
     md.write_text("---\ntitle: T\n---\n本文")
     with patch.object(md.__class__, "write_text", side_effect=OSError("disk full")):
         _write_processed_at(md, "2026-05-23T00:00:00Z")  # must not raise
+
+
+# ── 追加テスト: YAML non-dict ガード ──────────────────
+
+def test_load_config_non_dict_yaml_returns_empty(tmp_path):
+    """ingester.yaml が list などの非dict を返した場合 {} を返すこと。"""
+    from airflow_mcp.ingester.main import load_config
+    cfg_file = tmp_path / "ingester.yaml"
+    cfg_file.write_text("- watch\n- paths\n")
+    result = load_config(str(cfg_file))
+    assert result == {}
+
+
+def test_load_config_empty_yaml_returns_empty(tmp_path):
+    """ingester.yaml が空ファイルの場合 {} を返すこと。"""
+    from airflow_mcp.ingester.main import load_config
+    cfg_file = tmp_path / "ingester.yaml"
+    cfg_file.write_text("")
+    result = load_config(str(cfg_file))
+    assert result == {}
