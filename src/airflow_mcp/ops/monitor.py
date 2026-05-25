@@ -139,16 +139,16 @@ def _format_dashboard(
         active = cnts.get("active", 0)
         total = cnts.get("total", 0)
         line = f"║    §{sec}: {active} active / {total} total"
-        lines.append(f"{line:<{w + 2}}║")
+        lines.append(f"{line[:w + 2]:<{w + 2}}║")
 
     lines.append(f"╠{sep}╣")
     lines.append(f"║  Recent Events{' ' * 51}║")
 
     for ev in recent[:5]:
-        ts = ev.get("timestamp", "")[-8:-1] if ev.get("timestamp") else "?"
+        ts = (ev.get("timestamp", "") or "")[-8:-1] or "?"
         etype = ev.get("event_type", ev.get("event", "?"))[:30]
         line = f"║    {ts}  {etype}"
-        lines.append(f"{line:<{w + 2}}║")
+        lines.append(f"{line[:w + 2]:<{w + 2}}║")
 
     if needs_human > 0:
         lines.append(f"╠{sep}╣")

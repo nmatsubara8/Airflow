@@ -103,6 +103,9 @@ def append_execution_log(
     return record
 
 
+_VALID_FEEDBACK = frozenset({"accepted", "modified", "rejected"})
+
+
 def update_feedback(
     task_id: str,
     human_feedback: str,
@@ -113,6 +116,13 @@ def update_feedback(
     JSONL ファイルをインプレース書き換えし、更新済みレコードを返す。
     対応レコードが見つからない場合は None を返す。
     """
+    if human_feedback not in _VALID_FEEDBACK:
+        logger.warning(
+            "update_feedback: invalid human_feedback %r (must be one of %s), skipping",
+            human_feedback, sorted(_VALID_FEEDBACK),
+        )
+        return None
+
     base = Path(log_dir)
     if not base.exists():
         return None

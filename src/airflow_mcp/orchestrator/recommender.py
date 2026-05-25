@@ -64,6 +64,10 @@ def encode_features(features: dict[str, Any]) -> list[float]:
 
 def weighted_distance(v1: list[float], v2: list[float], weights: list[float]) -> float:
     """重み付きユークリッド距離（DDD-06 §4.2）。"""
+    if len(v1) != len(v2) or len(v1) != len(weights):
+        raise ValueError(
+            f"weighted_distance: vector length mismatch v1={len(v1)} v2={len(v2)} weights={len(weights)}"
+        )
     return math.sqrt(sum(w * (a - b) ** 2 for w, a, b in zip(weights, v1, v2)))
 
 
