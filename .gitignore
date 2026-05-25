@@ -2,6 +2,9 @@ __pycache__/
 *.pyc
 *.egg-info/
 
+# 環境変数ファイル（シークレット含む）
+.env
+
 # ランタイム生成データ（Git 管理不要）
 .airflow/execution_logs/
 .airflow/tasks/
