@@ -225,3 +225,17 @@ def test_dispatch_once_handles_task_already_claimed(task_store, sample_task_fiel
     monkeypatch.setattr(dm, "select_agent", raise_already_claimed)
     n = dispatch_once(task_store, {})
     assert n == 0
+
+
+def test_dispatch_once_handles_task_lock_conflict(task_store, sample_task_fields, monkeypatch):
+    """TaskLockConflict が飛んでも warning ログが出て正常終了すること（line 104）。"""
+    from airflow_mcp.common.errors import TaskLockConflict
+    import airflow_mcp.dispatcher.main as dm
+    task_store.create(sample_task_fields)
+
+    def raise_lock_conflict(*a, **kw):
+        raise TaskLockConflict("t1", 1)
+
+    monkeypatch.setattr(dm, "select_agent", raise_lock_conflict)
+    n = dispatch_once(task_store, {})
+    assert n == 0
