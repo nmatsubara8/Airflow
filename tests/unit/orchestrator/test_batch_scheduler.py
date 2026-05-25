@@ -370,3 +370,26 @@ def test_run_loop_handles_exception(monkeypatch):
     with pytest.raises(SystemExit):
         run_loop(poll_interval_s=0.001)
     assert call_count == 2
+
+
+# ── _load_schedules 追加分岐 ──────────────────────────
+
+def test_load_schedules_non_dict_yaml_returns_empty(tmp_path, monkeypatch):
+    """schedules.yaml が list など非 dict の場合は空リストを返すこと（lines 30-32）。"""
+    import airflow_mcp.orchestrator.batch_scheduler as mod
+    schedules_file = tmp_path / "schedules.yaml"
+    schedules_file.write_text("- item1\n- item2\n")
+    monkeypatch.setattr(mod, "_SCHEDULES_PATH", schedules_file)
+    from airflow_mcp.orchestrator.batch_scheduler import _load_schedules
+    assert _load_schedules() == []
+
+
+def test_load_schedules_schedules_not_list_returns_empty(tmp_path, monkeypatch):
+    """schedules キーが list でも dict でもない場合は空リストを返すこと（lines 37-39）。"""
+    import yaml
+    import airflow_mcp.orchestrator.batch_scheduler as mod
+    schedules_file = tmp_path / "schedules.yaml"
+    schedules_file.write_text(yaml.dump({"schedules": 42}))
+    monkeypatch.setattr(mod, "_SCHEDULES_PATH", schedules_file)
+    from airflow_mcp.orchestrator.batch_scheduler import _load_schedules
+    assert _load_schedules() == []

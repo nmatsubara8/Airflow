@@ -334,3 +334,62 @@ def test_load_history_reads_normal_sized_file(tmp_path: Path):
     normal.write_text('{"task_id": "task_ok", "id": "log_abc123"}\n')
     history = load_history(log_dir=log_dir)
     assert any(r.get("task_id") == "task_ok" for r in history)
+
+
+# ── 追加カバレッジ ────────────────────────────────────
+
+def test_append_execution_log_oserror_reraises(log_dir: Path, monkeypatch):
+    """ファイル書き込み時に OSError が発生したら再送出すること（lines 100-102）。"""
+    from unittest.mock import patch
+    import builtins
+    _real_open = builtins.open
+
+    def _patched_open(path, mode="r", *a, **kw):
+        if "a" in mode and str(path).endswith(".jsonl"):
+            raise OSError("disk full")
+        return _real_open(path, mode, *a, **kw)
+
+    log_dir.mkdir(parents=True, exist_ok=True)
+    with patch("builtins.open", side_effect=_patched_open):
+        with pytest.raises(OSError, match="disk full"):
+            _append(log_dir)
+
+
+def test_update_feedback_invalid_value_returns_none(log_dir: Path):
+    """不正な human_feedback 値のとき None を返すこと（lines 121-125）。"""
+    _append(log_dir)
+    result = update_feedback("task_001", "bad_value", log_dir=log_dir)
+    assert result is None
+
+
+def test_update_feedback_skips_oversized_file_in_update(log_dir: Path, caplog):
+    """update_feedback でも oversized ファイルをスキップすること（lines 136-137）。"""
+    import logging
+    from unittest.mock import patch
+    _append(log_dir)
+
+    # .jsonl ファイルのみ超大サイズに見せる（ディレクトリの stat は通す）
+    _real_stat = Path.stat
+
+    def _fake_stat(self, *a, **kw):
+        if self.suffix == ".jsonl":
+            class _FakeStat:
+                st_size = 100 * 1024 * 1024  # 100 MB
+                st_mode = _real_stat(self).st_mode
+            return _FakeStat()
+        return _real_stat(self, *a, **kw)
+
+    with patch.object(Path, "stat", _fake_stat):
+        with caplog.at_level(logging.WARNING, logger="airflow_mcp.orchestrator.execution_log"):
+            result = update_feedback("task_001", "accepted", log_dir=log_dir)
+    assert result is None
+    assert "skipping oversized" in caplog.text
+
+
+def test_update_feedback_atomic_write_oserror_reraises(log_dir: Path):
+    """アトミック書き込み中に OSError が出たとき再送出すること（lines 173-176）。"""
+    from unittest.mock import patch
+    _append(log_dir)
+    with patch.object(Path, "write_text", side_effect=OSError("no space")):
+        with pytest.raises(OSError, match="no space"):
+            update_feedback("task_001", "accepted", log_dir=log_dir)

@@ -155,3 +155,19 @@ def test_affinity_score_returns_neg_infinity_when_swap_cost_is_infinite():
             model_config={},
         )
     assert math.isinf(score) and score < 0
+
+
+def test_select_best_model_returns_none_when_compute_raises(monkeypatch):
+    """compute_affinity_score が例外を送出した場合 select_best_model が None を返すこと（lines 130-132）。"""
+    from unittest.mock import patch
+    task = {"features": {}}
+    with patch("airflow_mcp.scheduler.affinity.compute_affinity_score", side_effect=ValueError("bad")):
+        result = select_best_model(
+            task,
+            candidate_model_ids=["model_14b"],
+            loaded_model_ids=[],
+            free_vram_gb=15.0,
+            registry=_REGISTRY,
+            model_config={},
+        )
+    assert result is None

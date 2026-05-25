@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -156,3 +157,14 @@ def test_datetime_encoder_raises_for_unserializable_type(tmp_path):
     encoder = _DateTimeEncoder()
     with pytest.raises(TypeError):
         encoder.default(object())
+
+
+def test_save_index_oserror_reraises(tmp_path):
+    """save_index が OSError を送出し tmp ファイルを削除して再送出すること（lines 48-51）。"""
+    from unittest.mock import patch
+    from airflow_mcp.ingester.notes_index import save_index
+    idx = {"schema_version": "1.0.0", "notes": {}}
+    p = tmp_path / "index.json"
+    with patch.object(Path, "write_text", side_effect=OSError("no space")):
+        with pytest.raises(OSError, match="no space"):
+            save_index(idx, p)

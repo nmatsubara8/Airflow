@@ -1074,3 +1074,50 @@ async def test_model_execute_missing_content_key_returns_empty(monkeypatch):
             "messages": [{"role": "user", "content": "hello"}],
         })
     assert result["content"] == ""
+
+
+# ── _load_registry 追加分岐 ───────────────────────────
+
+def test_load_registry_non_dict_data_ignored(tmp_path, monkeypatch):
+    """registry.json が配列など非 dict の場合はモデルを登録しないこと（lines 64-66）。"""
+    reg = tmp_path / "registry.json"
+    reg.write_text(json.dumps([{"id": "model_x"}]))  # list, not dict
+    monkeypatch.setattr(models_mod, "_REGISTRY_PATH", reg)
+    models_mod._models.clear()
+    models_mod._load_registry()
+    assert len(models_mod._models) == 0
+
+
+def test_load_registry_skips_entry_without_id(tmp_path, monkeypatch):
+    """registry.json のエントリに 'id' がない場合スキップすること（lines 68-70）。"""
+    reg = tmp_path / "registry.json"
+    reg.write_text(json.dumps({"models": [{"name": "no_id_model", "vram_gb": 8.0}]}))
+    monkeypatch.setattr(models_mod, "_REGISTRY_PATH", reg)
+    models_mod._models.clear()
+    models_mod._load_registry()
+    assert len(models_mod._models) == 0
+
+
+@pytest.mark.asyncio
+async def test_model_execute_messages_not_list_returns_error():
+    """messages が list でない場合エラーレスポンスが返ること（line 366）。"""
+    _add_model("model_qwen25_14b_q4")
+    result = await _call("model.execute", {
+        "model_id": "model_qwen25_14b_q4",
+        "messages": "not a list",
+    })
+    assert "error" in result
+
+
+@pytest.mark.asyncio
+async def test_model_reload_registry_reloads(tmp_path, monkeypatch):
+    """model.reload_registry がモデルキャッシュをクリアして再ロードすること（lines 658-662）。"""
+    reg = tmp_path / "registry.json"
+    reg.write_text(json.dumps({"models": [
+        {"id": "model_reloaded", "ollama_tag": "reload:latest", "vram_gb": 8.0}
+    ]}))
+    monkeypatch.setattr(models_mod, "_REGISTRY_PATH", reg)
+    models_mod._models.clear()
+    result = await _call("model.reload_registry", {})
+    assert result["reloaded"] == 1
+    assert "model_reloaded" in models_mod._models

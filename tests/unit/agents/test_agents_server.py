@@ -289,3 +289,21 @@ def test_load_agents_registers_valid_frontmatter(tmp_path, monkeypatch):
     agents_mod._agents.clear()
     agents_mod._load_agents()
     assert "test_agent_001" in agents_mod._agents
+
+
+# ── agents.reload ─────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_agents_reload_clears_and_reloads(tmp_path, monkeypatch):
+    """agents.reload がキャッシュをクリアして再ロードすること（lines 189-192）。"""
+    skills_dir = tmp_path / "agents" / "reload_agent"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "skills.md").write_text(
+        "---\nagent_id: reload_agent_001\nname: Reload Agent\n---\n\n# Skills\n"
+    )
+    monkeypatch.setattr(agents_mod, "_AGENTS_DIR", tmp_path / "agents")
+    agents_mod._agents["stale_agent"] = {"agent_id": "stale_agent"}
+    result = await _call("agents.reload", {})
+    assert result["reloaded"] == 1
+    assert "stale_agent" not in agents_mod._agents
+    assert "reload_agent_001" in agents_mod._agents
