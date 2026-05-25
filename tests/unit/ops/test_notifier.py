@@ -296,3 +296,47 @@ def test_send_notification_does_not_email_non_email_events(monkeypatch):
     with patch("airflow_mcp.ops.notifier.send_email") as mock_email:
         send_notification("gpu_oom", {"model_id": "qwen14b", "free_vram_gb": 1.5})
     mock_email.assert_not_called()
+
+
+# ── smtp_test ─────────────────────────────────────────────
+
+def test_smtp_test_success(monkeypatch):
+    """SMTP 接続が成功したとき True を返すこと。"""
+    from unittest.mock import MagicMock, patch
+    smtp_mock = MagicMock()
+    smtp_mock.__enter__ = lambda s: s
+    smtp_mock.__exit__ = MagicMock(return_value=False)
+    from airflow_mcp.ops.notifier import smtp_test
+    email_cfg = {"smtp_host": "mail.example.com", "smtp_port": 587, "smtp_user": "u"}
+    with patch("airflow_mcp.ops.notifier.smtplib.SMTP", return_value=smtp_mock):
+        result = smtp_test(email_cfg)
+    assert result is True
+
+
+def test_smtp_test_failure_no_host():
+    """smtp_host が未設定のとき False を返すこと。"""
+    from airflow_mcp.ops.notifier import smtp_test
+    assert smtp_test({}) is False
+
+
+def test_smtp_test_exception(monkeypatch):
+    """SMTP 接続が SMTPException を投げたとき False を返すこと。"""
+    import smtplib
+    from unittest.mock import patch
+    from airflow_mcp.ops.notifier import smtp_test
+    email_cfg = {"smtp_host": "mail.example.com", "smtp_port": 587}
+    with patch("airflow_mcp.ops.notifier.smtplib.SMTP", side_effect=smtplib.SMTPException("conn fail")):
+        result = smtp_test(email_cfg)
+    assert result is False
+
+
+# ── notify_gpu_oom ────────────────────────────────────────
+
+def test_notify_gpu_oom_does_not_raise(monkeypatch):
+    """notify_gpu_oom が例外を投げず CLI 通知が行われること。"""
+    from airflow_mcp.ops.notifier import notify_gpu_oom
+    monkeypatch.setattr(
+        "airflow_mcp.ops.notifier._load_config",
+        lambda: {"channels": {"cli": {"enabled": True}, "slack": {"enabled": False}, "email": {"enabled": False}}},
+    )
+    notify_gpu_oom("qwen14b", 0.5)

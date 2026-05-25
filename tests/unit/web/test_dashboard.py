@@ -282,3 +282,53 @@ def test_dashboard_no_store_task_detail_returns_200():
             assert resp.status == 200
     finally:
         httpd.shutdown()
+
+
+# ── render_api_status ─────────────────────────────────────
+
+def test_render_api_status_returns_json_with_tasks_and_timestamp(store):
+    """render_api_status が tasks と timestamp キーを持つ JSON を返すこと。"""
+    import json as _json
+    from airflow_mcp.web.dashboard import render_api_status
+    raw = render_api_status(store)
+    data = _json.loads(raw)
+    assert "tasks" in data
+    assert "timestamp" in data
+    assert "inbox" in data["tasks"]
+
+
+def test_render_api_status_with_none_store():
+    """store=None のとき tasks が空 dict であること。"""
+    import json as _json
+    from airflow_mcp.web.dashboard import render_api_status
+    data = _json.loads(render_api_status(None))
+    assert data["tasks"] == {}
+
+
+def test_dashboard_api_status_http_returns_200(store):
+    """HTTP GET /api/status → 200 + JSON body。"""
+    import json as _json
+    port = _free_port()
+    httpd = start_dashboard(store=store, port=port)
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/status", timeout=5) as resp:
+            assert resp.status == 200
+            data = _json.loads(resp.read().decode())
+            assert "tasks" in data
+    finally:
+        httpd.shutdown()
+
+
+# ── render_task_detail join display ───────────────────────
+
+def test_render_task_detail_shows_join_info(store):
+    """join フィールドがあるタスクの詳細 HTML に Fan-in Join セクションが含まれること。"""
+    t = store.create({"title": "親タスク", "section": "content", "tags": [], "priority": 5, "owner": None})
+    store.claim(t["id"], "agent_a")
+    child_id = "task_" + "c" * 16
+    store.update(t["id"], store.get(t["id"])["lock"]["version"], {
+        "join": {"parent_id": t["id"], "child_ids": [child_id], "policy": "all"},
+    })
+    html = render_task_detail(store, t["id"])
+    assert "Fan-in Join" in html
+    assert child_id[:16] in html

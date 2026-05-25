@@ -453,3 +453,38 @@ def test_quarantine_oserror_on_move_is_logged(task_store: TaskStore, sample_task
         with caplog.at_level(logging.ERROR, logger="airflow_mcp.taskboard.store"):
             task_store.quarantine(task_id, reason="test-error")
     assert "quarantine" in caplog.text
+
+
+# ── reassign_in_progress ──────────────────────────────────
+
+def test_reassign_in_progress_success(task_store: TaskStore, sample_task_fields: dict):
+    """in_progress タスクのオーナー変更が成功し version+1 されること。"""
+    t = task_store.create(sample_task_fields)
+    task_store.claim(t["id"], "agent_a")
+    v0 = task_store.get(t["id"])["lock"]["version"]
+    result = task_store.reassign_in_progress(t["id"], "agent_b", reason="chain:test:step1")
+    assert result["owner"] == "agent_b"
+    assert result["lock"]["version"] == v0 + 1
+    assert "chain_reason" in result
+    assert result["chain_reason"] == ["chain:test:step1"]
+
+
+def test_reassign_in_progress_no_reason(task_store: TaskStore, sample_task_fields: dict):
+    """reason=None のとき chain_reason フィールドが追加されないこと。"""
+    t = task_store.create(sample_task_fields)
+    task_store.claim(t["id"], "agent_a")
+    result = task_store.reassign_in_progress(t["id"], "agent_b")
+    assert "chain_reason" not in result
+
+
+def test_reassign_in_progress_task_not_found(task_store: TaskStore):
+    """存在しない task_id で TaskNotFound が上がること。"""
+    with pytest.raises(TaskNotFound):
+        task_store.reassign_in_progress("task_" + "x" * 16, "agent_b")
+
+
+def test_reassign_in_progress_invalid_status(task_store: TaskStore, sample_task_fields: dict):
+    """status が in_progress でないタスクで TaskInvalidTransition が上がること。"""
+    t = task_store.create(sample_task_fields)
+    with pytest.raises(TaskInvalidTransition):
+        task_store.reassign_in_progress(t["id"], "agent_b")

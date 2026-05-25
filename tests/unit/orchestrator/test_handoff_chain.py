@@ -435,8 +435,6 @@ def _sequential_chains(agents=None):
 
 def test_route_to_next_agent_returns_next(tmp_path):
     """step 0 完了後に step 1 エージェントにルーティングされること。"""
-    import airflow_mcp.orchestrator.handoff_chain as hc_mod
-    from airflow_mcp.common.audit import new_audit_id
     store, task = _make_store_with_task(tmp_path)
     # chain に step 0 完了を記録
     store.update(task["id"], task["lock"]["version"],
@@ -549,3 +547,15 @@ def test_spawn_with_join_tracking_fanout_registers_join(tmp_path):
     assert "join" in refreshed
     assert set(refreshed["join"]["child_ids"]) == set(child_ids)
     assert refreshed["join"]["policy"] == "all"
+
+
+def test_route_to_next_agent_reassign_fails_returns_none(tmp_path):
+    """store.reassign_in_progress() が例外を投げたとき None を返しクラッシュしないこと。"""
+    from unittest.mock import patch
+    from airflow_mcp.common.errors import TaskInvalidTransition
+    store, task = _make_store_with_task(tmp_path)
+    chains = _sequential_chains()
+    updated = store.get(task["id"])
+    with patch.object(store, "reassign_in_progress", side_effect=TaskInvalidTransition("in_progress", "reassign_in_progress")):
+        result = route_to_next_agent(updated, "agent_writer", store, chains)
+    assert result is None
