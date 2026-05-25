@@ -245,7 +245,7 @@ def require_scope(token_env: str | None, scope: str) -> None:
     if token_env not in tokens:
         # 環境変数から直接トークンを取得する場合
         env_token = os.environ.get("AIRFLOW_MCP_TOKEN")
-        if env_token is None or not hmac.compare_digest(env_token, token_env):
+        if env_token is None or not hmac.compare_digest(env_token.encode(), token_env.encode()):
             raise AuthTokenInvalid()
         # 環境変数トークンはすべてのスコープを持つ（Phase 2 MVP 簡略化）
         return
