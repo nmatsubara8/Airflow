@@ -9,13 +9,11 @@ Obsidian Vault の Markdown ファイルを inbox として読み込み、ロー
 - **5 つの MCP サーバー** — taskboard / notes / models / gpu / agents
 - **JWT EdDSA 認証 + per-action レート制限** — 本番グレードのセキュリティ
 - **Prometheus メトリクス + Web ダッシュボード** — リアルタイム監視
-- **systemd 管理** — 全サービスの自動起動・再起動
+- **Docker Compose / systemd** — 全サービスの自動起動・再起動
 
 ---
 
-## 仕様概要
-
-### アーキテクチャ
+## アーキテクチャ
 
 ```
 Obsidian Vault (.md)
@@ -34,134 +32,131 @@ Obsidian Vault (.md)
      26 AI Agents (MCP)
 ```
 
-### エージェント構成（26体）
+### Docker Compose サービス構成
 
-| セクション | エージェント数 | 主な役割 |
-|-----------|-------------|---------|
-| Orchestration | 3 | dispatcher, cleaner, feature-extractor |
-| Engineering (§01) | 14 | tech-lead, qa, security, frontend, backend, devops 等 |
-| Content (§02) | 5 | content-director, brand-voice, root-cause, anti-ai-slop, morning-brainstorm |
-| Business (§03) | 4 | marketing-director, business-strategy, partnership-manage, legal-review |
+| サービス | 役割 | ポート |
+|---------|------|--------|
+| `ollama` | LLM バックエンド | 127.0.0.1:11434 |
+| `dispatcher` | inbox タスクのエージェント割り当てループ | — |
+| `dashboard` | Web ダッシュボード | 127.0.0.1:7400 |
+| `metrics` | Prometheus メトリクスエクスポータ | 127.0.0.1:9090 |
 
-### タスクライフサイクル
-
-```
-inbox → in_progress → done
-                  └→ needs_human  (人間エスカレーション)
-                  └→ blocked      (依存待ち)
-```
-
-### 対応ハンドオフパターン
-
-- **シーケンシャル**: `agent_a → agent_b → agent_c`
-- **4段階コンテンツレビュー**: content-director → brand-voice → root-cause → anti-ai-slop
-- **並列集約 (fan-out/fan-in)**: `tasks.join` による PR レビュー並列化
+> **MCP サーバー**（taskboard / notes / models / gpu / agents）は stdio ベースのため  
+> Claude Desktop が直接起動します。`deploy/mcp-start.sh` で設定します。
 
 ---
 
-## セットアップ
+## クイックスタート（Docker Compose）
 
 ### 必要環境
 
 | 要件 | バージョン |
 |-----|---------|
-| Python | 3.11 以上 |
-| Ollama | 最新版 |
-| GPU (推奨) | VRAM 16GB（RTX 4060 Ti 等） |
-| OS | Linux（本番）/ macOS（開発） |
+| Docker | 24 以上 |
+| Docker Compose | v2.20 以上 |
+| GPU（推奨） | VRAM 16GB（Qwen2.5:14b 用） |
 
-### 1. Ollama セットアップ
-
-```bash
-# Ollama インストール
-curl -fsSL https://ollama.ai/install.sh | sh
-
-# 推奨モデルをダウンロード
-ollama pull qwen2.5:14b-instruct-q4_K_M
-ollama pull qwen2.5-coder:7b-instruct-q4_K_M
-```
-
-### 2. パッケージインストール
+### 1. リポジトリ取得 & 環境変数設定
 
 ```bash
 git clone https://github.com/nmatsubara8/airflow
 cd airflow
-pip install -e ".[dev]"
-```
 
-### 3. 環境変数設定
-
-```bash
 cp .env.example .env
-# .env を編集（最低限必要なもの）
 ```
 
-**.env の主要項目**:
-
-| 変数 | 必須 | 説明 |
-|-----|------|------|
-| `VAULT_ROOT` | ✅ | Obsidian Vault のルートパス |
-| `AIRFLOW_MCP_TOKEN_ADMIN` | ✅ | 管理者 API トークン（ランダム文字列） |
-| `AIRFLOW_MCP_TOKEN_AGENT` | ✅ | エージェント API トークン |
-| `OLLAMA_BASE_URL` | — | Ollama エンドポイント（デフォルト: `http://localhost:11434`） |
-| `AIRFLOW_SLACK_WEBHOOK` | — | Slack 通知 webhook URL |
-| `AIRFLOW_HTTP_AUTH_TOKEN` | — | ダッシュボード Bearer 認証トークン |
-| `AIRFLOW_AUTH_LOCALHOST_BYPASS` | — | `true` で localhost 認証スキップ（開発用のみ） |
-
-### 4. 設定ファイル検証
+`.env` を開いて以下を編集します（`← 要変更` のもの）:
 
 ```bash
-python -m airflow_mcp config
-# → All configs valid. が出ればOK
+VAULT_ROOT=/path/to/your/obsidian/vault   # Obsidian Vault のパス
+
+# openssl rand -hex 16 などで生成
+AIRFLOW_MCP_TOKEN_ADMIN=airflow_local_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+AIRFLOW_MCP_TOKEN_AGENT=airflow_local_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+AIRFLOW_MCP_TOKEN_READONLY=airflow_local_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-### 5. JWT キーペア生成（本番用）
+### 2. Ollama 起動 & モデル取得
 
 ```bash
-python -m airflow_mcp auth keygen
-# .airflow/auth/ed25519.pem と ed25519.pub が生成される
+# Ollama コンテナだけ先に起動
+docker compose up -d ollama
+
+# モデルをダウンロード（初回のみ、数 GB）
+docker compose exec ollama ollama pull qwen2.5:14b-instruct-q4_K_M
+docker compose exec ollama ollama pull qwen2.5-coder:7b-instruct-q4_K_M
+```
+
+### 3. 全サービス起動
+
+```bash
+docker compose up -d
+```
+
+起動後のアクセス先:
+
+| URL | 内容 |
+|-----|------|
+| http://localhost:7400 | Web ダッシュボード |
+| http://localhost:7400/tasks | タスク一覧 |
+| http://localhost:9090/metrics | Prometheus メトリクス |
+
+### 4. 状態確認
+
+```bash
+# 全サービスの起動状態
+docker compose ps
+
+# ログ確認
+docker compose logs -f dispatcher
+docker compose logs -f dashboard
+
+# コンテナ内から CLI 実行
+docker compose exec dashboard python -m airflow_mcp status
+```
+
+### 5. 停止
+
+```bash
+docker compose down          # コンテナ停止（データ保持）
+docker compose down -v       # データボリュームも削除
 ```
 
 ---
 
-## 起動方法
+## MCP サーバー設定（Claude Desktop）
 
-### Docker（推奨）
+MCP サーバーは Claude Desktop が stdio 経由で直接起動します。  
+`~/Library/Application Support/Claude/claude_desktop_config.json`（Mac）に以下を追加:
 
-```bash
-docker compose up -d ollama
-docker compose exec ollama ollama pull qwen2.5:14b-instruct-q4_K_M
-docker compose up -d
+```json
+{
+  "mcpServers": {
+    "airflow-taskboard": {
+      "command": "/path/to/airflow/deploy/mcp-start.sh",
+      "args": ["taskboard"]
+    },
+    "airflow-notes": {
+      "command": "/path/to/airflow/deploy/mcp-start.sh",
+      "args": ["notes"]
+    },
+    "airflow-models": {
+      "command": "/path/to/airflow/deploy/mcp-start.sh",
+      "args": ["models"]
+    },
+    "airflow-gpu": {
+      "command": "/path/to/airflow/deploy/mcp-start.sh",
+      "args": ["gpu"]
+    },
+    "airflow-agents": {
+      "command": "/path/to/airflow/deploy/mcp-start.sh",
+      "args": ["agents"]
+    }
+  }
+}
 ```
 
-### ローカル（開発）
-
-```bash
-# MCP サーバーをそれぞれ別ターミナルで起動
-python -m airflow_mcp taskboard   # タスクボード（必須）
-python -m airflow_mcp models      # モデル管理
-python -m airflow_mcp gpu         # GPU 状態
-python -m airflow_mcp notes       # ノート検索
-python -m airflow_mcp agents      # エージェント登録
-```
-
-### 本番（systemd）
-
-```bash
-# ユニットファイルをインストール
-sudo cp deploy/systemd/*.service deploy/systemd/*.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-
-# 全サービス有効化・起動
-sudo systemctl enable --now \
-  airflow-taskboard airflow-models airflow-gpu \
-  airflow-notes airflow-agents airflow-dashboard \
-  airflow-dispatcher airflow-batch.timer
-
-# 毎朝 03:00 に自動バッチ実行（cleaner + audit hash）
-```
-
-詳細は `deploy/systemd/README.md` を参照。
+`deploy/mcp-start.sh` は `.env` を自動ロードして適切な Python 環境で MCP サーバーを起動します。
 
 ---
 
@@ -174,37 +169,15 @@ sudo systemctl enable --now \
 3. Dispatcher がエージェントへ割り当て
 4. エージェントが Ollama で処理し `done` へ遷移
 
-### 運用 CLI
+### タスクライフサイクル
 
-```bash
-# リアルタイムステータス表示
-python -m airflow_mcp status
-python -m airflow_mcp status --watch              # 5秒ごとに更新
-python -m airflow_mcp status --watch --interval 10
-
-# バッチ実行
-python -m airflow_mcp batch                       # 即時1回実行
-python -m airflow_mcp batch --loop                # ループ（デーモン）
-
-# 監査
-python -m airflow_mcp audit verify                # ハッシュチェーン整合性確認
-python -m airflow_mcp audit verify 2026-01-01     # 特定日以降を検証
-python -m airflow_mcp audit hash                  # 当日ハッシュ計算
-
-# 設定検証
-python -m airflow_mcp config
-
-# トークン管理
-python -m airflow_mcp auth keygen
-python -m airflow_mcp auth issue --agent agent_qa --scopes tasks:read,models:execute
-python -m airflow_mcp auth list
-python -m airflow_mcp auth revoke --agent agent_qa
-python -m airflow_mcp auth rotate --agent agent_qa --scopes tasks:read
+```
+inbox → in_progress → done
+                  └→ needs_human  (人間エスカレーション)
+                  └→ blocked      (依存待ち)
 ```
 
-### Web ダッシュボード
-
-起動後 `http://localhost:7400` でアクセス。
+### Web ダッシュボード（http://localhost:7400）
 
 | URL | 内容 |
 |-----|------|
@@ -216,40 +189,103 @@ python -m airflow_mcp auth rotate --agent agent_qa --scopes tasks:read
 
 `AIRFLOW_HTTP_AUTH_TOKEN` を設定した場合は `Authorization: Bearer <token>` ヘッダーが必要。
 
-### Prometheus メトリクス
-
-`http://localhost:9090/metrics` でメトリクス取得（Grafana 連携可）。
+### Prometheus メトリクス（http://localhost:9090/metrics）
 
 主なメトリクス:
-- `airflow_tasks_total{status, section}` — タスク件数
-- `airflow_model_execution_duration_seconds` — LLM 実行時間
-- `airflow_gpu_vram_used_gb` — VRAM 使用量
+
+| メトリクス | 内容 |
+|-----------|------|
+| `airflow_tasks_total{status, section}` | タスク件数 |
+| `airflow_model_execution_duration_seconds` | LLM 実行時間 |
+| `airflow_gpu_vram_used_gb` | VRAM 使用量 |
+
+### 運用 CLI（コンテナ内から実行）
+
+```bash
+# リアルタイムステータス
+docker compose exec dashboard python -m airflow_mcp status
+docker compose exec dashboard python -m airflow_mcp status --watch
+
+# バッチ実行
+docker compose exec dispatcher python -m airflow_mcp batch
+docker compose exec dispatcher python -m airflow_mcp batch --loop
+
+# 監査
+docker compose exec dashboard python -m airflow_mcp audit verify
+docker compose exec dashboard python -m airflow_mcp audit hash
+
+# トークン管理
+docker compose exec dashboard python -m airflow_mcp auth list
+docker compose exec dashboard python -m airflow_mcp auth issue \
+  --agent agent_qa --scopes tasks:read,models:execute
+docker compose exec dashboard python -m airflow_mcp auth revoke --agent agent_qa
+
+# 設定検証
+docker compose exec dashboard python -m airflow_mcp config
+```
 
 ### エスカレーション対応
 
 `needs_human` に遷移したタスクは Slack 通知で到着。
 
 ```bash
-# ダッシュボードで内容確認
+# ダッシュボードで確認
 open http://localhost:7400/tasks?status=needs_human
 
-# 対応後: handoff_note を追加して done に遷移
-# （MCP ツール tasks.add_handoff_note + tasks.transition を使用）
+# 対応後: MCP ツールで done へ遷移
+# tasks.add_handoff_note + tasks.transition を使用
 ```
+
+---
+
+## GPU 設定（オプション）
+
+`docker-compose.yml` の `ollama` サービスの `deploy:` セクションをコメントアウト解除します:
+
+```yaml
+ollama:
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: 1
+            capabilities: [gpu]
+```
+
+nvidia-container-toolkit が必要です。
 
 ---
 
 ## 開発
 
+### ローカル直接実行
+
 ```bash
-# 高速ユニットテストのみ
-pytest -m "not integration and not slow"
+pip install -e ".[dev]"
+cp .env.example .env  # OLLAMA_BASE_URL=http://localhost:11434 のまま
+
+# MCP サーバー（別ターミナルで）
+python -m airflow_mcp taskboard
+python -m airflow_mcp notes
+
+# 常駐サービス（別ターミナルで）
+python -m airflow_mcp dispatcher
+python -m airflow_mcp dashboard
+python -m airflow_mcp metrics
+```
+
+### テスト
+
+```bash
+# 高速ユニットテスト（1秒以内）
+python -m pytest -m "not integration and not slow"
 
 # 全テスト（統合テスト含む）
-pytest
+python -m pytest
 
 # カバレッジ付き
-pytest --cov=src/airflow_mcp --cov-report=term-missing -q
+python -m pytest --cov=src/airflow_mcp --cov-report=term-missing -q
 
 # Lint
 ruff check src/ tests/
@@ -257,12 +293,35 @@ ruff check src/ tests/
 
 ### テストマーカー
 
-| マーカー | 説明 |
-|---------|------|
-| *(なし)* | 全テスト（1,337件） |
-| `not integration and not slow` | 高速ユニットのみ |
-| `integration` | 統合テスト（実サービス不要、モック使用） |
-| `slow` | HTTP サーバー起動テスト |
+| マーカー | 説明 | テスト数 |
+|---------|------|---------|
+| *(なし)* | 全テスト | 1,337件 |
+| `not integration and not slow` | 高速ユニットのみ | ~1,123件 |
+| `integration` | 統合テスト（モック使用） | — |
+| `slow` | HTTP サーバー起動テスト | — |
+
+---
+
+## 本番デプロイ（systemd）
+
+Docker を使わずに systemd で直接デプロイする場合:
+
+```bash
+# 仮想環境と依存関係
+python3 -m venv .venv
+.venv/bin/pip install -e .
+
+# systemd ユニットファイルをインストール（install.sh がパスを自動置換）
+sudo deploy/systemd/install.sh
+
+# 全サービス有効化・起動
+sudo systemctl enable --now \
+  airflow-taskboard airflow-models airflow-gpu \
+  airflow-notes airflow-agents airflow-dashboard \
+  airflow-dispatcher airflow-batch.timer
+```
+
+詳細は `deploy/systemd/README.md` を参照。
 
 ---
 
@@ -289,12 +348,15 @@ ruff check src/ tests/
 │   ├── engineering/
 │   ├── content/
 │   └── business/
+├── deploy/
+│   ├── mcp-start.sh     # Claude Desktop 用 MCP 起動スクリプト
+│   └── systemd/         # 本番用 systemd ユニットファイル
 ├── docs/design/         # DDD-01〜08 詳細設計書
-├── deploy/systemd/      # 本番用 systemd ユニットファイル
 ├── tests/
 │   ├── unit/
 │   └── integration/
 ├── .airflow/config/     # YAML 設定ファイル群
+├── docker-compose.yml
 └── .env.example
 ```
 
