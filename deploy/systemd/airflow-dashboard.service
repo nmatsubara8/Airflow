@@ -7,15 +7,7 @@ After=network.target airflow-taskboard.service
 Type=simple
 WorkingDirectory=/opt/airflow
 EnvironmentFile=/opt/airflow/.env
-ExecStart=python -c "
-from airflow_mcp.taskboard.store import TaskStore
-from airflow_mcp.web.dashboard import start_dashboard
-import time, os
-store = TaskStore(os.environ.get('AIRFLOW_TASKBOARD_DIR', '.airflow/tasks'))
-start_dashboard(store)
-while True:
-    time.sleep(60)
-"
+ExecStart=python /opt/airflow/deploy/systemd/airflow-dashboard.sh
 Restart=on-failure
 RestartSec=5s
 StandardOutput=journal
