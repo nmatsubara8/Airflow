@@ -34,7 +34,10 @@ def _load_schedules() -> list[dict[str, Any]]:
     # dict 形式（name がキー）をリストに正規化
     if isinstance(raw, dict):
         return [{"name": name, **sched} for name, sched in raw.items()]
-    return raw  # list 形式はそのまま
+    if not isinstance(raw, list):
+        logger.warning("batch_scheduler: 'schedules' must be a list or mapping, got %s", type(raw).__name__)
+        return []
+    return raw
 
 
 def _parse_cron(cron: str, now: datetime) -> bool:

@@ -235,7 +235,7 @@ async def _tasks_list(args: dict[str, Any], token: str | None) -> list[types.Tex
         start = ids.index(cursor) + 1 if cursor in ids else 0
 
     page = results[start:start + limit]
-    next_cursor = page[-1]["id"] if len(results) > start + limit else None
+    next_cursor = page[-1]["id"] if page and len(results) > start + limit else None
     return mcp_result({"tasks": page, "next_cursor": next_cursor})
 
 

@@ -98,7 +98,7 @@ def dispatch_once(store: TaskStore, config: dict[str, Any]) -> int:
             pass
         except TaskLockConflict as exc:
             logger.warning("lock conflict for %s, will retry next poll: %s", task_id, exc)
-        except Exception as exc:
+        except Exception:
             logger.exception("unexpected dispatch error for %s", task_id)
 
     return dispatched

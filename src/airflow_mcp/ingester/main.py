@@ -33,20 +33,22 @@ def load_config(config_path: str = ".airflow/config/ingester.yaml") -> dict[str,
     return {}
 
 
-def _write_processed_at(path: Path, processed_at: str) -> None:
+def _write_processed_at(path: Path, processed_at: str) -> bool:
     """フロントマターに processed_at を追記する（DDD-04 §6.2 step 9）。
-    失敗してもタスクは既に登録済みなので例外を抑制する。"""
+    成功時 True、失敗時 False（呼び出し側で _seen_hashes 追加をスキップさせる）。"""
     try:
         raw = path.read_text(encoding="utf-8")
         if "processed_at:" in raw:
-            return
+            return True
         if raw.startswith("---"):
             parts = raw.split("---", 2)
             if len(parts) >= 3:
                 raw = f"---{parts[1]}processed_at: {processed_at}\n---{parts[2]}"
         path.write_text(raw, encoding="utf-8")
-    except OSError:
-        pass
+        return True
+    except OSError as exc:
+        logger.warning("failed to write processed_at to %s: %s", path, exc)
+        return False
 
 
 def run_once(store: TaskStore, config: dict[str, Any]) -> int:
@@ -143,12 +145,12 @@ def run_once(store: TaskStore, config: dict[str, Any]) -> int:
             fields = frontmatter_to_task_fields(parsed)
             fields["source_note_id"] = note_id
             task = store.create({**fields, "owner": None})
-            _seen_hashes.add(content_hash)
             _active_hashes.add(content_hash)
 
             from ..common.audit import now_iso
             processed_at = now_iso()
-            _write_processed_at(md_path, processed_at)
+            if _write_processed_at(md_path, processed_at):
+                _seen_hashes.add(content_hash)
 
             aid = new_audit_id()
             log_event("info", "task.ingested", "ingester", aid,
