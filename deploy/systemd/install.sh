@@ -4,7 +4,9 @@
 set -euo pipefail
 
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-PYTHON="$(command -v python || command -v python3)"
+# Prefer venv python if it exists, else system python
+VENV_PYTHON="${INSTALL_DIR}/.venv/bin/python"
+PYTHON="$([ -x "${VENV_PYTHON}" ] && echo "${VENV_PYTHON}" || command -v python || command -v python3)"
 ENV_FILE="${INSTALL_DIR}/.env"
 
 echo "Install dir : ${INSTALL_DIR}"
