@@ -104,11 +104,19 @@ def _load_config() -> None:
             _fair_share.clear()
             _fair_share.update(fair_share_cfg)
 
+    with _state_lock:
+        _registry.clear()
+        _registry.update(load_model_registry())
     _load_degradation_override()
 
 
-def _load_registry_cache() -> dict[str, dict]:
-    return load_model_registry()
+def _get_registry() -> dict[str, dict]:
+    """起動時にロード済みのレジストリを返す。未ロードなら on-demand でロード。"""
+    if not _registry:
+        with _state_lock:
+            if not _registry:
+                _registry.update(load_model_registry())
+    return _registry
 
 
 def _free_vram() -> float:
@@ -127,7 +135,7 @@ def suggest_profile_switch() -> str | None:
         return _current_profile
     with _state_lock:
         depths = _scheduler_queue.model_depths()
-        registry = _load_registry_cache()
+        registry = _get_registry()
         current_models = get_profile_models(_profiles, _current_profile)
         best = select_best_profile(
             _profiles, depths, _current_profile, current_models,
@@ -218,7 +226,7 @@ async def _gpu_reserve(args: dict[str, Any], token: str | None) -> list[types.Te
     model_id = args["model_id"]
     wait = args.get("wait", True)
 
-    registry = _load_registry_cache()
+    registry = _get_registry()
     with _state_lock:
         result = _gpu.reserve(model_id=model_id, wait=wait, registry=registry)
         _gpu.touch(model_id)

@@ -295,12 +295,13 @@ def test_load_config_reads_yaml_file(tmp_path, monkeypatch):
     assert any(p["name"] == "test-profile" for p in gpu_mod._profiles)
 
 
-# ── _load_registry_cache return {} (line 72) ──────────
+# ── _get_registry return {} (line 72) ──────────
 
-def test_load_registry_cache_returns_empty_when_no_file(monkeypatch):
+def test_get_registry_returns_empty_when_no_file(monkeypatch):
     """AIRFLOW_REGISTRY が存在しないとき {} を返すこと。"""
     monkeypatch.setenv("AIRFLOW_REGISTRY", "/nonexistent/registry.json")
-    result = gpu_mod._load_registry_cache()
+    gpu_mod._registry.clear()
+    result = gpu_mod._get_registry()
     assert result == {}
 
 
@@ -356,13 +357,14 @@ def test_load_config_non_dict_yaml_uses_defaults(tmp_path, monkeypatch):
     assert isinstance(gpu_mod._profiles, list)
 
 
-def test_load_registry_cache_non_dict_returns_empty(tmp_path, monkeypatch):
-    """registry.json が配列など非 dict のとき _load_registry_cache が {} を返すこと（line 83）。"""
+def test_get_registry_non_dict_returns_empty(tmp_path, monkeypatch):
+    """registry.json が配列など非 dict のとき _get_registry が {} を返すこと。"""
     import json as _json
     reg = tmp_path / "registry.json"
     reg.write_text(_json.dumps([{"id": "model_x"}]))  # list, not dict
     monkeypatch.setenv("AIRFLOW_REGISTRY", str(reg))
-    result = gpu_mod._load_registry_cache()
+    gpu_mod._registry.clear()
+    result = gpu_mod._get_registry()
     assert result == {}
 
 
