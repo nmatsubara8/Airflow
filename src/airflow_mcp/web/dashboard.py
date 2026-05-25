@@ -11,13 +11,13 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from threading import Thread
+from http.server import HTTPServer
 from typing import TYPE_CHECKING, Any
-from urllib.parse import parse_qs, urlparse
 
 if TYPE_CHECKING:
     from ..taskboard.store import TaskStore
+
+from ..common.http_server import _BaseHandler, start_server
 
 logger = logging.getLogger(__name__)
 
@@ -194,57 +194,37 @@ def render_scheduler() -> str:
 
 # ── HTTP ハンドラ ─────────────────────────────────────
 
-class _DashboardHandler(BaseHTTPRequestHandler):
+class _DashboardHandler(_BaseHandler):
+    _server_name = "dashboard"
     store: TaskStore | None = None
 
-    def do_GET(self) -> None:  # noqa: N802
-        parsed = urlparse(self.path)
-        path = parsed.path.rstrip("/") or "/"
-        qs = parse_qs(parsed.query)
-
-        content: str | None = None
-        code = 200
+    def handle_get(self, path: str, qs: dict[str, list[str]]) -> tuple[int, str, str]:
+        path = path.rstrip("/") or "/"
+        store = self.__class__.store
 
         if path == "/":
-            if self.__class__.store is not None:
-                content = render_home(self.__class__.store)
-            else:
-                content = _page("Dashboard", "<p>No store configured.</p>")
+            content = render_home(store) if store is not None else _page("Dashboard", "<p>No store configured.</p>")
+            return 200, "text/html; charset=utf-8", content
 
-        elif path == "/tasks":
+        if path == "/tasks":
             status = qs.get("status", [None])[0]
             section = qs.get("section", [None])[0]
-            if self.__class__.store is not None:
-                content = render_tasks(self.__class__.store, status, section)
-            else:
-                content = _page("Tasks", "<p>No store configured.</p>")
+            content = render_tasks(store, status, section) if store is not None else _page("Tasks", "<p>No store configured.</p>")
+            return 200, "text/html; charset=utf-8", content
 
-        elif path.startswith("/tasks/"):
+        if path.startswith("/tasks/"):
             task_id = path[len("/tasks/"):]
-            if self.__class__.store is not None:
-                content = render_task_detail(self.__class__.store, task_id)
+            if store is not None:
+                content = render_task_detail(store, task_id)
                 if content is None:
-                    code = 404
-                    content = _page("Not Found", f"<p>Task {html.escape(task_id)} not found.</p>")
-            else:
-                content = _page("Tasks", "<p>No store configured.</p>")
+                    return 404, "text/html; charset=utf-8", _page("Not Found", f"<p>Task {html.escape(task_id)} not found.</p>")
+                return 200, "text/html; charset=utf-8", content
+            return 200, "text/html; charset=utf-8", _page("Tasks", "<p>No store configured.</p>")
 
-        elif path == "/scheduler":
-            content = render_scheduler()
+        if path == "/scheduler":
+            return 200, "text/html; charset=utf-8", render_scheduler()
 
-        else:
-            code = 404
-            content = _page("Not Found", "<p>Page not found.</p>")
-
-        body = (content or "").encode("utf-8")
-        self.send_response(code)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def log_message(self, fmt: str, *args: Any) -> None:  # noqa: ANN401
-        logger.debug("dashboard: " + fmt, *args)
+        return 404, "text/html; charset=utf-8", _page("Not Found", "<p>Page not found.</p>")
 
 
 def start_dashboard(
@@ -253,8 +233,4 @@ def start_dashboard(
 ) -> HTTPServer:
     """バックグラウンドスレッドで Web ダッシュボードを起動する。"""
     _DashboardHandler.store = store
-    httpd = HTTPServer(("0.0.0.0", port), _DashboardHandler)
-    thread = Thread(target=httpd.serve_forever, daemon=True, name="dashboard-server")
-    thread.start()
-    logger.info("dashboard started on :%d", port)
-    return httpd
+    return start_server(_DashboardHandler, port, "dashboard-server")

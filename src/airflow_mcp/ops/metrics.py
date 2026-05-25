@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import logging
 import os
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import HTTPServer
 from pathlib import Path
-from threading import Thread
+from ..common.http_server import _BaseHandler, start_server
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -153,32 +153,19 @@ def get_metrics_text(store: TaskStore | None = None) -> str:
     return render_prometheus_text(task_m, gpu_m, exec_m)
 
 
-class _MetricsHandler(BaseHTTPRequestHandler):
-    """最小 HTTP ハンドラ。GET /metrics のみ受け付ける。"""
+class _MetricsHandler(_BaseHandler):
+    """GET /metrics → Prometheus テキスト形式を返す。"""
 
+    _server_name = "metrics-http"
     store: TaskStore | None = None
 
-    def do_GET(self) -> None:  # noqa: N802
-        if self.path == "/metrics":
-            body = get_metrics_text(self.__class__.store).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-        else:
-            self.send_response(404)
-            self.end_headers()
-
-    def log_message(self, fmt: str, *args: Any) -> None:  # noqa: ANN401
-        logger.debug("metrics-http: " + fmt, *args)
+    def handle_get(self, path: str, qs: dict) -> tuple[int, str, str]:
+        if path == "/metrics":
+            return 200, "text/plain; version=0.0.4; charset=utf-8", get_metrics_text(self.__class__.store)
+        return 404, "text/plain", "Not Found"
 
 
 def start_metrics_server(store: TaskStore | None = None, port: int = _METRICS_PORT) -> HTTPServer:
     """バックグラウンドスレッドで Prometheus メトリクス HTTP サーバーを起動する。"""
     _MetricsHandler.store = store
-    httpd = HTTPServer(("0.0.0.0", port), _MetricsHandler)
-    thread = Thread(target=httpd.serve_forever, daemon=True, name="metrics-server")
-    thread.start()
-    logger.info("metrics server started on :%d", port)
-    return httpd
+    return start_server(_MetricsHandler, port, "metrics-server")
