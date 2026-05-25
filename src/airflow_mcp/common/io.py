@@ -48,3 +48,21 @@ def safe_json_load(path: Path) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError) as exc:
         logger.warning("safe_json_load: failed to load %s: %s", path, exc)
         return {}
+
+
+def load_model_registry(
+    path: Path | None = None,
+) -> dict[str, dict[str, Any]]:
+    """モデルレジストリ JSON を読み込み {model_id: entry} dict を返す。
+
+    path が None のとき AIRFLOW_REGISTRY 環境変数 → デフォルトパスを使用。
+    """
+    import os
+    if path is None:
+        path = Path(os.environ.get("AIRFLOW_REGISTRY", ".airflow/models/registry.json"))
+    data = safe_json_load(path)
+    return {
+        m["id"]: m
+        for m in data.get("models", [])
+        if isinstance(m, dict) and "id" in m
+    }

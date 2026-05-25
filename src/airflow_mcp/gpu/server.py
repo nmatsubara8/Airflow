@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import mcp.types as types
-from ..common.io import safe_yaml_load
+from ..common.io import load_model_registry, safe_yaml_load
 from mcp.server import Server
 
 from ..common.audit import log_event, new_audit_id
@@ -108,17 +108,7 @@ def _load_config() -> None:
 
 
 def _load_registry_cache() -> dict[str, dict]:
-    registry_path = Path(os.environ.get("AIRFLOW_REGISTRY", ".airflow/models/registry.json"))
-    if registry_path.exists():
-        data = json.loads(registry_path.read_text())
-        if not isinstance(data, dict):
-            return {}
-        return {
-            m["id"]: m
-            for m in data.get("models", [])
-            if isinstance(m, dict) and "id" in m
-        }
-    return {}
+    return load_model_registry()
 
 
 def _free_vram() -> float:

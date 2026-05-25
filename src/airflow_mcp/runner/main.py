@@ -26,7 +26,7 @@ import httpx
 from jsonschema import Draft202012Validator
 
 from ..common.audit import log_event, new_audit_id
-from ..common.io import safe_yaml_load
+from ..common.io import load_model_registry, safe_yaml_load
 from ..common.thresholds import REROUTE_SCORE_THRESHOLD
 from ..common.url_validator import validate_ollama_url
 from ..orchestrator.execution_log import append_execution_log, compute_auto_score, load_history
@@ -47,17 +47,7 @@ def load_model_config(path: str = ".airflow/config/model-config.yaml") -> dict[s
 
 
 def _load_registry(path: str = ".airflow/models/registry.json") -> dict[str, dict]:
-    p = Path(path)
-    if not p.exists():
-        return {}
-    data = json.loads(p.read_text())
-    if not isinstance(data, dict):
-        return {}
-    return {
-        m["id"]: m
-        for m in data.get("models", [])
-        if isinstance(m, dict) and "id" in m
-    }
+    return load_model_registry(Path(path))
 
 
 def _select_model(

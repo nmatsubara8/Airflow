@@ -19,6 +19,7 @@ import mcp.types as types
 from mcp.server import Server
 
 from ..common.audit import log_event, new_audit_id, now_iso
+from ..common.io import load_model_registry
 from ..common.auth import require_scope
 from ..common.errors import (
     AirflowError,
@@ -60,16 +61,7 @@ _STRUCT_OUTPUT_RETRIES = 2
 
 def _load_registry() -> None:
     _models.clear()
-    if _REGISTRY_PATH.exists():
-        data = json.loads(_REGISTRY_PATH.read_text())
-        if not isinstance(data, dict):
-            logger.warning("models: registry.json is not a JSON object")
-            return
-        for m in data.get("models", []):
-            if not isinstance(m, dict) or "id" not in m:
-                logger.warning("models: registry entry missing 'id', skipping: %s", m)
-                continue
-            _models[m["id"]] = m
+    _models.update(load_model_registry(_REGISTRY_PATH))
 
 
 def _ollama_base_url() -> str:
