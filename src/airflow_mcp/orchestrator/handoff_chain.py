@@ -109,7 +109,7 @@ def spawn_handoff_tasks(
         return []
 
     notes = source_task.get("handoff_notes", [])
-    context = notes[-1].get("content", "") if notes else ""
+    context = notes[-1].get("body", notes[-1].get("content", "")) if notes else ""
 
     created_ids: list[str] = []
     for step in steps:

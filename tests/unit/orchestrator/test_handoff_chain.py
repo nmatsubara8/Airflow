@@ -217,12 +217,13 @@ def test_spawn_handoff_tasks_creates_child_task(task_store, done_task):
 
 
 def test_spawn_handoff_tasks_inherits_parent_context(task_store, done_task):
-    """子タスクの description に親タスクの handoff_note が含まれること。"""
+    """子タスクの description に親タスク ID と handoff_note の body が含まれること。"""
     chains = [{"name": "c", "trigger": {"section": "engineering"},
                "steps": [{"owner": "qa"}]}]
     ids = spawn_handoff_tasks(done_task, task_store, chains)
     child = task_store.get(ids[0])
     assert done_task["id"] in child["description"]
+    assert "実装完了。テストが必要です。" in child["description"]
 
 
 def test_spawn_handoff_tasks_records_parent_task_id(task_store, done_task):

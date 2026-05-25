@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 server = Server("models-mcp")
 
 _REGISTRY_PATH = Path(os.environ.get("AIRFLOW_REGISTRY", ".airflow/models/registry.json"))
-_OLLAMA_TIMEOUT_S = float(os.environ.get("AIRFLOW_OLLAMA_TIMEOUT_S", "120"))
+_OLLAMA_TIMEOUT_S = float(os.environ.get("AIRFLOW_OLLAMA_TIMEOUT_S", "180"))
 _models: dict[str, dict[str, Any]] = {}
 _execution_logs: dict[str, dict[str, Any]] = {}
 
