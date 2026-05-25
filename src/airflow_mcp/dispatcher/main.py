@@ -127,3 +127,7 @@ def _cli() -> None:
     store = TaskStore()
     config = load_config()
     run_loop(store, config)
+
+
+if __name__ == "__main__":  # pragma: no cover
+    _cli()

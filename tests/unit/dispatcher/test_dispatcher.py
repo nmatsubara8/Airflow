@@ -256,3 +256,5 @@ def test_dispatch_once_handles_task_lock_conflict(task_store, sample_task_fields
     monkeypatch.setattr(dm, "select_agent", raise_lock_conflict)
     n = dispatch_once(task_store, {})
     assert n == 0
+
+

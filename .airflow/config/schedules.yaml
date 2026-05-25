@@ -55,21 +55,16 @@ schedules:
       - agent_business_strategy
     description: "ビジネス定期ブリーフィング（火・金）"
 
-  # Cleaner — daily (DDD-08 §7.1)
+  # Cleaner — daily (DDD-08 §7.1) — batch_scheduler が直接 cleaner.run_once() を呼ぶ
   cleaner:
     cron: "0 3 * * *"             # 03:00 every day
-    task_template: cleaner_scan_and_dedupe
-    category: orchestration
-    priority: 7
-    agents:
-      - agent_cleaner
     description: "日次クリーンアップ（古いタスク・ログのアーカイブ・重複排除）"
+    actions:
+      - cleaner: { mode: scan_and_dedupe }
 
-  # Audit hash — daily (DDD-08 §7.1, airflow-scheduler.service が直接実行)
+  # Audit hash — daily (DDD-08 §7.1) — batch_scheduler が直接 audit_integrity を呼ぶ
   audit_hash:
     cron: "0 3 * * *"             # 03:00 every day (cleaner と同時)
-    task_template: audit_hash_verify
-    category: orchestration
-    priority: 6
-    executor: airflow-scheduler.service  # エージェント不要、直接実行
     description: "監査ログ整合性ハッシュ計算・検証"
+    actions:
+      - audit: { mode: chain_hash }
