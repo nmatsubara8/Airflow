@@ -6,8 +6,11 @@ total_score = expected_accuracy × accuracy_weight
 """
 from __future__ import annotations
 
+import logging
 import math
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 _INFINITY = math.inf
 
@@ -110,10 +113,10 @@ def select_best_model(
     acc = accuracy_scores or {}
     boosts = starvation_boosts or {}
 
-    scored = [
-        (
-            model_id,
-            compute_affinity_score(
+    scored: list[tuple[str, float]] = []
+    for model_id in candidate_model_ids:
+        try:
+            score = compute_affinity_score(
                 task=task,
                 model_id=model_id,
                 loaded_model_ids=loaded_model_ids,
@@ -123,10 +126,11 @@ def select_best_model(
                 expected_accuracy=acc.get(model_id, 0.75),
                 starvation_boost=boosts.get(model_id, 0.0),
                 total_vram_gb=total_vram_gb,
-            ),
-        )
-        for model_id in candidate_model_ids
-    ]
+            )
+        except Exception as exc:
+            logger.warning("affinity score failed for %s, skipping: %s", model_id, exc)
+            score = -_INFINITY
+        scored.append((model_id, score))
     scored.sort(key=lambda x: x[1], reverse=True)
     best_id, best_score = scored[0]
     return best_id if best_score > -_INFINITY else None

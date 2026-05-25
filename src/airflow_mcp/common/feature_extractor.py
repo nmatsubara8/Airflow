@@ -45,10 +45,11 @@ def extract_features(task: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
       - latency_sensitivity: tags に "urgent"/"interactive" → "interactive"、それ以外 "batch"
       - language           : title の Unicode コードポイントで日本語判定
     """
-    features: dict[str, Any] = dict(task.get("features") or {})
+    raw_features = task.get("features") or {}
+    features: dict[str, Any] = dict(raw_features) if isinstance(raw_features, dict) else {}
     tags = [t.lower() for t in (task.get("tags") or [])]
     section = (task.get("section") or "").lower()
-    title = task.get("title", "")
+    title = task.get("title") or ""  # explicit None → ""
     inferred: list[str] = []
 
     if "task_type" not in features:

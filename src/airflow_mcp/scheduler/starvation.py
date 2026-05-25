@@ -21,8 +21,8 @@ def compute_aging_score(enqueued_at: datetime, config: dict[str, Any]) -> float:
 
     max_wait_before_boost_s 秒以上待っていれば、1 分ごとに aging_factor ずつ増加。
     """
-    boost_threshold = config.get("max_wait_before_boost_s", 600)
-    aging_factor = config.get("aging_factor", 0.1)
+    boost_threshold = max(0.0, config.get("max_wait_before_boost_s", 600))
+    aging_factor = max(0.0, config.get("aging_factor", 0.1))
 
     wait = _wait_seconds(enqueued_at)
     if wait < boost_threshold:
@@ -43,18 +43,18 @@ def check_starvation_flags(
     flags: list[str] = []
     wait = _wait_seconds(enqueued_at)
 
-    max_wait = config.get("force_run_s", 3600)
+    max_wait = max(0.0, config.get("force_run_s", 3600))
     if wait >= max_wait:
         flags.append("force_run")
         return flags  # force_run は最上位、以下チェック不要
 
     if deadline is not None:
-        deadline_threshold = config.get("deadline_warn_s", 300)
+        deadline_threshold = max(0.0, config.get("deadline_warn_s", 300))
         time_to_deadline = (deadline - _now()).total_seconds()
         if time_to_deadline <= deadline_threshold:
             flags.append("deadline_near")
 
-    boost_threshold = config.get("max_wait_before_boost_s", 600)
+    boost_threshold = max(0.0, config.get("max_wait_before_boost_s", 600))
     if wait >= boost_threshold:
         flags.append("aging")
 

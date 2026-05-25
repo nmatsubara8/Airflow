@@ -245,3 +245,32 @@ def test_section_uppercase_legal_infers_high_accuracy():
     """section="LEGAL" でも required_accuracy=high になる。"""
     features, _ = extract_features({"section": "LEGAL"})
     assert features["required_accuracy"] == "high"
+
+
+# ── None / 不正型 入力の堅牢性 ──────────────────────────────────
+
+def test_extract_features_title_none_does_not_crash():
+    """title=None でも TypeError にならず language が推論されること。"""
+    features, inferred = extract_features({"title": None})
+    assert "language" in features
+    assert features["language"] in ("ja", "en")
+
+
+def test_extract_features_title_none_infers_english():
+    """title=None は ASCII 相当として 'en' に推論されること。"""
+    features, _ = extract_features({"title": None})
+    assert features["language"] == "en"
+
+
+def test_extract_features_features_list_treated_as_empty():
+    """features フィールドがリスト（非 dict）のとき空 dict として扱われること。"""
+    features, inferred = extract_features({"features": ["bad", "data"]})
+    assert isinstance(features, dict)
+    assert "task_type" in features  # デフォルト推論が走ること
+
+
+def test_extract_features_features_invalid_type_all_inferred():
+    """features が非 dict のとき全フィールドが inferred になること。"""
+    _, inferred = extract_features({"features": 42})
+    assert "task_type" in inferred
+    assert "language" in inferred
