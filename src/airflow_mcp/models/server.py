@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import random
 import threading
 import time
 from pathlib import Path
@@ -41,7 +40,7 @@ from ..common.thresholds import (
     KNN_COLD_START_MIN_SAMPLES,
 )
 from ..orchestrator.execution_log import append_execution_log, load_history, update_feedback
-from ..orchestrator.recommender import _cold_start_model, knn_recommend
+from ..orchestrator.recommender import knn_recommend, select_model
 from ..scheduler.affinity import compute_swap_cost
 
 logger = logging.getLogger(__name__)
@@ -292,56 +291,65 @@ async def _model_recommend(args: dict[str, Any], token: str | None) -> list[type
             "sample_count": 0,
         })
 
-    # KNN 推奨（DDD-06 §4.3）
+    # select_model() に委譲（KNN + コールドスタート + ε-greedy を統合）
     history = load_history()
-    knn_config: dict[str, Any] = {}
     available = [c for c in candidates if c in _models]
-    recommendations = knn_recommend(
-        features, history, available, knn_config,
+    # candidates に絞ったレジストリを渡して選択範囲を限定する
+    filtered_models = {k: v for k, v in _models.items() if k in set(available)}
+    # min_samples_for_auto をコールドスタート閾値と揃えて元の挙動を維持する
+    sel_config: dict[str, Any] = {
+        "default_mode": mode,
+        "min_samples_for_auto": KNN_COLD_START_MIN_SAMPLES,
+    }
+    task_like = {"features": features}
+    selected_id, exploration_type = select_model(
+        task_like, {"selection": sel_config}, filtered_models, history,
         loaded_model_ids=loaded_ids,
         free_vram_gb=free_vram,
-        registry=_models,
         total_vram_gb=total_vram,
     )
-    total_samples = sum(r["sample_count"] for r in recommendations)
+    # select_model が candidates 外を返した場合（DEFAULT_MODEL_ID フォールバック等）、
+    # available の先頭に差し替えて候補外選択を防ぐ。
+    if available and selected_id not in available:
+        selected_id = available[0]
 
-    # コールドスタート（サンプル不足）
-    if not recommendations or total_samples < KNN_COLD_START_MIN_SAMPLES:
-        selected = _cold_start_model(features, _models, {})
-        if selected not in available:
-            selected = available[0] if available else (candidates[0] if candidates else DEFAULT_MODEL_ID)
-        return mcp_result({
-            "recommendations": [{
-                "model_id": selected,
-                "score": 0.5,
-                "expected_accuracy": 0.5,
-                "swap_cost_ms": _swap_ms(selected),
-                "confidence": 0.0,
-                "reason": "コールドスタート（履歴不足）",
-            }],
+    # knn_recommend で全候補スコアも取得してレスポンスを補完する
+    knn_recs = knn_recommend(
+        features, history, available, {},
+        loaded_model_ids=loaded_ids,
+        free_vram_gb=free_vram,
+        registry=filtered_models,
+        total_vram_gb=total_vram,
+    )
+    total_samples = sum(r["sample_count"] for r in knn_recs)
+
+    _reason_map = {
+        "cold_start_fallback": "コールドスタート（履歴不足）",
+        "epsilon_greedy": f"ε-greedy 探索（ε={EPSILON_GREEDY_RATE}）",
+    }
+
+    # selected_id を先頭に並べ替えてレスポンスを構成する
+    recs_by_id = {r["model_id"]: r for r in knn_recs}
+    if selected_id in recs_by_id:
+        selected_rec = dict(recs_by_id.pop(selected_id))
+        if exploration_type in _reason_map:
+            selected_rec["reason"] = _reason_map[exploration_type]
+        ordered = [selected_rec] + list(recs_by_id.values())
+    else:
+        ordered = [{
+            "model_id": selected_id,
+            "score": 0.5,
+            "expected_accuracy": 0.5,
+            "swap_cost_ms": _swap_ms(selected_id),
+            "confidence": 0.0,
+            "reason": _reason_map.get(exploration_type, exploration_type or "選択済み"),
             "sample_count": total_samples,
-        })
-
-    # ε-greedy 探索（auto モードのみ、DDD-06 §4.5）
-    if mode == "auto" and random.random() < EPSILON_GREEDY_RATE:
-        others = [m for m in available if m != recommendations[0]["model_id"]]
-        if others:
-            selected = random.choice(others)
-            return mcp_result({
-                "recommendations": [{
-                    "model_id": selected,
-                    "score": recommendations[0]["score"],
-                    "expected_accuracy": recommendations[0]["expected_accuracy"],
-                    "swap_cost_ms": _swap_ms(selected),
-                    "confidence": 0.0,
-                    "reason": f"ε-greedy 探索（ε={EPSILON_GREEDY_RATE}）",
-                }],
-                "sample_count": total_samples,
-            })
+        }] + knn_recs
 
     return mcp_result({
-        "recommendations": recommendations,
+        "recommendations": ordered,
         "sample_count": total_samples,
+        "exploration_type": exploration_type,
     })
 
 

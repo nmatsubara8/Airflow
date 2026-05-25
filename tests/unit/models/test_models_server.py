@@ -102,8 +102,6 @@ async def test_model_recommend_high_accuracy_prefers_32b():
 async def test_model_recommend_manual_mode_returns_first_candidate(monkeypatch):
     _add_model("model_a")
     _add_model("model_b")
-    # ε-greedy が上書きしないよう random.random を 1.0 固定
-    monkeypatch.setattr("airflow_mcp.models.server.random.random", lambda: 1.0)
     result = await _call("model.recommend", {
         "features": {},
         "mode": "manual",
@@ -240,7 +238,7 @@ async def test_list_tools_returns_all_tools():
 @pytest.mark.asyncio
 async def test_model_recommend_medium_accuracy_returns_14b(monkeypatch):
     _add_model("model_qwen25_14b_q4")
-    monkeypatch.setattr("airflow_mcp.models.server.random.random", lambda: 1.0)
+    monkeypatch.setattr("airflow_mcp.orchestrator.recommender.random.random", lambda: 1.0)
     result = await _call("model.recommend", {
         "features": {"required_accuracy": "medium", "latency_sensitivity": "batch"},
     })
@@ -253,7 +251,7 @@ async def test_model_recommend_medium_accuracy_returns_14b(monkeypatch):
 async def test_model_recommend_interactive_latency_returns_14b(monkeypatch):
     _add_model("model_qwen25_14b_q4")
     _add_model("model_qwen25_32b_q3")
-    monkeypatch.setattr("airflow_mcp.models.server.random.random", lambda: 1.0)
+    monkeypatch.setattr("airflow_mcp.orchestrator.recommender.random.random", lambda: 1.0)
     result = await _call("model.recommend", {
         "features": {"required_accuracy": "high", "latency_sensitivity": "interactive"},
     })
@@ -275,9 +273,9 @@ async def test_model_recommend_epsilon_greedy_explores(monkeypatch):
         for _ in range(10)
     ]
     monkeypatch.setattr("airflow_mcp.models.server.load_history", lambda: history)
-    monkeypatch.setattr("airflow_mcp.models.server.random.random", lambda: 0.0)
+    monkeypatch.setattr("airflow_mcp.orchestrator.recommender.random.random", lambda: 0.0)
     monkeypatch.setattr(
-        "airflow_mcp.models.server.random.choice",
+        "airflow_mcp.orchestrator.recommender.random.choice",
         lambda lst: lst[0],
     )
     result = await _call("model.recommend", {
