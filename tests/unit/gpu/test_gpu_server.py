@@ -21,6 +21,8 @@ def _reset_gpu_state(tmp_path):
     gpu_mod._profiles.clear()
     gpu_mod._current_profile = None
     gpu_mod._degraded = False
+    gpu_mod._degradation_mode = "auto"
+    gpu_mod._OVERRIDE_FILE = tmp_path / "degradation_override.json"
 
 
 @pytest.fixture(autouse=True)
@@ -158,18 +160,62 @@ async def test_scheduler_profile_switch_unknown_profile_returns_error():
 # ── scheduler.degrade ─────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_scheduler_degrade_enables_degraded_mode():
-    result = await _call("scheduler.degrade", {"enabled": True, "reason": "高負荷"})
+async def test_scheduler_degrade_mode_on(tmp_path):
+    result = await _call("scheduler.degrade", {"mode": "on", "reason": "高負荷"})
     assert result["degraded"] is True
+    assert result["mode"] == "on"
     assert gpu_mod._degraded is True
+    assert gpu_mod._OVERRIDE_FILE.exists()
 
 
 @pytest.mark.asyncio
-async def test_scheduler_degrade_disables_degraded_mode():
+async def test_scheduler_degrade_mode_off(tmp_path):
     gpu_mod._degraded = True
-    result = await _call("scheduler.degrade", {"enabled": False})
+    result = await _call("scheduler.degrade", {"mode": "off"})
     assert result["degraded"] is False
+    assert result["mode"] == "off"
     assert gpu_mod._degraded is False
+    assert gpu_mod._OVERRIDE_FILE.exists()
+
+
+@pytest.mark.asyncio
+async def test_scheduler_degrade_mode_auto(tmp_path):
+    """auto モードはファイルを削除して自動判定に戻す。"""
+    gpu_mod._OVERRIDE_FILE.write_text('{"mode": "on"}')
+    result = await _call("scheduler.degrade", {"mode": "auto"})
+    assert result["mode"] == "auto"
+    assert not gpu_mod._OVERRIDE_FILE.exists()
+
+
+@pytest.mark.asyncio
+async def test_scheduler_degrade_persists_across_load(tmp_path):
+    """override ファイルがあれば _load_degradation_override で状態が復元される。"""
+    gpu_mod._OVERRIDE_FILE.write_text('{"mode": "on"}')
+    gpu_mod._degraded = False
+    gpu_mod._load_degradation_override()
+    assert gpu_mod._degraded is True
+    assert gpu_mod._degradation_mode == "on"
+
+
+def test_load_degradation_override_off_mode(tmp_path):
+    """mode=off の override ファイルで _degraded が False に設定される。"""
+    gpu_mod._OVERRIDE_FILE.write_text('{"mode": "off"}')
+    gpu_mod._degraded = True
+    gpu_mod._load_degradation_override()
+    assert gpu_mod._degraded is False
+    assert gpu_mod._degradation_mode == "off"
+
+
+def test_load_degradation_override_missing_file(tmp_path):
+    """ファイルが無くてもクラッシュしない。"""
+    gpu_mod._OVERRIDE_FILE = tmp_path / "nonexistent.json"
+    gpu_mod._load_degradation_override()  # should not raise
+
+
+def test_load_degradation_override_corrupt_file(tmp_path):
+    """壊れた JSON でもクラッシュしない。"""
+    gpu_mod._OVERRIDE_FILE.write_text("not-json")
+    gpu_mod._load_degradation_override()  # should not raise
 
 
 # ── get_model_config_with_degraded ────────────────────

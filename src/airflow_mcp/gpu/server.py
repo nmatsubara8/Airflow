@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 server = Server("gpu-mcp")
 
 _PARALLEL_CONFIG = Path(os.environ.get("AIRFLOW_PARALLEL_CONFIG", ".airflow/config/parallel.yaml"))
+_OVERRIDE_FILE = Path(os.environ.get("AIRFLOW_DEGRADATION_OVERRIDE", ".airflow/state/degradation_override.json"))
 
 _gpu: GpuStateManager = GpuStateManager()
 _task_queues: dict[str, list] = {}   # legacy: raw list per model (used by tests)
@@ -35,11 +36,43 @@ _scheduler_queue: SchedulerQueue = SchedulerQueue()
 _profiles: list[dict] = []
 _current_profile: str | None = None
 _degraded: bool = False
+_degradation_mode: str = "auto"  # "on" | "off" | "auto"
 _fair_share: dict[str, float] = {}
 _registry: dict[str, dict] = {}
 
 # HTTP マルチ接続移行時の race condition 防止（DDD-08 §4 / 提案 A）
 _state_lock = threading.RLock()
+
+
+def _load_degradation_override() -> None:
+    """起動時に永続化された手動 override を復元する。"""
+    global _degraded, _degradation_mode
+    if not _OVERRIDE_FILE.exists():
+        return
+    try:
+        data = json.loads(_OVERRIDE_FILE.read_text(encoding="utf-8"))
+        mode = data.get("mode", "auto")
+        if mode in ("on", "off"):
+            _degradation_mode = mode
+            _degraded = mode == "on"
+            logger.info("degradation override restored: mode=%s", mode)
+    except Exception as exc:
+        logger.warning("failed to load degradation override: %s", exc)
+
+
+def _save_degradation_override(mode: str) -> None:
+    """手動 override をディスクに永続化する。mode='auto' の場合はファイルを削除。"""
+    if mode == "auto":
+        try:
+            _OVERRIDE_FILE.unlink(missing_ok=True)
+        except Exception as exc:
+            logger.warning("failed to remove degradation override: %s", exc)
+        return
+    try:
+        _OVERRIDE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _OVERRIDE_FILE.write_text(json.dumps({"mode": mode}), encoding="utf-8")
+    except Exception as exc:
+        logger.warning("failed to save degradation override: %s", exc)
 
 
 def _load_config() -> None:
@@ -73,6 +106,8 @@ def _load_config() -> None:
             _scheduler_queue = new_queue
             _fair_share.clear()
             _fair_share.update(fair_share_cfg)
+
+    _load_degradation_override()
 
 
 def _load_registry_cache() -> dict[str, dict]:
@@ -169,12 +204,12 @@ async def list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="scheduler.degrade",
-            description="デグラデーションモードを強制 ON/OFF",
+            description="デグラデーションモードを手動制御（on/off/auto）。再起動後も維持される。",
             inputSchema={
                 "type": "object",
-                "required": ["enabled"],
+                "required": ["mode"],
                 "properties": {
-                    "enabled": {"type": "boolean"},
+                    "mode": {"type": "string", "enum": ["on", "off", "auto"]},
                     "reason": {"type": "string"},
                 },
             },
@@ -244,16 +279,22 @@ async def _scheduler_profile_switch(
 async def _scheduler_degrade(
     args: dict[str, Any], token: str | None
 ) -> list[types.TextContent]:
-    global _degraded
+    global _degraded, _degradation_mode
     require_scope(token, "gpu:reserve")
+    mode = args.get("mode", "auto")
     with _state_lock:
-        _degraded = args["enabled"]
+        _degradation_mode = mode
+        if mode == "on":
+            _degraded = True
+        elif mode == "off":
+            _degraded = False
         degraded_val = _degraded
+    _save_degradation_override(mode)
     log_event("warn" if degraded_val else "info",
-              "scheduler.degraded" if degraded_val else "scheduler.degraded_recovered",
+              "scheduler.degraded_on" if degraded_val else "scheduler.degraded_off",
               "gpu-mcp", new_audit_id(),
-              data={"reason": args.get("reason")})
-    return mcp_result({"degraded": degraded_val})
+              data={"mode": mode, "reason": args.get("reason")})
+    return mcp_result({"degraded": degraded_val, "mode": mode})
 
 
 _HANDLERS = {
