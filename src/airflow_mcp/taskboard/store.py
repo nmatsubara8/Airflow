@@ -242,6 +242,27 @@ class TaskStore:
                 path.unlink(missing_ok=True)
         return task
 
+    def reassign_in_progress(
+        self, task_id: str, new_owner_id: str, reason: str | None = None
+    ) -> dict[str, Any]:
+        """in_progress タスクのオーナーをアトミックに変更する（intra-task handoff 用）。"""
+        with self._lock(task_id):
+            path = self._find_task_path(task_id)
+            if path is None:
+                raise TaskNotFound(task_id)
+            task = json.loads(path.read_text())
+            if task["status"] != "in_progress":
+                raise TaskInvalidTransition(task["status"], "reassign_in_progress")
+            task["owner"] = new_owner_id
+            if reason:
+                task.setdefault("chain_reason", []).append(reason)
+            task["updated_at"] = now_iso()
+            task["lock"]["version"] += 1
+            task["lock"]["etag"] = _etag(task)
+            self._write_atomic(path, task)
+        logger.info("store.reassign task=%s new_owner=%s reason=%s", task_id, new_owner_id, reason)
+        return task
+
     def assign(self, task_id: str, new_owner_id: str) -> dict[str, Any]:
         """オーナーをアトミックに変更する（TOCTOU 対策: M-6）。
 

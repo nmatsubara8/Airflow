@@ -1053,7 +1053,7 @@ def test_process_task_output_schema_oserror_uses_fallback(task_store, sample_tas
 
 
 def test_process_task_logs_when_handoff_spawned(task_store, sample_task_fields, monkeypatch):
-    """spawn_handoff_tasks が ID を返す場合に handoff.spawned がログ出力されること（line 414）。"""
+    """spawn_with_join_tracking が ID を返す場合に handoff.spawned がログ出力されること。"""
     import os
     from unittest.mock import patch
     os.environ["OLLAMA_STUB"] = "true"
@@ -1061,7 +1061,7 @@ def test_process_task_logs_when_handoff_spawned(task_store, sample_task_fields, 
     task_store.claim(task["id"], "agent_docs")
     task_in_progress = task_store.get(task["id"])
 
-    with patch("airflow_mcp.runner.main.spawn_handoff_tasks", return_value=["child_task_1"]):
+    with patch("airflow_mcp.runner.main.spawn_with_join_tracking", return_value=["child_task_1"]):
         result = process_task(task_in_progress, _ctx(task_store))
 
     assert result is True

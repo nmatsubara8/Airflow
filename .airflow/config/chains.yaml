@@ -1,0 +1,56 @@
+chains:
+  # ──────────────────────────────────────────────────────────────────────────
+  # 順次チェーン（mode: sequential）
+  #   同じタスクを複数エージェントが順番に処理する（DDD-08 §3.1）。
+  #   agents リストの順序で引き渡し、最後のエージェントが完了すると done に遷移する。
+  # ──────────────────────────────────────────────────────────────────────────
+
+  - name: content_review_chain
+    mode: sequential
+    trigger:
+      section: content
+      task_type: document
+    agents:
+      - id: agent_writer      # step 0: 初稿作成
+      - id: agent_reviewer    # step 1: レビュー
+      - id: agent_publisher   # step 2: 公開承認
+
+  - name: engineering_pr_chain
+    mode: sequential
+    trigger:
+      section: engineering
+      tags: [needs_review]
+    agents:
+      - id: agent_docs        # step 0: 実装
+      - id: agent_qa          # step 1: QA
+      - id: agent_pm          # step 2: PM 承認
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # ファンアウトチェーン（mode: fan_out、または mode キー省略時のデフォルト）
+  #   完了タスクを起点に新しいタスクを生成する（DDD-08 §3.2）。
+  #   2 件以上生成された場合、親タスクの join.child_ids に登録される。
+  # ──────────────────────────────────────────────────────────────────────────
+
+  - name: code_gen_to_qa
+    trigger:
+      section: engineering
+      task_type: code_gen
+    steps:
+      - title_prefix: "[QA] "
+        section: qa
+        owner: agent_qa
+        priority: 6
+
+  - name: design_fanout
+    trigger:
+      section: design
+      tags: [approved]
+    steps:
+      - title_prefix: "[実装] "
+        section: engineering
+        owner: agent_docs
+        priority: 5
+      - title_prefix: "[テスト] "
+        section: qa
+        owner: agent_qa
+        priority: 5

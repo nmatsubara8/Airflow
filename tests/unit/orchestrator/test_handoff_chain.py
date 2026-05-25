@@ -7,10 +7,13 @@ import pytest
 
 from airflow_mcp.orchestrator.handoff_chain import (
     _task_matches_trigger,
+    detect_cycle,
     find_next_steps,
     load_chains,
     record_chain_step,
+    route_to_next_agent,
     spawn_handoff_tasks,
+    spawn_with_join_tracking,
 )
 
 
@@ -360,3 +363,189 @@ async def test_tasks_spawn_handoff_mcp_tool(tmp_path, monkeypatch):
     result = await _call("tasks.spawn_handoff", {"task_id": t["id"]})
     assert result["count"] == 1
     assert len(result["spawned"]) == 1
+
+
+# ── chain_depth trigger ───────────────────────────────────
+
+def test_task_matches_trigger_chain_depth_exact():
+    """chain_depth trigger が chain 配列の長さと一致するとき True を返すこと。"""
+    task = {"section": "engineering", "chain": [{"agent_id": "a1"}]}
+    assert _task_matches_trigger(task, {"section": "engineering", "chain_depth": 1}) is True
+
+
+def test_task_matches_trigger_chain_depth_mismatch():
+    """chain_depth が一致しないとき False を返すこと。"""
+    task = {"section": "engineering", "chain": []}
+    assert _task_matches_trigger(task, {"section": "engineering", "chain_depth": 1}) is False
+
+
+# ── detect_cycle ──────────────────────────────────────────
+
+def test_detect_cycle_no_history():
+    """chain 履歴が空なら False を返すこと。"""
+    task = {"chain": []}
+    assert detect_cycle(task, "agent_a") is False
+
+
+def test_detect_cycle_first_occurrence_ok():
+    """agent が 1 回だけ処理済みで max_per_agent=1 → True（上限到達）。"""
+    task = {"chain": [{"agent_id": "agent_a"}]}
+    assert detect_cycle(task, "agent_a", max_per_agent=1) is True
+
+
+def test_detect_cycle_different_agent_is_safe():
+    """別エージェントの履歴があっても対象エージェントは False。"""
+    task = {"chain": [{"agent_id": "agent_b"}]}
+    assert detect_cycle(task, "agent_a") is False
+
+
+def test_detect_cycle_max_per_agent_2():
+    """max_per_agent=2 なら 1 回目は通過し 2 回目で True。"""
+    task = {"chain": [{"agent_id": "agent_a"}]}
+    assert detect_cycle(task, "agent_a", max_per_agent=2) is False
+    task2 = {"chain": [{"agent_id": "agent_a"}, {"agent_id": "agent_a"}]}
+    assert detect_cycle(task2, "agent_a", max_per_agent=2) is True
+
+
+# ── route_to_next_agent ───────────────────────────────────
+
+def _make_store_with_task(tmp_path, section="content", extra=None):
+    from airflow_mcp.taskboard.store import TaskStore
+    store = TaskStore(base_dir=tmp_path)
+    data = {"title": "テスト", "section": section, "tags": [], "priority": 5, "owner": None}
+    if extra:
+        data.update(extra)
+    t = store.create(data)
+    t = store.claim(t["id"], "agent_writer")
+    return store, t
+
+
+def _sequential_chains(agents=None):
+    return [{
+        "name": "review_chain",
+        "mode": "sequential",
+        "trigger": {"section": "content"},
+        "agents": agents or [
+            {"id": "agent_writer"},
+            {"id": "agent_reviewer"},
+            {"id": "agent_publisher"},
+        ],
+    }]
+
+
+def test_route_to_next_agent_returns_next(tmp_path):
+    """step 0 完了後に step 1 エージェントにルーティングされること。"""
+    import airflow_mcp.orchestrator.handoff_chain as hc_mod
+    from airflow_mcp.common.audit import new_audit_id
+    store, task = _make_store_with_task(tmp_path)
+    # chain に step 0 完了を記録
+    store.update(task["id"], task["lock"]["version"],
+                 {"chain": [{"agent_id": "agent_writer", "completed_at": "2026-01-01T00:00:00Z",
+                              "result_ref": None}]})
+    updated = store.get(task["id"])
+    chains = _sequential_chains()
+    next_agent = route_to_next_agent(updated, "agent_writer", store, chains)
+    assert next_agent == "agent_reviewer"
+    # タスクのオーナーが変わっていること
+    refreshed = store.get(task["id"])
+    assert refreshed["owner"] == "agent_reviewer"
+
+
+def test_route_to_next_agent_returns_none_at_end(tmp_path):
+    """最終エージェント完了後は None を返すこと。"""
+    store, task = _make_store_with_task(tmp_path)
+    # 全 3 ステップ完了済み
+    store.update(task["id"], task["lock"]["version"], {"chain": [
+        {"agent_id": "agent_writer", "completed_at": "2026-01-01T00:00:00Z", "result_ref": None},
+        {"agent_id": "agent_reviewer", "completed_at": "2026-01-01T00:00:01Z", "result_ref": None},
+        {"agent_id": "agent_publisher", "completed_at": "2026-01-01T00:00:02Z", "result_ref": None},
+    ]})
+    updated = store.get(task["id"])
+    next_agent = route_to_next_agent(updated, "agent_publisher", store, _sequential_chains())
+    assert next_agent is None
+
+
+def test_route_to_next_agent_skips_non_sequential_chains(tmp_path):
+    """mode: fan_out チェーンは sequential ルーティングに使われないこと。"""
+    store, task = _make_store_with_task(tmp_path)
+    store.update(task["id"], task["lock"]["version"],
+                 {"chain": [{"agent_id": "agent_writer", "completed_at": "2026-01-01T00:00:00Z",
+                              "result_ref": None}]})
+    updated = store.get(task["id"])
+    chains = [{
+        "name": "fanout",
+        "mode": "fan_out",
+        "trigger": {"section": "content"},
+        "agents": [{"id": "agent_reviewer"}],
+    }]
+    assert route_to_next_agent(updated, "agent_writer", store, chains) is None
+
+
+def test_route_to_next_agent_detects_cycle(tmp_path):
+    """サイクル検出でスキップされ None が返ること。"""
+    store, task = _make_store_with_task(tmp_path)
+    # agent_reviewer が既に 1 回処理済み
+    store.update(task["id"], task["lock"]["version"], {"chain": [
+        {"agent_id": "agent_writer", "completed_at": "2026-01-01T00:00:00Z", "result_ref": None},
+        {"agent_id": "agent_reviewer", "completed_at": "2026-01-01T00:00:01Z", "result_ref": None},
+    ]})
+    updated = store.get(task["id"])
+    # step 2 の次が agent_reviewer = サイクル
+    chains = [{
+        "name": "cycle_chain",
+        "mode": "sequential",
+        "trigger": {"section": "content"},
+        "agents": [
+            {"id": "agent_writer"},
+            {"id": "agent_reviewer"},
+            {"id": "agent_reviewer"},  # 再登場 → cycle
+        ],
+    }]
+    assert route_to_next_agent(updated, "agent_reviewer", store, chains) is None
+
+
+# ── spawn_with_join_tracking ──────────────────────────────
+
+def test_spawn_with_join_tracking_single_child_no_join(tmp_path):
+    """子タスクが 1 件のとき join フィールドは設定されないこと。"""
+    from airflow_mcp.taskboard.store import TaskStore
+    store = TaskStore(base_dir=tmp_path)
+    t = store.create({"title": "親", "section": "engineering",
+                      "tags": ["needs_review"], "priority": 5, "owner": None})
+    store.claim(t["id"], "agent_docs")
+    store.transition(t["id"], "done")
+    done_task = store.get(t["id"])
+    chains = [{
+        "name": "single",
+        "trigger": {"section": "engineering"},
+        "steps": [{"title_prefix": "[QA] ", "section": "qa", "owner": "agent_qa"}],
+    }]
+    child_ids = spawn_with_join_tracking(done_task, store, chains)
+    assert len(child_ids) == 1
+    refreshed = store.get(t["id"])
+    assert "join" not in refreshed
+
+
+def test_spawn_with_join_tracking_fanout_registers_join(tmp_path):
+    """子タスクが 2 件以上のとき親に join.child_ids が登録されること。"""
+    from airflow_mcp.taskboard.store import TaskStore
+    store = TaskStore(base_dir=tmp_path)
+    t = store.create({"title": "親", "section": "design",
+                      "tags": ["approved"], "priority": 5, "owner": None})
+    store.claim(t["id"], "agent_pm")
+    store.transition(t["id"], "done")
+    done_task = store.get(t["id"])
+    chains = [{
+        "name": "fanout2",
+        "trigger": {"section": "design", "tags": ["approved"]},
+        "steps": [
+            {"title_prefix": "[実装] ", "section": "engineering"},
+            {"title_prefix": "[テスト] ", "section": "qa"},
+        ],
+    }]
+    child_ids = spawn_with_join_tracking(done_task, store, chains)
+    assert len(child_ids) == 2
+    refreshed = store.get(t["id"])
+    assert "join" in refreshed
+    assert set(refreshed["join"]["child_ids"]) == set(child_ids)
+    assert refreshed["join"]["policy"] == "all"

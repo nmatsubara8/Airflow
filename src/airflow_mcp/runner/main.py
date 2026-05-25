@@ -31,7 +31,12 @@ from ..common.ollama import call_chat, is_stub_mode
 from ..common.thresholds import REROUTE_SCORE_THRESHOLD
 from ..common.url_validator import validate_ollama_url
 from ..orchestrator.execution_log import append_execution_log, compute_auto_score, load_history
-from ..orchestrator.handoff_chain import load_chains, record_chain_step, spawn_handoff_tasks
+from ..orchestrator.handoff_chain import (
+    load_chains,
+    record_chain_step,
+    route_to_next_agent,
+    spawn_with_join_tracking,
+)
 from ..orchestrator.recommender import select_model, simple_rule_select
 from ..taskboard.store import TaskStore
 
@@ -389,16 +394,29 @@ def process_task(task: dict[str, Any], ctx: ExecutionContext) -> bool:
         r.parsed, r.content, r.model_id, r.latency_ms, r.retry_count, r.rerouted_from, r.log_id,
     )
     ctx.store.add_handoff_note(task_id, handoff_content, author=ctx.agent_id)
-    ctx.store.transition(task_id, "done", reason="agent completed successfully")
 
+    # handoff チェーン処理（DDD-06 §3 / DDD-08 §3.1）
+    # record_chain_step を先に実行してから chain 深さを元にルーティングを決定する。
+    chains = load_chains()
+    record_chain_step(task_id, ctx.agent_id, r.log_id, ctx.store)
+    updated_task = ctx.store.get(task_id)
+
+    next_agent = route_to_next_agent(updated_task, ctx.agent_id, ctx.store, chains)
+    if next_agent:
+        # 順次チェーン継続: done に遷移せずオーナーを次エージェントに渡す
+        logger.info(
+            "handoff.sequential task=%s → %s (chain_depth=%d)",
+            task_id, next_agent, len(updated_task.get("chain", [])),
+        )
+        return True
+
+    # チェーン末端 or 該当なし: done に遷移してファンアウトチェックを行う
+    ctx.store.transition(task_id, "done", reason="agent completed successfully")
     logger.info("task %s → done (%.1fs, model=%s%s)", task_id, r.latency_ms / 1000, r.model_id,
                 f" via reroute from {r.rerouted_from}" if r.rerouted_from else "")
 
-    # handoff チェーン：完了ステップを記録し、次タスクを生成する（DDD-06 §3）
     done_task = ctx.store.get(task_id)
-    record_chain_step(task_id, ctx.agent_id, r.log_id, ctx.store)
-    chains = load_chains()
-    spawned = spawn_handoff_tasks(done_task, ctx.store, chains)
+    spawned = spawn_with_join_tracking(done_task, ctx.store, chains)
     if spawned:
         logger.info("handoff.spawned count=%d parent=%s", len(spawned), task_id)
 

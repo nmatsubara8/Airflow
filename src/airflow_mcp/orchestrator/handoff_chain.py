@@ -24,9 +24,9 @@ _DEFAULT_CONFIG = Path(os.environ.get("AIRFLOW_CHAINS_CONFIG", ".airflow/config/
 # ── 設定ロード ────────────────────────────────────────────
 
 
-def load_chains(config_path: Path = _DEFAULT_CONFIG) -> list[dict[str, Any]]:
+def load_chains(config_path: Path | None = None) -> list[dict[str, Any]]:
     """chains.yaml からチェーン定義リストを返す。ファイルが無ければ空リスト。"""
-    cfg = safe_yaml_load(config_path)
+    cfg = safe_yaml_load(config_path if config_path is not None else _DEFAULT_CONFIG)
     if not cfg:
         return []
     chains = cfg.get("chains", [])
@@ -42,8 +42,7 @@ def load_chains(config_path: Path = _DEFAULT_CONFIG) -> list[dict[str, Any]]:
 def _task_matches_trigger(task: dict[str, Any], trigger: dict[str, Any]) -> bool:
     """タスクが trigger 条件に一致するか確認する。
 
-    trigger キーは section / task_type / tags の組み合わせで指定。
-    すべての条件を AND 評価する。
+    trigger キーは section / task_type / tags / chain_depth の組み合わせで AND 評価。
     """
     if not trigger:
         return False
@@ -58,6 +57,9 @@ def _task_matches_trigger(task: dict[str, Any], trigger: dict[str, Any]) -> bool
         elif key == "tags":
             req = set(expected) if isinstance(expected, list) else {expected}
             if not req.intersection(task.get("tags", [])):
+                return False
+        elif key == "chain_depth":
+            if len(task.get("chain", [])) != int(expected):
                 return False
         # 未知のキーは無視（拡張性確保）
     return True
@@ -138,6 +140,125 @@ def spawn_handoff_tasks(
             )
 
     return created_ids
+
+
+# ── ファンアウト + fan-in 登録 ────────────────────────────
+
+
+def spawn_with_join_tracking(
+    source_task: dict[str, Any],
+    store: "TaskStore",
+    chains: list[dict[str, Any]],
+) -> list[str]:
+    """spawn_handoff_tasks を呼び、複数タスク生成時は親に join 情報を登録する。
+
+    fan-out で 2 件以上の子タスクが生成された場合、親タスクの ``join`` フィールドに
+    ``child_ids`` を記録して tasks.join ツールで収束を待てるようにする（DDD-08 §3.2）。
+    """
+    child_ids = spawn_handoff_tasks(source_task, store, chains)
+    if len(child_ids) > 1:
+        join_data = {
+            "parent_id": source_task["id"],
+            "child_ids": child_ids,
+            "policy": "all",
+        }
+        try:
+            store.update(
+                source_task["id"],
+                source_task["lock"]["version"],
+                {"join": join_data},
+            )
+        except Exception as exc:
+            logger.warning(
+                "handoff.join_register_failed parent=%s: %s", source_task["id"], exc
+            )
+    return child_ids
+
+
+# ── 順次チェーン（intra-task sequential routing）────────────────────────────
+
+
+def detect_cycle(task: dict[str, Any], next_agent: str, max_per_agent: int = 1) -> bool:
+    """次のエージェントが既に上限回数処理済みであれば True（無限ループ防止）。"""
+    chain = task.get("chain", [])
+    count = sum(1 for step in chain if step.get("agent_id") == next_agent)
+    return count >= max_per_agent
+
+
+def route_to_next_agent(
+    task: dict[str, Any],
+    current_agent_id: str,
+    store: "TaskStore",
+    chains: list[dict[str, Any]],
+) -> str | None:
+    """順次チェーン（mode: sequential）で次のエージェントにタスクをルーティングする。
+
+    ``task["chain"]`` の深さを現在のステップインデックスとして使い、
+    chains.yaml の ``agents`` リストから次を選択する。
+    一致するチェーンが無い・チェーンが末端・サイクル検出の場合は None を返す。
+
+    Args:
+        task: record_chain_step 呼び出し後に re-read した最新タスク。
+        current_agent_id: 今回ステップを完了したエージェント。
+        store: TaskStore インスタンス。
+        chains: load_chains() で得たチェーン定義リスト。
+
+    Returns:
+        ルーティング先 agent_id（遷移成功）または None（完結 / 該当なし）。
+    """
+    chain_depth = len(task.get("chain", []))
+    task_id = task["id"]
+
+    for chain in chains:
+        if not isinstance(chain, dict):
+            continue
+        if chain.get("mode") != "sequential":
+            continue
+        trigger = chain.get("trigger", {})
+        if not _task_matches_trigger(task, trigger):
+            continue
+
+        agents = chain.get("agents", [])
+        if not isinstance(agents, list):
+            continue
+        if chain_depth >= len(agents):
+            continue  # このチェーンは末端
+
+        next_step = agents[chain_depth]
+        if not isinstance(next_step, dict):
+            continue
+
+        next_agent = next_step.get("id")
+        if not next_agent:
+            continue
+        if next_agent == current_agent_id:
+            logger.debug(
+                "handoff.route_skip task=%s: next_agent == current_agent", task_id
+            )
+            continue
+
+        if detect_cycle(task, next_agent):
+            logger.warning(
+                "handoff.cycle_detected task=%s agent=%s depth=%d — skip",
+                task_id, next_agent, chain_depth,
+            )
+            continue
+
+        try:
+            store.reassign_in_progress(
+                task_id, next_agent,
+                reason=f"chain:{chain.get('name', '')}:step{chain_depth}",
+            )
+            logger.info(
+                "handoff.routed task=%s chain=%s step=%d agent=%s→%s",
+                task_id, chain.get("name", ""), chain_depth,
+                current_agent_id, next_agent,
+            )
+            return next_agent
+        except Exception as exc:
+            logger.error("handoff.route_failed task=%s: %s", task_id, exc)
+
+    return None
 
 
 # ── 連鎖履歴の記録 ───────────────────────────────────────
