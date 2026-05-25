@@ -25,10 +25,10 @@ ruff check src/ tests/
 
 | マーカー | 説明 | 実行コマンド |
 |---------|------|------------|
-| *(なし)* | 全テスト (1255件) | `pytest` |
-| `not integration and not slow` | 高速ユニットのみ (1041件) | `pytest -m "not integration and not slow"` |
-| `integration` | 統合テスト (192件) | `pytest -m integration` |
-| `slow` | HTTPサーバー起動テスト (22件) | `pytest -m slow` |
+| *(なし)* | 全テスト (1337件) | `pytest` |
+| `not integration and not slow` | 高速ユニットのみ | `pytest -m "not integration and not slow"` |
+| `integration` | 統合テスト | `pytest -m integration` |
+| `slow` | HTTPサーバー起動テスト | `pytest -m slow` |
 
 ## 設定ファイル検証
 
@@ -61,23 +61,31 @@ python -m airflow_mcp agents      # エージェント登録 MCP
 ## 運用 CLI
 
 ```bash
-python -m airflow_mcp status              # ダッシュボード表示
-python -m airflow_mcp batch               # バッチスケジュール 1回実行
-python -m airflow_mcp batch --loop        # バッチスケジュール ループ実行
-python -m airflow_mcp audit verify        # 監査ログ整合性チェック
-python -m airflow_mcp auth keygen         # Ed25519 キーペア生成
+python -m airflow_mcp status                    # ダッシュボード表示
+python -m airflow_mcp status --watch            # リアルタイム監視（Ctrl+C で停止）
+python -m airflow_mcp status --watch --interval 10  # 10秒ごとに更新
+python -m airflow_mcp batch                     # バッチスケジュール 1回実行
+python -m airflow_mcp batch --loop              # バッチスケジュール ループ実行
+python -m airflow_mcp audit verify              # 監査ログ整合性チェック
+python -m airflow_mcp audit hash                # 当日ハッシュ計算
+python -m airflow_mcp config                    # 設定ファイル一括検証
+python -m airflow_mcp auth keygen               # Ed25519 キーペア生成
 python -m airflow_mcp auth issue --agent agent_docs --scopes tasks:read,tasks:write
+python -m airflow_mcp auth list                 # 登録済みトークン一覧
+python -m airflow_mcp auth revoke --agent agent_docs
+python -m airflow_mcp auth rotate --agent agent_docs --scopes tasks:read
 ```
 
 ## ディレクトリ構成
 
 ```
 src/airflow_mcp/
-├── common/          # 共通ユーティリティ（auth, io, errors, config_validator）
+├── common/          # 共通ユーティリティ（auth, io, errors, config_validator, rate_limiter）
 ├── taskboard/       # タスクボード MCP サーバー + TaskStore
 ├── dispatcher/      # inbox タスクをエージェントへ割り当て
 ├── runner/          # エージェントタスク実行（Ollama 呼び出し）
 ├── orchestrator/    # ハンドオフチェーン / バッチスケジューラ
+├── cleaner/         # Cleaner Agent（タスクアーカイブ・ログローテーション）
 ├── models/          # モデル管理 MCP (KNN 推薦 + ε-greedy)
 ├── gpu/             # GPU 状態管理 MCP
 ├── scheduler/       # マルチキュースケジューラ（親和性・スターベーション）
@@ -85,6 +93,9 @@ src/airflow_mcp/
 ├── notes/           # ノート検索 MCP
 ├── ops/             # 監視・メトリクス・通知・監査
 └── web/             # Prometheus メトリクス / ダッシュボード
+
+agents/              # 26エージェントの skills.md（orchestration/engineering/content/business）
+deploy/systemd/      # 本番用 systemd ユニットファイル
 ```
 
 ## 主要環境変数
@@ -107,12 +118,31 @@ src/airflow_mcp/
 
 `docs/design/` に DDD-01〜DDD-08 の詳細設計書があります。
 
+## 本番デプロイ（systemd）
+
+```bash
+# ユニットファイルをコピーして有効化
+sudo cp deploy/systemd/*.service deploy/systemd/*.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable airflow-taskboard airflow-models airflow-gpu \
+  airflow-notes airflow-agents airflow-dashboard airflow-dispatcher airflow-batch.timer
+sudo systemctl start airflow-taskboard airflow-models airflow-gpu \
+  airflow-notes airflow-agents airflow-dashboard airflow-dispatcher
+sudo systemctl start airflow-batch.timer   # 毎朝 03:00 に自動実行
+
+# 詳細手順: deploy/systemd/README.md を参照
+```
+
 ## フェーズ状況
 
 | フェーズ | 内容 | 状態 |
 |---------|------|------|
 | Phase 1 | 横断基盤（スキーマ・MCP・エラー処理） | ✅ 完了 |
 | Phase 2 | MVP（単一エージェント・Ollama連携） | ✅ 完了 |
-| Phase 3 | Recommend モード・精度補完 | ✅ 実装済み |
-| Phase 4 | 並列実行・GPU スケジューラ | ✅ 実装済み |
-| Phase 5 | チーム拡張・JWT・OpenTelemetry | 🔄 進行中 |
+| Phase 3 | Recommend モード・精度補完 | ✅ 完了 |
+| Phase 4 | 並列実行・GPU スケジューラ | ✅ 完了 |
+| Phase 5 | チーム拡張・JWT・本番化・systemd | ✅ 完了 |
+
+**実装完了**: 1,337 テスト全パス・カバレッジ 100%・ruff clean
+
+残作業は実機での運用検証のみ（DDD-08 §8〜§10）。
