@@ -1,11 +1,13 @@
 """通知連携（DDD-08 §6）。
 
-Slack webhook + CLI（bell）で needs_human / critical / バッチ完了を通知する。
+Slack webhook + SMTP email + CLI（bell）で needs_human / critical / バッチ完了を通知する。
 """
 from __future__ import annotations
 
 import logging
 import os
+import smtplib
+from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Any
 
@@ -55,11 +57,58 @@ def _load_config() -> dict[str, Any]:
     return {}
 
 
+_EMAIL_EVENTS = {"critical", "audit_tamper"}
+
+
 def _slack_webhook_url() -> str | None:
     raw = os.environ.get("AIRFLOW_SLACK_WEBHOOK")
     if raw is None:
         return None
     return validate_slack_webhook_url(raw)
+
+
+def send_email(
+    subject: str,
+    body: str,
+    email_cfg: dict[str, Any],
+) -> bool:
+    """SMTP でメールを送信する（DDD-08 §6.1）。
+
+    email_cfg キー: smtp_host, smtp_port (default 587), smtp_user,
+    smtp_password_env, from_addr, to_addrs (list or str)。
+    """
+    smtp_host = email_cfg.get("smtp_host", "")
+    if not smtp_host:
+        return False
+    smtp_port = int(email_cfg.get("smtp_port", 587))
+    smtp_user = email_cfg.get("smtp_user", "")
+    password = os.environ.get(email_cfg.get("smtp_password_env", ""), "")
+    from_addr = email_cfg.get("from_addr", smtp_user)
+    to_raw = email_cfg.get("to_addrs", [])
+    to_addrs = [to_raw] if isinstance(to_raw, str) else list(to_raw)
+    if not to_addrs:
+        logger.warning("send_email: to_addrs is empty, skipping")
+        return False
+
+    msg = MIMEText(body, "plain", "utf-8")
+    msg["Subject"] = subject
+    msg["From"] = from_addr
+    msg["To"] = ", ".join(to_addrs)
+
+    try:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as smtp:
+            smtp.ehlo()
+            if smtp_port != 25:
+                smtp.starttls()
+                smtp.ehlo()
+            if smtp_user:
+                smtp.login(smtp_user, password)
+            smtp.sendmail(from_addr, to_addrs, msg.as_string())
+        logger.info("email sent: subject=%r to=%s", subject, to_addrs)
+        return True
+    except (smtplib.SMTPException, OSError) as exc:
+        logger.warning("send_email failed: %s", exc)
+        return False
 
 
 def send_notification(
@@ -75,6 +124,7 @@ def send_notification(
     """
     cfg = _load_config()
     slack_cfg = cfg.get("channels", {}).get("slack", {})
+    email_cfg = cfg.get("channels", {}).get("email", {})
     cli_cfg = cfg.get("channels", {}).get("cli", {})
 
     template = _TEMPLATES.get(event, "{event}: {data}")
@@ -105,6 +155,12 @@ def send_notification(
         except httpx.HTTPError as exc:
             sent = False
             logger.warning("slack notification failed: %s", exc)
+
+    # Email（critical / audit_tamper のみ）
+    if email_cfg.get("enabled", False) and event in _EMAIL_EVENTS:
+        subject = f"[airflow] {event}: {data.get('audit_id', data.get('task_id', ''))}"
+        if send_email(subject, message, email_cfg):
+            sent = True
 
     return sent
 

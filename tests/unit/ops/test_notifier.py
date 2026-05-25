@@ -7,6 +7,7 @@ from airflow_mcp.ops.notifier import (
     notify_audit_tamper,
     notify_batch_complete,
     notify_needs_human,
+    send_email,
     send_notification,
 )
 
@@ -185,3 +186,112 @@ def test_load_config_comment_only_yaml_returns_empty(tmp_path, monkeypatch):
     monkeypatch.setattr(_notifier_mod, "_CONFIG_PATH", cfg)
     result = _real_load_config()
     assert result == {}
+
+
+# ── send_email ────────────────────────────────────────
+
+def test_send_email_returns_false_when_no_smtp_host():
+    result = send_email("subject", "body", {})
+    assert result is False
+
+
+def test_send_email_sends_via_smtp(monkeypatch):
+    """SMTP が正常に送信できる場合 True を返すこと。"""
+    from unittest.mock import MagicMock, patch
+
+    mock_smtp = MagicMock()
+    mock_smtp.__enter__ = lambda s: s
+    mock_smtp.__exit__ = MagicMock(return_value=False)
+
+    with patch("airflow_mcp.ops.notifier.smtplib.SMTP", return_value=mock_smtp):
+        result = send_email(
+            "Test Subject",
+            "Test body",
+            {
+                "smtp_host": "smtp.example.com",
+                "smtp_port": 587,
+                "smtp_user": "user@example.com",
+                "smtp_password_env": "TEST_SMTP_PASS",
+                "from_addr": "user@example.com",
+                "to_addrs": ["dest@example.com"],
+            },
+        )
+    assert result is True
+    mock_smtp.sendmail.assert_called_once()
+
+
+def test_send_email_returns_false_on_smtp_exception(monkeypatch):
+    """SMTP 例外が発生しても False を返しクラッシュしないこと。"""
+    import smtplib
+    from unittest.mock import patch
+
+    with patch("airflow_mcp.ops.notifier.smtplib.SMTP", side_effect=smtplib.SMTPConnectError(421, "down")):
+        result = send_email(
+            "Subject",
+            "body",
+            {"smtp_host": "bad.host", "to_addrs": ["x@y.com"]},
+        )
+    assert result is False
+
+
+def test_send_email_returns_false_when_no_to_addrs():
+    result = send_email("subj", "body", {"smtp_host": "smtp.example.com", "to_addrs": []})
+    assert result is False
+
+
+def test_send_email_accepts_string_to_addr(monkeypatch):
+    """to_addrs が str の場合もリスト変換して送信すること。"""
+    from unittest.mock import MagicMock, patch
+
+    mock_smtp = MagicMock()
+    mock_smtp.__enter__ = lambda s: s
+    mock_smtp.__exit__ = MagicMock(return_value=False)
+
+    with patch("airflow_mcp.ops.notifier.smtplib.SMTP", return_value=mock_smtp):
+        result = send_email(
+            "subj", "body",
+            {"smtp_host": "s", "smtp_port": 25, "to_addrs": "single@example.com"},
+        )
+    assert result is True
+
+
+# ── send_notification email integration ───────────────
+
+def test_send_notification_sends_email_for_critical(monkeypatch):
+    """critical イベントで email が enabled なら send_email が呼ばれること。"""
+    from unittest.mock import patch
+
+    monkeypatch.setattr(
+        "airflow_mcp.ops.notifier._load_config",
+        lambda: {"channels": {
+            "email": {"enabled": True, "smtp_host": "s", "to_addrs": ["a@b.com"]},
+            "cli": {"enabled": False},
+            "slack": {"enabled": False},
+        }},
+    )
+    with patch("airflow_mcp.ops.notifier.send_email", return_value=True) as mock_email:
+        result = send_notification("critical", {
+            "message": "crash", "audit_id": "aid1", "source": "runner",
+        })
+    mock_email.assert_called_once()
+    assert result is True
+
+
+def test_send_notification_does_not_email_non_email_events(monkeypatch):
+    """needs_human は email 対象外なので send_email が呼ばれないこと。"""
+    from unittest.mock import patch
+
+    monkeypatch.setattr(
+        "airflow_mcp.ops.notifier._load_config",
+        lambda: {"channels": {
+            "email": {"enabled": True, "smtp_host": "s", "to_addrs": ["a@b.com"]},
+            "cli": {"enabled": True},
+            "slack": {"enabled": False},
+        }},
+    )
+    with patch("airflow_mcp.ops.notifier.send_email") as mock_email:
+        send_notification("needs_human", {
+            "task_id": "t1", "title": "x", "section": "eng",
+            "agent_id": "agent_docs", "reason": "r",
+        })
+    mock_email.assert_not_called()
