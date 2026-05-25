@@ -26,6 +26,7 @@ import httpx
 from jsonschema import Draft202012Validator
 
 from ..common.audit import log_event, new_audit_id
+from ..ops.notifier import notify_needs_human
 from ..common.io import load_model_registry, safe_yaml_load
 from ..common.ollama import call_chat, is_stub_mode
 from ..common.thresholds import REROUTE_SCORE_THRESHOLD
@@ -354,6 +355,8 @@ def process_task(task: dict[str, Any], ctx: ExecutionContext) -> bool:
         logger.error("model selection failed for task %s: %s", task_id, exc)
         ctx.store.add_handoff_note(task_id, f"[FAILED] モデル選択エラー: {exc}", author=ctx.agent_id)
         ctx.store.transition(task_id, "needs_human", reason="MODEL_SELECTION_ERROR")
+        notify_needs_human(task_id, task.get("title", ""), task.get("section", ""),
+                           ctx.agent_id, f"MODEL_SELECTION_ERROR: {exc}")
         return False
     logger.info(
         "runner.model_selected task=%s model=%s exploration=%s",
@@ -388,6 +391,8 @@ def process_task(task: dict[str, Any], ctx: ExecutionContext) -> bool:
         ctx.store.transition(task_id, "needs_human",
                              reason="MODEL_STRUCTURED_OUTPUT_INVALID after retries")
         logger.error("task %s → needs_human (schema invalid)", task_id)
+        notify_needs_human(task_id, task.get("title", ""), task.get("section", ""),
+                           ctx.agent_id, f"MODEL_STRUCTURED_OUTPUT_INVALID (model={r.model_id})")
         return False
 
     handoff_content = _build_handoff_note(

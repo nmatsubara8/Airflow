@@ -26,10 +26,15 @@ _DASHBOARD_PORT = int(os.environ.get("AIRFLOW_DASHBOARD_PORT", "7400"))
 
 # ── HTML ヘルパー ────────────────────────────────────────
 
-def _page(title: str, body: str) -> str:
+_AUTO_REFRESH_S = int(os.environ.get("AIRFLOW_DASHBOARD_REFRESH", "30"))
+
+
+def _page(title: str, body: str, refresh: bool = True) -> str:
+    refresh_tag = f"<meta http-equiv='refresh' content='{_AUTO_REFRESH_S}'>" if refresh and _AUTO_REFRESH_S > 0 else ""
     return (
         "<!DOCTYPE html><html lang='ja'><head>"
         "<meta charset='utf-8'>"
+        f"{refresh_tag}"
         f"<title>{html.escape(title)} – Airflow</title>"
         "<style>body{font-family:sans-serif;margin:2em;}"
         "table{border-collapse:collapse;width:100%}"
@@ -38,11 +43,14 @@ def _page(title: str, body: str) -> str:
         ".badge{padding:.1em .5em;border-radius:.3em;font-size:.85em}"
         ".inbox{background:#ddf}.in_progress{background:#ffd}"
         ".done{background:#dfd}.needs_human{background:#fdd}"
-        ".cancelled{background:#eee}</style>"
+        ".blocked{background:#ffa}.cancelled{background:#eee}"
+        ".DEGRADED{background:#f88;color:#fff}.NORMAL{background:#8f8}</style>"
         "</head><body>"
         "<nav><a href='/'>Home</a> | "
         "<a href='/tasks'>Tasks</a> | "
-        "<a href='/scheduler'>Scheduler</a></nav><hr>"
+        "<a href='/scheduler'>Scheduler</a> | "
+        "<a href='/api/status'>API</a> | "
+        "<a href='http://localhost:9090/metrics' target='_blank'>Metrics</a></nav><hr>"
         f"<h1>{html.escape(title)}</h1>"
         f"{body}"
         "</body></html>"
@@ -66,7 +74,7 @@ def _table(headers: list[str], rows: list[list[str]]) -> str:
 # ── ページレンダラー ────────────────────────────────────
 
 def render_home(store: TaskStore) -> str:
-    statuses = ["inbox", "in_progress", "done", "needs_human", "cancelled"]
+    statuses = ["inbox", "in_progress", "done", "needs_human", "blocked", "cancelled"]
     rows = []
     total = 0
     for s in statuses:
@@ -84,7 +92,7 @@ def render_home(store: TaskStore) -> str:
 
 
 def render_tasks(store: TaskStore, status: str | None = None, section: str | None = None) -> str:
-    statuses = ["inbox", "in_progress", "done", "needs_human", "cancelled"]
+    statuses = ["inbox", "in_progress", "done", "needs_human", "blocked", "cancelled"]
     tasks: list[dict[str, Any]] = []
     for s in statuses:
         if status and s != status:
@@ -160,7 +168,17 @@ def render_task_detail(store: TaskStore, task_id: str) -> str | None:
             html.escape(c.get("completed_at", "")),
             html.escape(str(c.get("result_ref") or "—")),
         ] for c in chain]
-        body += _table(["Agent", "Completed At", "Result Ref"], chain_rows)
+        body += _table(["Step", "Agent", "Completed At", "Result Ref"],
+                       [[str(i + 1)] + r for i, r in enumerate(chain_rows)])
+
+    join_info = task.get("join")
+    if join_info:
+        body += "<h2>Fan-in Join</h2>"
+        child_links = ", ".join(
+            f"<a href='/tasks/{html.escape(cid)}'>{html.escape(cid[:16])}…</a>"
+            for cid in join_info.get("child_ids", [])
+        )
+        body += f"<p>Policy: {html.escape(join_info.get('policy', 'all'))} | Children: {child_links or '—'}</p>"
 
     return _page(f"Task: {task_id[:16]}", body)
 
@@ -196,6 +214,20 @@ def render_scheduler() -> str:
 
 # ── HTTP ハンドラ ─────────────────────────────────────
 
+def render_api_status(store: TaskStore | None) -> str:
+    """JSON ステータスサマリーを返す（/api/status 用）。"""
+    statuses = ["inbox", "in_progress", "done", "needs_human", "blocked", "cancelled"]
+    counts: dict[str, int] = {}
+    if store is not None:
+        for s in statuses:
+            try:
+                counts[s] = len(store.list_by_status(s))
+            except Exception:
+                counts[s] = 0
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return json.dumps({"tasks": counts, "timestamp": now}, ensure_ascii=False)
+
+
 class _DashboardHandler(_BaseHandler):
     _server_name = "dashboard"
     store: TaskStore | None = None
@@ -225,6 +257,9 @@ class _DashboardHandler(_BaseHandler):
 
         if path == "/scheduler":
             return 200, "text/html; charset=utf-8", render_scheduler()
+
+        if path == "/api/status":
+            return 200, "application/json; charset=utf-8", render_api_status(store)
 
         return 404, "text/html; charset=utf-8", _page("Not Found", "<p>Page not found.</p>")
 

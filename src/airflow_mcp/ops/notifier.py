@@ -48,11 +48,20 @@ _TEMPLATES = {
 }
 
 
+_NOTIFICATIONS_YAML = Path(
+    os.environ.get("AIRFLOW_NOTIFICATIONS_CONFIG", ".airflow/config/notifications.yaml")
+)
+
+
 def _load_config() -> dict[str, Any]:
+    """notifications.yaml を優先し、なければ auth.yaml の notifications セクションを使用する。"""
+    notif_cfg = safe_yaml_load(_NOTIFICATIONS_YAML)
+    if notif_cfg and isinstance(notif_cfg, dict) and "notifications" in notif_cfg:
+        return notif_cfg["notifications"]
     return safe_yaml_load(_CONFIG_PATH).get("notifications", {})
 
 
-_EMAIL_EVENTS = {"critical", "audit_tamper"}
+_EMAIL_EVENTS = {"critical", "audit_tamper", "needs_human", "batch_complete"}
 
 
 def _slack_webhook_url() -> str | None:
@@ -106,6 +115,36 @@ def send_email(
         return False
 
 
+def smtp_test(email_cfg: dict[str, Any] | None = None) -> bool:
+    """SMTP 接続疎通テスト（設定検証 / CLI 用）。
+
+    Returns:
+        True = 接続・認証成功、False = 失敗（ログにエラー詳細）。
+    """
+    if email_cfg is None:
+        email_cfg = _load_config().get("channels", {}).get("email", {})
+    smtp_host = email_cfg.get("smtp_host", "")
+    if not smtp_host:
+        logger.warning("smtp_test: smtp_host is not configured")
+        return False
+    smtp_port = int(email_cfg.get("smtp_port", 587))
+    smtp_user = email_cfg.get("smtp_user", "")
+    password = os.environ.get(email_cfg.get("smtp_password_env", ""), "")
+    try:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as smtp:
+            smtp.ehlo()
+            if smtp_port != 25:
+                smtp.starttls()
+                smtp.ehlo()
+            if smtp_user:
+                smtp.login(smtp_user, password)
+        logger.info("smtp_test: connection OK (%s:%d)", smtp_host, smtp_port)
+        return True
+    except (smtplib.SMTPException, OSError) as exc:
+        logger.warning("smtp_test failed (%s:%d): %s", smtp_host, smtp_port, exc)
+        return False
+
+
 def send_notification(
     event: str,
     data: dict[str, Any],
@@ -137,19 +176,25 @@ def send_notification(
         logger.info("NOTIFY [%s] %s%s", event, bell, message.replace("\n", " | "))
         sent = True
 
-    # Slack webhook
+    # Slack webhook（指数バックオフリトライ）
     webhook_url = _slack_webhook_url()
     if slack_cfg.get("enabled", False) and webhook_url:
+        import time as _time
         target_channel = channel or slack_cfg.get("default_channel", "#airflow-alerts")
         payload = {"text": message, "channel": target_channel}
-        try:
-            resp = httpx.post(webhook_url, json=payload, timeout=10.0)
-            resp.raise_for_status()
-            sent = True
-            logger.info("slack notification sent: event=%s", event)
-        except httpx.HTTPError as exc:
-            sent = False
-            logger.warning("slack notification failed: %s", exc)
+        max_attempts = int(slack_cfg.get("retry_attempts", 3))
+        backoff_s = float(slack_cfg.get("retry_backoff_s", 2.0))
+        for attempt in range(max_attempts):
+            try:
+                resp = httpx.post(webhook_url, json=payload, timeout=10.0)
+                resp.raise_for_status()
+                sent = True
+                logger.info("slack notification sent: event=%s", event)
+                break
+            except httpx.HTTPError as exc:
+                logger.warning("slack notification attempt %d/%d failed: %s", attempt + 1, max_attempts, exc)
+                if attempt < max_attempts - 1:
+                    _time.sleep(backoff_s * (2 ** attempt))
 
     # Email（critical / audit_tamper のみ）
     if email_cfg.get("enabled", False) and event in _EMAIL_EVENTS:
@@ -186,3 +231,7 @@ def notify_audit_tamper(date: str, expected_hash: str, actual_hash: str) -> None
     send_notification("audit_tamper", {
         "date": date, "expected_hash": expected_hash, "actual_hash": actual_hash,
     })
+
+
+def notify_gpu_oom(model_id: str, free_vram_gb: float) -> None:
+    send_notification("gpu_oom", {"model_id": model_id, "free_vram_gb": free_vram_gb})

@@ -77,6 +77,7 @@ def test_load_config_returns_empty_when_no_file(monkeypatch):
     """config ファイルが存在しないとき {} を返すこと（line 54）。"""
     from pathlib import Path
     monkeypatch.setattr(_notifier_mod, "_CONFIG_PATH", Path("/nonexistent/auth.yaml"))
+    monkeypatch.setattr(_notifier_mod, "_NOTIFICATIONS_YAML", Path("/nonexistent/notifications.yaml"))
     result = _real_load_config()
     assert result == {}
 
@@ -166,6 +167,7 @@ def test_load_config_non_dict_yaml_returns_empty(tmp_path, monkeypatch):
     cfg = tmp_path / "ops.yaml"
     cfg.write_text("- item1\n- item2\n")
     monkeypatch.setattr(_notifier_mod, "_CONFIG_PATH", cfg)
+    monkeypatch.setattr(_notifier_mod, "_NOTIFICATIONS_YAML", tmp_path / "nonexistent.yaml")
     result = _real_load_config()
     assert result == {}
 
@@ -175,6 +177,7 @@ def test_load_config_empty_file_returns_empty(tmp_path, monkeypatch):
     cfg = tmp_path / "ops.yaml"
     cfg.write_text("")
     monkeypatch.setattr(_notifier_mod, "_CONFIG_PATH", cfg)
+    monkeypatch.setattr(_notifier_mod, "_NOTIFICATIONS_YAML", tmp_path / "nonexistent.yaml")
     result = _real_load_config()
     assert result == {}
 
@@ -184,6 +187,7 @@ def test_load_config_comment_only_yaml_returns_empty(tmp_path, monkeypatch):
     cfg = tmp_path / "ops.yaml"
     cfg.write_text("# comment only\n")
     monkeypatch.setattr(_notifier_mod, "_CONFIG_PATH", cfg)
+    monkeypatch.setattr(_notifier_mod, "_NOTIFICATIONS_YAML", tmp_path / "nonexistent.yaml")
     result = _real_load_config()
     assert result == {}
 
@@ -278,7 +282,7 @@ def test_send_notification_sends_email_for_critical(monkeypatch):
 
 
 def test_send_notification_does_not_email_non_email_events(monkeypatch):
-    """needs_human は email 対象外なので send_email が呼ばれないこと。"""
+    """gpu_oom は email 対象外なので send_email が呼ばれないこと。"""
     from unittest.mock import patch
 
     monkeypatch.setattr(
@@ -290,8 +294,5 @@ def test_send_notification_does_not_email_non_email_events(monkeypatch):
         }},
     )
     with patch("airflow_mcp.ops.notifier.send_email") as mock_email:
-        send_notification("needs_human", {
-            "task_id": "t1", "title": "x", "section": "eng",
-            "agent_id": "agent_docs", "reason": "r",
-        })
+        send_notification("gpu_oom", {"model_id": "qwen14b", "free_vram_gb": 1.5})
     mock_email.assert_not_called()

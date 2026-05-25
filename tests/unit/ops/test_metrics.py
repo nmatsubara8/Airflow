@@ -134,7 +134,7 @@ def test_render_includes_gpu_metrics():
 def test_render_includes_execution_duration():
     exec_m = {
         "execution_durations": {
-            "qwen14b": {"count": 10, "sum": 30.0, "p50": 2.5, "p95": 4.8}
+            "qwen14b": {"count": 10, "sum": 30.0, "p50": 2.5, "p95": 4.8, "p99": 5.2}
         }
     }
     text = render_prometheus_text({}, {}, exec_m)
@@ -142,6 +142,7 @@ def test_render_includes_execution_duration():
     assert 'airflow_model_execution_duration_seconds_sum{model="qwen14b"}' in text
     assert 'quantile="0.5"' in text
     assert 'quantile="0.95"' in text
+    assert 'quantile="0.99"' in text
 
 
 def test_render_empty_inputs():

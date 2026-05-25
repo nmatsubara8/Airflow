@@ -22,7 +22,7 @@ _METRICS_PORT = int(os.environ.get("AIRFLOW_METRICS_PORT", "9090"))
 
 def collect_task_metrics(store: TaskStore) -> dict[str, Any]:
     """タスクボードから集計メトリクスを収集する。"""
-    statuses = ["inbox", "in_progress", "done", "needs_human", "cancelled"]
+    statuses = ["inbox", "in_progress", "done", "needs_human", "blocked", "cancelled"]
     counts: dict[str, dict[str, int]] = {}
 
     for status in statuses:
@@ -89,14 +89,39 @@ def collect_execution_metrics() -> dict[str, Any]:
             "sum": sum(vals_sorted),
             "p50": vals_sorted[n // 2] if n else 0.0,
             "p95": vals_sorted[int(n * 0.95)] if n else 0.0,
+            "p99": vals_sorted[int(n * 0.99)] if n else 0.0,
         }
     return {"execution_durations": result}
+
+
+def collect_chain_metrics() -> dict[str, Any]:
+    """実行ログから handoff チェーンステップ数を集計する。"""
+    import json
+    log_path = Path(os.environ.get("AIRFLOW_EXECUTION_LOG", ".airflow/logs/execution.jsonl"))
+    if not log_path.exists():
+        return {}
+    chain_steps: dict[str, int] = {}
+    try:
+        for line in log_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            agent = entry.get("agent_id", "")
+            if entry.get("rerouted_from") or entry.get("chain_step"):
+                chain_steps[agent] = chain_steps.get(agent, 0) + 1
+    except OSError as exc:
+        logger.debug("collect_chain_metrics: %s", exc)
+    return {"chain_steps": chain_steps}
 
 
 def render_prometheus_text(
     task_metrics: dict[str, Any],
     gpu_metrics: dict[str, Any],
     exec_metrics: dict[str, Any],
+    chain_metrics: dict[str, Any] | None = None,
 ) -> str:
     """収集済みメトリクスを Prometheus テキスト形式に変換する。"""
     lines: list[str] = []
@@ -142,6 +167,22 @@ def render_prometheus_text(
         lines.append(
             f'airflow_model_execution_duration_seconds{{model="{model_id}",quantile="0.95"}} {stats["p95"]:.3f}'
         )
+        lines.append(
+            f'airflow_model_execution_duration_seconds{{model="{model_id}",quantile="0.99"}} {stats["p99"]:.3f}'
+        )
+
+    # ── handoff チェーン ──
+    if chain_metrics:
+        lines.append("# HELP airflow_handoff_chain_steps_total Handoff chain steps completed per agent")
+        lines.append("# TYPE airflow_handoff_chain_steps_total counter")
+        for agent_id, count in chain_metrics.get("chain_steps", {}).items():
+            lines.append(f'airflow_handoff_chain_steps_total{{agent_id="{agent_id}"}} {count}')
+
+    # ── scrape タイムスタンプ ──
+    import time as _time
+    lines.append("# HELP airflow_scrape_timestamp_seconds Unix timestamp of last scrape")
+    lines.append("# TYPE airflow_scrape_timestamp_seconds gauge")
+    lines.append(f"airflow_scrape_timestamp_seconds {_time.time():.3f}")
 
     return "\n".join(lines) + "\n"
 
@@ -151,7 +192,8 @@ def get_metrics_text(store: TaskStore | None = None) -> str:
     task_m = collect_task_metrics(store) if store is not None else {}
     gpu_m = collect_gpu_metrics()
     exec_m = collect_execution_metrics()
-    return render_prometheus_text(task_m, gpu_m, exec_m)
+    chain_m = collect_chain_metrics()
+    return render_prometheus_text(task_m, gpu_m, exec_m, chain_m)
 
 
 class _MetricsHandler(_BaseHandler):
@@ -163,6 +205,10 @@ class _MetricsHandler(_BaseHandler):
     def handle_get(self, path: str, qs: dict) -> tuple[int, str, str]:
         if path == "/metrics":
             return 200, "text/plain; version=0.0.4; charset=utf-8", get_metrics_text(self.__class__.store)
+        if path == "/health":
+            import json as _json
+            import time as _time
+            return 200, "application/json", _json.dumps({"status": "ok", "ts": _time.time()})
         return 404, "text/plain", "Not Found"
 
 
