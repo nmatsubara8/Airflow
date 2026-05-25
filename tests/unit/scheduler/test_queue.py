@@ -297,3 +297,36 @@ def test_fair_share_skips_model_not_matching_any_key():
     entry = q.dequeue(["model_unknown_xyz"])
     assert entry is not None
     assert entry.task_id == "t1"
+
+
+# ── 追加テスト: fair_share 非数値 min_pct ガード ──────
+
+def test_fair_share_skips_non_numeric_min_pct():
+    """fair_share の minimum_gpu_time_pct 値が非数値（文字列）の場合クラッシュしないこと。"""
+    fair_share_config = {
+        "enabled": True,
+        "window_s": 60,
+        "minimum_gpu_time_pct": {"14b": "not-a-number"},  # 非数値
+    }
+    q = SchedulerQueue(fair_share_config=fair_share_config)
+    q.enqueue(_entry("t1", "model_qwen25_14b_q4"))
+    q.record_completion("model_qwen25_14b_q4", 10_000)
+
+    # ValueError が起きずに dequeue できること
+    result = q.dequeue(["model_qwen25_14b_q4"])
+    assert result is not None
+
+
+def test_fair_share_skips_none_min_pct():
+    """minimum_gpu_time_pct 値が None の場合クラッシュしないこと。"""
+    fair_share_config = {
+        "enabled": True,
+        "window_s": 60,
+        "minimum_gpu_time_pct": {"14b": None},
+    }
+    q = SchedulerQueue(fair_share_config=fair_share_config)
+    q.enqueue(_entry("t1", "model_qwen25_14b_q4"))
+    q.record_completion("model_qwen25_14b_q4", 10_000)
+
+    result = q.dequeue(["model_qwen25_14b_q4"])
+    assert result is not None

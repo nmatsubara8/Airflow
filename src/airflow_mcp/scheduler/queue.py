@@ -220,7 +220,11 @@ class SchedulerQueue:
             key = next((k for k in min_pct_map if k in model_id), None)
             if key is None:
                 continue
-            min_pct = float(min_pct_map[key])
+            try:
+                min_pct = float(min_pct_map[key])
+            except (TypeError, ValueError):
+                logger.warning("fair_share: invalid min_pct value for key=%s, skipping", key)
+                continue
             actual_pct = self._gpu_time_ms.get(model_id, 0.0) / total_ms * 100.0
             if actual_pct < min_pct:
                 deficit.append((min_pct - actual_pct, model_id))

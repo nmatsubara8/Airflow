@@ -72,7 +72,7 @@ def select_best_profile(
         reverse=True,
     )
     best = scored[0]
-    best_name = best["name"]
+    best_name = best.get("name")
 
     if best_name == current_profile_name:
         return current_profile_name
@@ -106,6 +106,6 @@ def get_profile_models(
     if not profile_name:
         return []
     for p in profiles:
-        if p["name"] == profile_name:
+        if p.get("name") == profile_name:
             return list(p.get("models", []))
     return []

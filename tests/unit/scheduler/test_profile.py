@@ -174,3 +174,43 @@ def test_select_best_profile_switches_when_cost_is_low():
         registry=_REGISTRY,
     )
     assert best == "dual-8b"
+
+
+# ── 追加テスト: name キー欠損ガード ──────────────────
+
+def test_select_best_profile_profile_without_name_key():
+    """profiles に 'name' キーが無い場合も KeyError が起きないこと。"""
+    profiles = [
+        # "name" キー欠損
+        {"vram_required_gb": 8.0, "models": ["model_8b"], "task_types": ["summarize"]},
+    ]
+    result = select_best_profile(
+        profiles=profiles,
+        queue_depths={"summarize": 2},
+        current_profile_name=None,
+        current_model_ids=[],
+        available_vram_gb=16.0,
+        registry={},
+    )
+    # name が None でも返り値が str | None の範囲内
+    # None が返るか、あるいは何らかの値が返るかどうかに関わらずクラッシュしないこと
+    assert result is None or isinstance(result, str)
+
+
+def test_get_profile_models_profile_without_name_key():
+    """profiles に 'name' キーが無い場合も KeyError が起きないこと。"""
+    profiles = [
+        {"models": ["model_a"], "vram_required_gb": 8.0},  # "name" キーなし
+        {"name": "found-profile", "models": ["model_b"], "vram_required_gb": 8.0},
+    ]
+    result = get_profile_models(profiles, "found-profile")
+    assert result == ["model_b"]
+
+
+def test_get_profile_models_all_without_name_returns_empty():
+    """すべての profiles に 'name' キーが無い場合 [] を返すこと。"""
+    profiles = [
+        {"models": ["model_a"], "vram_required_gb": 8.0},
+    ]
+    result = get_profile_models(profiles, "target-profile")
+    assert result == []
