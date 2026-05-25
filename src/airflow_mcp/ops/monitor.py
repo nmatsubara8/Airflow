@@ -89,7 +89,9 @@ def _recent_events(n: int = 5) -> list[dict[str, Any]]:
 
 def _load_active_profile() -> str:
     if _PARALLEL_CONFIG.exists():
-        cfg = yaml.safe_load(_PARALLEL_CONFIG.read_text())
+        cfg = yaml.safe_load(_PARALLEL_CONFIG.read_text()) or {}
+        if not isinstance(cfg, dict):
+            return "unknown"
         return cfg.get("mvp_profile", "unknown")
     return "unknown"
 

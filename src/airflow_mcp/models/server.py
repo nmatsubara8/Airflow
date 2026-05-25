@@ -516,7 +516,7 @@ def _call_ollama(
 
         resp = httpx.post(f"{_ollama_base_url()}/api/chat", json=payload, timeout=_OLLAMA_TIMEOUT_S)
         resp.raise_for_status()
-        content = resp.json()["message"]["content"]
+        content = resp.json().get("message", {}).get("content", "")
 
         parsed = None
         schema_valid = True

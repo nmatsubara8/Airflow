@@ -257,3 +257,27 @@ def test_print_status_outputs_dashboard(monkeypatch, capsys):
     captured = capsys.readouterr()
     assert "NORMAL" in captured.out
     assert "single-14b" in captured.out
+
+
+# ── 追加テスト: _load_active_profile YAML ガード ──────
+
+def test_load_active_profile_non_dict_yaml_returns_unknown(tmp_path, monkeypatch):
+    """parallel.yaml が list などの非dict の場合 'unknown' を返すこと。"""
+    from pathlib import Path
+    import airflow_mcp.ops.monitor as mon
+    cfg = tmp_path / "parallel.yaml"
+    cfg.write_text("- item1\n- item2\n")
+    monkeypatch.setattr(mon, "_PARALLEL_CONFIG", cfg)
+    from airflow_mcp.ops.monitor import _load_active_profile
+    assert _load_active_profile() == "unknown"
+
+
+def test_load_active_profile_empty_file_returns_unknown(tmp_path, monkeypatch):
+    """parallel.yaml が空ファイルの場合 'unknown' を返すこと。"""
+    from pathlib import Path
+    import airflow_mcp.ops.monitor as mon
+    cfg = tmp_path / "parallel.yaml"
+    cfg.write_text("")
+    monkeypatch.setattr(mon, "_PARALLEL_CONFIG", cfg)
+    from airflow_mcp.ops.monitor import _load_active_profile
+    assert _load_active_profile() == "unknown"

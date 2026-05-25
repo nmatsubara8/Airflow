@@ -1038,3 +1038,39 @@ async def test_run_calls_load_registry_and_server(tmp_path, monkeypatch):
 
     mock_server_run.assert_awaited_once()
     assert len(check_called) == 1
+
+
+# ── 追加テスト: Ollama レスポンス KeyError ガード ──────
+
+@pytest.mark.asyncio
+async def test_model_execute_missing_message_key_returns_empty_content(monkeypatch):
+    """Ollama が 'message' キーを返さない場合 content='' で正常終了すること（T1-A 相当）。"""
+    from unittest.mock import MagicMock, patch
+    monkeypatch.setenv("OLLAMA_STUB", "false")
+    _add_model("model_qwen25_14b_q4")
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"done": True}  # "message" キーなし
+    mock_resp.raise_for_status = lambda: None
+    with patch("httpx.post", return_value=mock_resp):
+        result = await _call("model.execute", {
+            "model_id": "model_qwen25_14b_q4",
+            "messages": [{"role": "user", "content": "hello"}],
+        })
+    assert result["content"] == ""
+
+
+@pytest.mark.asyncio
+async def test_model_execute_missing_content_key_returns_empty(monkeypatch):
+    """Ollama が 'message.content' キーを返さない場合 content='' で正常終了すること。"""
+    from unittest.mock import MagicMock, patch
+    monkeypatch.setenv("OLLAMA_STUB", "false")
+    _add_model("model_qwen25_14b_q4")
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"message": {}}  # "content" キーなし
+    mock_resp.raise_for_status = lambda: None
+    with patch("httpx.post", return_value=mock_resp):
+        result = await _call("model.execute", {
+            "model_id": "model_qwen25_14b_q4",
+            "messages": [{"role": "user", "content": "hello"}],
+        })
+    assert result["content"] == ""
