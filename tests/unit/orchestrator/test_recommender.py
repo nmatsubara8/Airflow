@@ -444,3 +444,10 @@ def test_knn_recommend_empty_available_list_returns_empty():
     history = _make_history("model_qwen25_14b_q4", "summarize", 5, 0.8)
     result = knn_recommend(features, history, [], KNN_CFG)
     assert result == []
+
+
+def test_weighted_distance_raises_on_length_mismatch():
+    """ベクトル長が一致しない場合 weighted_distance が ValueError を送出すること（line 68）。"""
+    from airflow_mcp.orchestrator.recommender import weighted_distance
+    with pytest.raises(ValueError, match="length mismatch"):
+        weighted_distance([1.0, 2.0], [1.0], [1.0, 1.0])

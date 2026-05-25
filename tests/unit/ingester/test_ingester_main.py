@@ -451,3 +451,13 @@ def test_load_config_empty_yaml_returns_empty(tmp_path):
     cfg_file.write_text("")
     result = load_config(str(cfg_file))
     assert result == {}
+
+
+def test_write_processed_at_returns_false_when_no_closing_delimiter(tmp_path):
+    """frontmatter の閉じ '---' がない場合に False を返すこと（main.py line 51）。"""
+    from airflow_mcp.ingester.main import _write_processed_at
+    md = tmp_path / "test.md"
+    # '---' で始まるが閉じていない（len(parts) < 3）
+    md.write_text("---\ntitle: test\n", encoding="utf-8")
+    result = _write_processed_at(md, "2026-05-25T00:00:00Z")
+    assert result is False

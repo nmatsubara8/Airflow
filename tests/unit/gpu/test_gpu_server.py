@@ -308,3 +308,13 @@ def test_load_config_non_dict_yaml_uses_defaults(tmp_path, monkeypatch):
     monkeypatch.setattr(gpu_mod, "_PARALLEL_CONFIG", cfg_file)
     gpu_mod._load_config()  # AttributeError が起きないこと
     assert isinstance(gpu_mod._profiles, list)
+
+
+def test_load_registry_cache_non_dict_returns_empty(tmp_path, monkeypatch):
+    """registry.json が配列など非 dict のとき _load_registry_cache が {} を返すこと（line 83）。"""
+    import json as _json
+    reg = tmp_path / "registry.json"
+    reg.write_text(_json.dumps([{"id": "model_x"}]))  # list, not dict
+    monkeypatch.setenv("AIRFLOW_REGISTRY", str(reg))
+    result = gpu_mod._load_registry_cache()
+    assert result == {}

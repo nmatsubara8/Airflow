@@ -1027,3 +1027,30 @@ def test_build_handoff_note_with_none_log_id():
     )
     assert "テスト" in note
     assert "実行ログ" not in note  # log_id なし → 実行ログ行は省略
+
+
+def test_load_registry_non_dict_json_returns_empty(tmp_path):
+    """registry.json が配列など非 dict の場合 {} を返すこと（runner/_load_registry line 61）。"""
+    import json as _json
+    from airflow_mcp.runner.main import _load_registry
+    reg = tmp_path / "registry.json"
+    reg.write_text(_json.dumps([{"id": "model_x"}]))  # list, not dict
+    result = _load_registry(str(reg))
+    assert result == {}
+
+
+def test_process_task_output_schema_oserror_uses_fallback(task_store, sample_task_fields, monkeypatch, tmp_path):
+    """output_schema ファイルが JSON として不正なとき fallback schema を使うこと（lines 355-356）。"""
+    monkeypatch.setenv("OLLAMA_STUB", "true")
+    # 不正な JSON ファイルにパッチ（JSONDecodeError → fallback）
+    bad_schema = tmp_path / "bad_schema.json"
+    bad_schema.write_text("{ not valid json }")
+    monkeypatch.setattr("airflow_mcp.runner.main._OUTPUT_SCHEMA_PATH", bad_schema)
+
+    task = task_store.create(sample_task_fields)
+    task_store.claim(task["id"], "agent_docs")
+    task_in_progress = task_store.get(task["id"])
+
+    result = process_task(task_in_progress, task_store, {}, {}, "agent_docs", "http://localhost")
+    # fallback schema が使われて正常終了すること
+    assert result is not None

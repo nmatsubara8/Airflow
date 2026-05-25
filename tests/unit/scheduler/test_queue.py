@@ -304,8 +304,7 @@ def test_fair_share_skips_model_not_matching_any_key():
 def test_fair_share_skips_non_numeric_min_pct():
     """fair_share の minimum_gpu_time_pct 値が非数値（文字列）の場合クラッシュしないこと。"""
     fair_share_config = {
-        "enabled": True,
-        "window_s": 60,
+        "enabled_on_high_load": True,
         "minimum_gpu_time_pct": {"14b": "not-a-number"},  # 非数値
     }
     q = SchedulerQueue(fair_share_config=fair_share_config)
@@ -320,8 +319,7 @@ def test_fair_share_skips_non_numeric_min_pct():
 def test_fair_share_skips_none_min_pct():
     """minimum_gpu_time_pct 値が None の場合クラッシュしないこと。"""
     fair_share_config = {
-        "enabled": True,
-        "window_s": 60,
+        "enabled_on_high_load": True,
         "minimum_gpu_time_pct": {"14b": None},
     }
     q = SchedulerQueue(fair_share_config=fair_share_config)

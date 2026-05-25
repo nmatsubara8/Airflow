@@ -209,3 +209,19 @@ def test_load_config_empty_yaml_returns_empty(tmp_path):
     cfg_file.write_text("")
     result = load_config(str(cfg_file))
     assert result == {}
+
+
+# ── TaskAlreadyClaimed / generic Exception paths ──────
+
+def test_dispatch_once_handles_task_already_claimed(task_store, sample_task_fields, monkeypatch):
+    """クレーム済み例外が飛んでも dispatched カウントが増えず正常終了すること（line 102）。"""
+    from airflow_mcp.common.errors import TaskAlreadyClaimed
+    import airflow_mcp.dispatcher.main as dm
+    task_store.create(sample_task_fields)
+
+    def raise_already_claimed(*a, **kw):
+        raise TaskAlreadyClaimed("t1", "agent_docs")
+
+    monkeypatch.setattr(dm, "select_agent", raise_already_claimed)
+    n = dispatch_once(task_store, {})
+    assert n == 0

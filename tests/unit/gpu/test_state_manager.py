@@ -238,3 +238,11 @@ def test_write_snapshot_suppresses_write_exception(mgr):
     from unittest.mock import patch
     with patch.object(Path, "write_text", side_effect=OSError("disk full")):
         mgr._write_snapshot()  # should not raise
+
+
+def test_free_vram_gb_clamped_to_zero_when_overcommitted(tmp_path):
+    """ロード済みモデルが VRAM を超えた場合 free_vram_gb が 0 にクランプされること（lines 66-68）。"""
+    mgr2 = GpuStateManager(snapshot_path=tmp_path / "gpu.json", vram_available_gb=8.0)
+    # VRAM 合計が available を超えるモデルを直接登録
+    mgr2._loaded["model_big"] = {"id": "model_big", "vram_gb": 10.0}
+    assert mgr2.free_vram_gb == 0.0

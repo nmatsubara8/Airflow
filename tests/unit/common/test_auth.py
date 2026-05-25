@@ -350,3 +350,18 @@ def test_issue_jwt_raises_invalid_on_corrupt_private_key(tmp_path):
     corrupt_key.write_bytes(b"this is not a valid pem key")
     with pytest.raises(AuthTokenInvalid):
         issue_jwt("agent_x", ["tasks:read"], private_key_path=corrupt_key)
+
+
+def test_get_tokens_handles_stat_oserror(monkeypatch):
+    """_TOKENS_FILE.stat() が OSError のとき current_mtime=0 でロードが進むこと（lines 66-67）。"""
+    from unittest.mock import patch
+    import airflow_mcp.common.auth as auth_mod
+
+    # _TOKENS_FILE が存在するように見せ、stat() が OSError を投げるようにする
+    with patch.object(auth_mod._TOKENS_FILE.__class__, "exists", return_value=True), \
+         patch.object(auth_mod._TOKENS_FILE.__class__, "stat", side_effect=OSError("no stat")):
+        auth_mod._token_cache = None
+        auth_mod._token_cache_mtime = -1.0
+        result = auth_mod._get_tokens()
+    # クラッシュせずに dict を返すこと（ファイルがないので空 dict）
+    assert isinstance(result, dict)

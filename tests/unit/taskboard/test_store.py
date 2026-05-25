@@ -441,3 +441,15 @@ def test_get_raises_task_not_found_on_corrupt_json(
 
     with pytest.raises(TaskNotFound):
         task_store.get(task_id)
+
+
+def test_quarantine_oserror_on_move_is_logged(task_store: TaskStore, sample_task_fields: dict, caplog):
+    """quarantine() で shutil.move が OSError のときエラーログが出てクラッシュしないこと（lines 293-294）。"""
+    import logging
+    from unittest.mock import patch
+    task = task_store.create(sample_task_fields)
+    task_id = task["id"]
+    with patch("shutil.move", side_effect=OSError("no space")):
+        with caplog.at_level(logging.ERROR, logger="airflow_mcp.taskboard.store"):
+            task_store.quarantine(task_id, reason="test-error")
+    assert "quarantine" in caplog.text

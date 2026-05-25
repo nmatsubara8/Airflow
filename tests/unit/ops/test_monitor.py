@@ -279,3 +279,20 @@ def test_load_active_profile_empty_file_returns_unknown(tmp_path, monkeypatch):
     monkeypatch.setattr(mon, "_PARALLEL_CONFIG", cfg)
     from airflow_mcp.ops.monitor import _load_active_profile
     assert _load_active_profile() == "unknown"
+
+
+def test_recent_events_oserror_returns_empty(tmp_path, monkeypatch):
+    """監査ログファイル読み込みが OSError の場合 [] を返すこと（monitor lines 79-80）。"""
+    from unittest.mock import patch
+    from pathlib import Path
+    import airflow_mcp.ops.monitor as mon
+    from datetime import datetime, timezone
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    log_file = tmp_path / f"{today}.jsonl"
+    log_file.write_text('{"event": "test"}\n')
+    monkeypatch.setattr(mon, "_AUDIT_LOG_DIR", tmp_path)
+
+    with patch.object(Path, "open", side_effect=OSError("permission denied")):
+        from airflow_mcp.ops.monitor import _recent_events
+        result = _recent_events()
+    assert result == []

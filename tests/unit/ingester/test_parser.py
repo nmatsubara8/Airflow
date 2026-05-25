@@ -275,3 +275,14 @@ def test_frontmatter_to_task_fields_infers_section_from_category(tmp_path):
     parsed = parse_markdown(md)
     fields = frontmatter_to_task_fields(parsed)
     assert fields["section"] == "engineering"
+
+
+def test_parse_markdown_falls_back_to_filename_when_path_outside_vault(tmp_path):
+    """vault_root の外のファイルは ValueError を吸収してファイル名を source_path にすること（lines 91-92）。"""
+    from airflow_mcp.ingester.parser import parse_markdown
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    outside = tmp_path / "outside.md"
+    outside.write_text("# Outside\ncontent")
+    parsed = parse_markdown(outside, vault_root=vault)
+    assert parsed["source_path"] == "outside.md"
