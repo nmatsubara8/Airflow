@@ -172,7 +172,7 @@ def _execute_with_retry(
             )
             if schema_valid:
                 break
-        except httpx.HTTPError as exc:
+        except (httpx.HTTPError, httpx.InvalidURL, ValueError) as exc:
             logger.error("ollama call failed attempt %d: %s", attempt + 1, exc)
             if attempt == _MAX_RETRY - 1:
                 break
@@ -343,7 +343,13 @@ def process_task(task: dict[str, Any], ctx: ExecutionContext) -> bool:
         output_schema = {"type": "object", "required": ["summary"],
                          "properties": {"summary": {"type": "string"}}}
 
-    model_id, exploration_type = _select_model(task, ctx.model_config, ctx.registry)
+    try:
+        model_id, exploration_type = _select_model(task, ctx.model_config, ctx.registry)
+    except Exception as exc:
+        logger.error("model selection failed for task %s: %s", task_id, exc)
+        ctx.store.add_handoff_note(task_id, f"[FAILED] モデル選択エラー: {exc}", author=ctx.agent_id)
+        ctx.store.transition(task_id, "needs_human", reason="MODEL_SELECTION_ERROR")
+        return False
     logger.info(
         "runner.model_selected task=%s model=%s exploration=%s",
         task_id, model_id, exploration_type,
@@ -361,7 +367,7 @@ def process_task(task: dict[str, Any], ctx: ExecutionContext) -> bool:
         error=None if r.schema_valid else {
             "class": "escalate",
             "code": "MODEL_STRUCTURED_OUTPUT_INVALID",
-            "message": f"{r.retry_count + 1}回リトライ後も schema 不適合",
+            "message": f"{r.retry_count}回リトライ後も schema 不適合",
         },
         data={"retry_count": r.retry_count, "schema_valid": r.schema_valid,
               "exploration_type": exploration_type, "rerouted_from": r.rerouted_from},
@@ -369,7 +375,7 @@ def process_task(task: dict[str, Any], ctx: ExecutionContext) -> bool:
 
     if not r.schema_valid:
         note = (
-            f"[FAILED] {r.retry_count + 1}回試行後も構造化出力が schema に不適合。"
+            f"[FAILED] {r.retry_count}回リトライ後も構造化出力が schema に不適合。"
             + (f" reroute({r.rerouted_from}→{r.model_id})も失敗。" if r.rerouted_from else "")
             + f" 生の出力: {r.content[:200]}"
         )

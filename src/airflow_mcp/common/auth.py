@@ -78,9 +78,10 @@ def reload_tokens() -> int:
     SIGHUP ハンドラやトークンローテーション後の管理操作から呼び出す。
     Returns: ロードしたトークン件数
     """
-    global _token_cache
+    global _token_cache, _token_cache_mtime
     with _cache_lock:
         _token_cache = _load_tokens_from_disk()
+        _token_cache_mtime = _TOKENS_FILE.stat().st_mtime if _TOKENS_FILE.exists() else 0.0
         count = len(_token_cache)
     logger.info("tokens.json 再ロード完了: %d 件", count)
     return count

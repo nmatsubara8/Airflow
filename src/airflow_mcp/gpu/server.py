@@ -39,6 +39,7 @@ _degraded: bool = False
 _degradation_mode: str = "auto"  # "on" | "off" | "auto"
 _fair_share: dict[str, float] = {}
 _registry: dict[str, dict] = {}
+_registry_loaded: bool = False  # {} と「未ロード」を区別するフラグ
 
 # HTTP マルチ接続移行時の race condition 防止（DDD-08 §4 / 提案 A）
 _state_lock = threading.RLock()
@@ -105,17 +106,22 @@ def _load_config() -> None:
             _fair_share.update(fair_share_cfg)
 
     with _state_lock:
+        global _registry_loaded
         _registry.clear()
         _registry.update(load_model_registry())
+        _registry_loaded = True
     _load_degradation_override()
 
 
 def _get_registry() -> dict[str, dict]:
     """起動時にロード済みのレジストリを返す。未ロードなら on-demand でロード。"""
-    if not _registry:
+    global _registry_loaded
+    if not _registry_loaded:
         with _state_lock:
-            if not _registry:
+            if not _registry_loaded:
+                _registry.clear()
                 _registry.update(load_model_registry())
+                _registry_loaded = True
     return _registry
 
 

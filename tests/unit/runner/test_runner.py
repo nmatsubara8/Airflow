@@ -907,9 +907,10 @@ def test_call_ollama_read_timeout_propagates(monkeypatch):
     assert valid is False
 
 
-def test_call_ollama_missing_message_key_returns_empty_content(monkeypatch):
-    """Ollama レスポンスに 'message' キーが無い場合 content='' で schema_invalid になること（T1-A）。"""
+def test_call_ollama_missing_message_key_raises_value_error(monkeypatch):
+    """Ollama レスポンスに 'message' キーが無い場合 ValueError が raise されること。"""
     import os
+    import pytest
     from unittest.mock import MagicMock, patch
     os.environ["OLLAMA_STUB"] = "false"
     mock_resp = MagicMock()
@@ -919,11 +920,8 @@ def test_call_ollama_missing_message_key_returns_empty_content(monkeypatch):
               "properties": {"summary": {"type": "string"}}}
     messages = [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}]
     with patch("airflow_mcp.runner.main.httpx.post", return_value=mock_resp):
-        content, parsed, valid = _call_ollama(
-            "http://localhost:11434", "model", messages, schema, 0.3, 512, 0
-        )
-    assert valid is False
-    assert content == ""
+        with pytest.raises(ValueError, match="empty content"):
+            _call_ollama("http://localhost:11434", "model", messages, schema, 0.3, 512, 0)
 
 
 def test_call_ollama_stub_single_message_no_index_error(monkeypatch):

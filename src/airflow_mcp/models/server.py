@@ -294,6 +294,11 @@ async def _model_recommend(args: dict[str, Any], token: str | None) -> list[type
     # select_model() に委譲（KNN + コールドスタート + ε-greedy を統合）
     history = load_history()
     available = [c for c in candidates if c in _models]
+    if not available:
+        return mcp_result({"error": {
+            "code": "MODEL_UNAVAILABLE",
+            "message": f"候補モデルがいずれも未登録: {candidates}",
+        }})
     # candidates に絞ったレジストリを渡して選択範囲を限定する
     filtered_models = {k: v for k, v in _models.items() if k in set(available)}
     # min_samples_for_auto をコールドスタート閾値と揃えて元の挙動を維持する

@@ -22,4 +22,9 @@ def call_chat(base_url: str, payload: dict[str, Any], timeout_s: float) -> str:
     """
     resp = httpx.post(f"{base_url}/api/chat", json=payload, timeout=timeout_s)
     resp.raise_for_status()
-    return resp.json().get("message", {}).get("content", "")
+    content = resp.json().get("message", {}).get("content", "")
+    if not content:
+        raise ValueError(
+            f"Ollama returned empty content (response keys: {list(resp.json().keys())})"
+        )
+    return content

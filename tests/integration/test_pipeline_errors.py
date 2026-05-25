@@ -73,7 +73,8 @@ def test_needs_human_on_schema_invalid(tmp_tasks_dir: Path):
     model_config: dict[str, Any] = {}
     registry: dict[str, dict] = {}
 
-    with patch("airflow_mcp.runner.main._call_ollama", return_value=_invalid_stub()):
+    with patch("airflow_mcp.runner.main._call_ollama", return_value=_invalid_stub()), \
+         patch("airflow_mcp.runner.main.time.sleep"):
         result = process_task(task, _runner_ctx(store, model_config, registry))
 
     assert result is False
@@ -90,7 +91,8 @@ def test_needs_human_has_failure_detail_in_handoff_note(tmp_tasks_dir: Path):
     store = TaskStore(base_dir=tmp_tasks_dir)
     task = _create_in_progress(store)
 
-    with patch("airflow_mcp.runner.main._call_ollama", return_value=("raw output xyz", None, False)):
+    with patch("airflow_mcp.runner.main._call_ollama", return_value=("raw output xyz", None, False)), \
+         patch("airflow_mcp.runner.main.time.sleep"):
         process_task(task, _runner_ctx(store))
 
     nh_task = store.list_by_status("needs_human")[0]
@@ -104,7 +106,8 @@ def test_done_count_zero_when_all_fail(tmp_tasks_dir: Path):
     for i in range(3):
         _create_in_progress(store, title=f"タスク{i}")
 
-    with patch("airflow_mcp.runner.main._call_ollama", return_value=_invalid_stub()):
+    with patch("airflow_mcp.runner.main._call_ollama", return_value=_invalid_stub()), \
+         patch("airflow_mcp.runner.main.time.sleep"):
         n = runner_run_once(_runner_ctx(store))
 
     assert n == 3

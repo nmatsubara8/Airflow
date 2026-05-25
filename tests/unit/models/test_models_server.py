@@ -1041,37 +1041,40 @@ async def test_run_calls_load_registry_and_server(tmp_path, monkeypatch):
 # ── 追加テスト: Ollama レスポンス KeyError ガード ──────
 
 @pytest.mark.asyncio
-async def test_model_execute_missing_message_key_returns_empty_content(monkeypatch):
-    """Ollama が 'message' キーを返さない場合 content='' で正常終了すること（T1-A 相当）。"""
+async def test_model_execute_missing_message_key_returns_error(monkeypatch):
+    """Ollama が 'message' キーを返さない場合 needs_human 相当のエラー応答になること。"""
     from unittest.mock import MagicMock, patch
     monkeypatch.setenv("OLLAMA_STUB", "false")
     _add_model("model_qwen25_14b_q4")
     mock_resp = MagicMock()
     mock_resp.json.return_value = {"done": True}  # "message" キーなし
     mock_resp.raise_for_status = lambda: None
-    with patch("httpx.post", return_value=mock_resp):
+    with patch("httpx.post", return_value=mock_resp), \
+         patch("airflow_mcp.models.server.time.sleep"):
         result = await _call("model.execute", {
             "model_id": "model_qwen25_14b_q4",
             "messages": [{"role": "user", "content": "hello"}],
         })
-    assert result["content"] == ""
+    # call_chat が ValueError を raise → リトライ後 schema_valid=False → error 応答
+    assert "error" in result or result.get("schema_valid") is False
 
 
 @pytest.mark.asyncio
-async def test_model_execute_missing_content_key_returns_empty(monkeypatch):
-    """Ollama が 'message.content' キーを返さない場合 content='' で正常終了すること。"""
+async def test_model_execute_missing_content_key_returns_error(monkeypatch):
+    """Ollama が 'message.content' キーを返さない場合 error 応答になること。"""
     from unittest.mock import MagicMock, patch
     monkeypatch.setenv("OLLAMA_STUB", "false")
     _add_model("model_qwen25_14b_q4")
     mock_resp = MagicMock()
     mock_resp.json.return_value = {"message": {}}  # "content" キーなし
     mock_resp.raise_for_status = lambda: None
-    with patch("httpx.post", return_value=mock_resp):
+    with patch("httpx.post", return_value=mock_resp), \
+         patch("airflow_mcp.models.server.time.sleep"):
         result = await _call("model.execute", {
             "model_id": "model_qwen25_14b_q4",
             "messages": [{"role": "user", "content": "hello"}],
         })
-    assert result["content"] == ""
+    assert "error" in result or result.get("schema_valid") is False
 
 
 # ── _load_registry 追加分岐 ───────────────────────────
