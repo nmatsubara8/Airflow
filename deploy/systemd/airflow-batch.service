@@ -1,0 +1,13 @@
+[Unit]
+Description=Airflow Batch Scheduler (one-shot, launched by timer)
+Documentation=https://github.com/nmatsubara8/airflow
+After=network.target airflow-taskboard.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/airflow
+EnvironmentFile=/opt/airflow/.env
+ExecStart=python -m airflow_mcp batch
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=airflow-batch

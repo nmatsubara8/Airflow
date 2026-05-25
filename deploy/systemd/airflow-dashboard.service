@@ -1,0 +1,26 @@
+[Unit]
+Description=Airflow Web Dashboard (port 7400)
+Documentation=https://github.com/nmatsubara8/airflow
+After=network.target airflow-taskboard.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/airflow
+EnvironmentFile=/opt/airflow/.env
+ExecStart=python -c "
+from airflow_mcp.taskboard.store import TaskStore
+from airflow_mcp.web.dashboard import start_dashboard
+import time, os
+store = TaskStore(os.environ.get('AIRFLOW_TASKBOARD_DIR', '.airflow/tasks'))
+start_dashboard(store)
+while True:
+    time.sleep(60)
+"
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=airflow-dashboard
+
+[Install]
+WantedBy=multi-user.target

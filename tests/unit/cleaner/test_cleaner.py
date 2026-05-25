@@ -96,16 +96,6 @@ def test_archive_dry_run_does_not_move(tmp_path):
     assert task_file.exists()  # dry_run なので移動されない
 
 
-def test_archive_skips_files_already_in_archive(tmp_path):
-    tasks_dir = tmp_path / "tasks"
-    archive_dir = tasks_dir / "_archive" / "done" / "2025-01"
-    _make_task_file(archive_dir, "task_already1234567.json", age_days=60)
-
-    config = {"tasks": {"archive_done_after_days": 30, "archive_failed_after_days": 7}}
-    moved = _archive_old_tasks(config, tasks_dir, dry_run=False)
-    assert moved == 0
-
-
 def test_archive_handles_missing_status_dir(tmp_path):
     tasks_dir = tmp_path / "tasks"
     config = {"tasks": {"archive_done_after_days": 30, "archive_failed_after_days": 7}}

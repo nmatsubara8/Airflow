@@ -25,7 +25,35 @@ def test_validate_auth_valid():
             "mode": "api_key",
             "key_env_prefix": "AIRFLOW_MCP_TOKEN_",
         },
-        "mcp_auth": {"require_token": True, "localhost_bypass": True},
+        "mcp_auth": {"require_token": True, "localhost_bypass": False},
+    }
+    assert validate_config("auth", cfg) == []
+
+
+def test_validate_auth_localhost_bypass_true_emits_warning():
+    """localhost_bypass=true のとき WARNING メッセージが返ること (TP-3)。"""
+    cfg = {
+        "auth": {"mode": "api_key"},
+        "mcp_auth": {"localhost_bypass": True},
+    }
+    errs = validate_config("auth", cfg)
+    assert len(errs) == 1
+    assert "WARNING" in errs[0]
+    assert "localhost_bypass" in errs[0]
+
+
+def test_validate_auth_per_action_limits_is_dict():
+    """rate_limit.per_action_limits が dict として受け入れられること (TP-2)。"""
+    cfg = {
+        "auth": {"mode": "api_key"},
+        "rate_limit": {
+            "default": {"capacity": 100, "refill_rate": 10},
+            "per_action_limits": {
+                "tasks.create":   {"capacity": 60, "refill_rate": 1.0},
+                "models.execute": {"capacity": 20, "refill_rate": 0.33},
+            },
+        },
+        "mcp_auth": {"localhost_bypass": False},
     }
     assert validate_config("auth", cfg) == []
 

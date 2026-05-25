@@ -27,6 +27,8 @@ _SCHEMAS: dict[str, dict[str, tuple[type | tuple[type, ...], bool]]] = {
         "auth.key_env_prefix":                   (str,   False),
         "auth.roles":                            (dict,  False),
         "rate_limit":                            (dict,  False),
+        "rate_limit.default":                    (dict,  False),
+        "rate_limit.per_action_limits":          (dict,  False),
         "mcp_auth":                              (dict,  False),
         "mcp_auth.require_token":                (bool,  False),
         "mcp_auth.localhost_bypass":             (bool,  False),
@@ -94,6 +96,7 @@ def validate_config(name: str, data: dict[str, Any]) -> list[str]:
 
     Returns:
         エラーメッセージのリスト。空リストなら検証成功。
+        「WARNING:」プレフィックスの項目は非致命的な警告。
     """
     if not isinstance(data, dict):
         return [f"[{name}] config root must be a dict, got {type(data).__name__}"]
@@ -115,6 +118,15 @@ def validate_config(name: str, data: dict[str, Any]) -> list[str]:
             errors.append(
                 f"[{name}] field '{field}' must be {type_name}, "
                 f"got {type(value).__name__}"
+            )
+
+    # 本番セキュリティ警告: localhost_bypass=true は認証を無効化する
+    if name == "auth":
+        _, bypass = _get_nested(data, "mcp_auth.localhost_bypass")
+        if bypass is True:
+            errors.append(
+                "WARNING: [auth] mcp_auth.localhost_bypass=true disables authentication "
+                "for 127.0.0.1 — set to false before production deployment"
             )
 
     return errors

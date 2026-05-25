@@ -41,8 +41,17 @@ rate_limit:
     readonly:
       capacity: 50
       refill_rate: 5
+  # Per-action limits (DDD-08 §4.2) — independent bucket per (token, action) pair
+  # Restricts high-cost MCP tool calls separately from the global token bucket.
+  per_action_limits:
+    tasks.create:    { capacity: 60,  refill_rate: 1.0  }  # 60/min burst
+    models.execute:  { capacity: 20,  refill_rate: 0.33 }  # 20/min burst
+    notes.search:    { capacity: 100, refill_rate: 1.67 }  # 100/min burst
+    notes.reindex:   { capacity: 2,   refill_rate: 0.03 }  # 2/min (high-cost op)
 
 mcp_auth:
   require_token: true
   token_expiry_s: 3600               # 1 hour session token
-  localhost_bypass: true             # no auth for 127.0.0.1 (Phase 2 convenience)
+  # PRODUCTION: set to false (or AIRFLOW_AUTH_LOCALHOST_BYPASS=false env var)
+  # WARNING: localhost_bypass=true disables authentication for 127.0.0.1 requests.
+  localhost_bypass: false

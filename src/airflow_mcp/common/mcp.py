@@ -57,7 +57,7 @@ async def dispatch(
     token = get_token_from_env()
     try:
         if rate_limit:
-            check_rate_limit(token)
+            check_rate_limit(token, action=name)
         handler = handlers.get(name)
         if handler is None:
             return mcp_result({"error": {"code": "UNKNOWN_TOOL", "message": name}})

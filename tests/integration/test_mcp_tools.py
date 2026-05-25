@@ -454,7 +454,7 @@ def test_rate_limiter_retry_after_is_positive():
 async def test_rate_limit_enforced_in_mcp_tool(monkeypatch):
     """call_tool が rate limit を超えると error レスポンスを返すこと。"""
 
-    def _always_limited(token, cost=1.0):
+    def _always_limited(token, cost=1.0, action=None):
         raise AuthRateLimited(retry_after_ms=5000)
 
     import airflow_mcp.common.mcp as mcp_mod
