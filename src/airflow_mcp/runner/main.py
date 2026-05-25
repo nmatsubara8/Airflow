@@ -27,6 +27,7 @@ from jsonschema import Draft202012Validator
 
 from ..common.audit import log_event, new_audit_id
 from ..common.io import load_model_registry, safe_yaml_load
+from ..common.ollama import call_chat, is_stub_mode
 from ..common.thresholds import REROUTE_SCORE_THRESHOLD
 from ..common.url_validator import validate_ollama_url
 from ..orchestrator.execution_log import append_execution_log, compute_auto_score, load_history
@@ -111,7 +112,7 @@ def _call_ollama(
     Ollama API 呼び出し + structured output 検証（DDD-05 §6）。
     OLLAMA_STUB=true の場合はスタブ応答。
     """
-    if os.environ.get("OLLAMA_STUB", "false").lower() == "true":
+    if is_stub_mode():
         user_preview = messages[1]["content"][:30] if len(messages) > 1 else ""
         stub = {
             "summary": f"[STUB] タスク '{user_preview}...' の要約",
@@ -131,9 +132,7 @@ def _call_ollama(
             "num_predict": max_tokens,
         },
     }
-    resp = httpx.post(f"{ollama_url}/api/chat", json=payload, timeout=_OLLAMA_TIMEOUT_S)
-    resp.raise_for_status()
-    content = resp.json().get("message", {}).get("content", "")
+    content = call_chat(ollama_url, payload, _OLLAMA_TIMEOUT_S)
 
     try:
         parsed = json.loads(content)

@@ -21,6 +21,7 @@ from mcp.server import Server
 from ..common.audit import log_event, new_audit_id, now_iso
 from ..common.io import load_model_registry
 from ..common.auth import require_scope
+from ..common.ollama import call_chat, is_stub_mode
 from ..common.errors import (
     AirflowError,
     McpInvalidArgument,
@@ -485,7 +486,7 @@ def _call_ollama(
     max_tokens: int | None,
 ) -> tuple[str, dict | None, bool]:
     """Ollama を呼び出す。OLLAMA_STUB=true の場合はスタブ応答を返す。"""
-    if os.environ.get("OLLAMA_STUB", "false").lower() == "true":
+    if is_stub_mode():
         stub_content = json.dumps({
             "summary": "スタブ応答: Ollama 未接続",
             "output": "Phase 2 スタブ — 実 Ollama 未接続",
@@ -493,7 +494,6 @@ def _call_ollama(
         return stub_content, json.loads(stub_content), True
 
     try:
-        import httpx
         model_tag = _ollama_tag(model_id)
         payload: dict[str, Any] = {
             "model": model_tag,
@@ -507,9 +507,7 @@ def _call_ollama(
         if structured_output and structured_output.get("schema"):
             payload["format"] = structured_output["schema"]
 
-        resp = httpx.post(f"{_ollama_base_url()}/api/chat", json=payload, timeout=_OLLAMA_TIMEOUT_S)
-        resp.raise_for_status()
-        content = resp.json().get("message", {}).get("content", "")
+        content = call_chat(_ollama_base_url(), payload, _OLLAMA_TIMEOUT_S)
 
         parsed = None
         schema_valid = True
