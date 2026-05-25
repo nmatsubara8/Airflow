@@ -3,10 +3,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
 from ..common.audit import now_iso
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_INDEX_PATH = Path(".airflow/notes/index.json")
 
@@ -39,8 +42,13 @@ def save_index(index: dict[str, Any], index_path: Path = _DEFAULT_INDEX_PATH) ->
     """notes/index.json をアトミックに保存する。"""
     index_path.parent.mkdir(parents=True, exist_ok=True)
     tmp = index_path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(index, ensure_ascii=False, indent=2, cls=_DateTimeEncoder), encoding="utf-8")
-    tmp.replace(index_path)
+    try:
+        tmp.write_text(json.dumps(index, ensure_ascii=False, indent=2, cls=_DateTimeEncoder), encoding="utf-8")
+        tmp.replace(index_path)
+    except OSError as exc:
+        logger.error("failed to save notes index to %s: %s", index_path, exc)
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def upsert_note(

@@ -73,6 +73,31 @@ def test_parse_markdown_source_path_no_vault_root_uses_filename(tmp_path: Path):
     assert parsed["source_path"] == "doc.md"
 
 
+def test_parse_markdown_vault_root_preserves_subdir_path(tmp_path: Path):
+    """vault_root 指定時はサブディレクトリを含む相対パスが返ること。"""
+    sub = tmp_path / "Inbox" / "ProjectA"
+    sub.mkdir(parents=True)
+    md = sub / "task.md"
+    md.write_text("本文")
+    parsed = parse_markdown(md, vault_root=tmp_path)
+    assert parsed["source_path"] == "Inbox/ProjectA/task.md"
+
+
+def test_parse_markdown_vault_root_same_name_different_dirs_get_different_paths(tmp_path: Path):
+    """同名ファイルでも異なるサブディレクトリなら source_path が異なること（note_id 衝突防止）。"""
+    dir_a = tmp_path / "A"
+    dir_b = tmp_path / "B"
+    dir_a.mkdir()
+    dir_b.mkdir()
+    (dir_a / "task.md").write_text("本文A")
+    (dir_b / "task.md").write_text("本文B")
+    path_a = parse_markdown(dir_a / "task.md", vault_root=tmp_path)["source_path"]
+    path_b = parse_markdown(dir_b / "task.md", vault_root=tmp_path)["source_path"]
+    assert path_a != path_b
+    assert path_a == "A/task.md"
+    assert path_b == "B/task.md"
+
+
 def test_parse_markdown_handles_invalid_yaml_frontmatter_gracefully(tmp_path: Path):
     md = tmp_path / "bad.md"
     md.write_text("---\ntitle: [unclosed bracket\n---\n本文")

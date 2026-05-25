@@ -160,8 +160,8 @@ class TaskStore:
         for p in sorted(paths)[:limit]:
             try:
                 tasks.append(json.loads(p.read_text()))
-            except (json.JSONDecodeError, OSError):
-                pass
+            except (json.JSONDecodeError, OSError) as exc:
+                logger.warning("skipping corrupt task file %s: %s", p, exc)
         return tasks
 
     def list_all(self) -> list[dict[str, Any]]:

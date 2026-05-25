@@ -34,17 +34,25 @@ def load_config(config_path: str = ".airflow/config/ingester.yaml") -> dict[str,
 
 
 def _write_processed_at(path: Path, processed_at: str) -> bool:
-    """フロントマターに processed_at を追記する（DDD-04 §6.2 step 9）。
-    成功時 True、失敗時 False（呼び出し側で _seen_hashes 追加をスキップさせる）。"""
+    """フロントマターに processed_at をアトミックに追記する（DDD-04 §6.2 step 9）。
+    成功時 True、frontmatter なし・失敗時 False（呼び出し側で _seen_hashes 追加をスキップ）。"""
     try:
         raw = path.read_text(encoding="utf-8")
         if "processed_at:" in raw:
             return True
-        if raw.startswith("---"):
-            parts = raw.split("---", 2)
-            if len(parts) >= 3:
-                raw = f"---{parts[1]}processed_at: {processed_at}\n---{parts[2]}"
-        path.write_text(raw, encoding="utf-8")
+        if not raw.startswith("---"):
+            return False  # frontmatter なし → マーカー追加不可、永続化しない
+        parts = raw.split("---", 2)
+        if len(parts) < 3:
+            return False
+        new_raw = f"---{parts[1]}processed_at: {processed_at}\n---{parts[2]}"
+        tmp = path.with_suffix(".md.new")
+        try:
+            tmp.write_text(new_raw, encoding="utf-8")
+            os.replace(tmp, path)
+        except OSError:
+            tmp.unlink(missing_ok=True)
+            raise
         return True
     except OSError as exc:
         logger.warning("failed to write processed_at to %s: %s", path, exc)
@@ -108,7 +116,7 @@ def run_once(store: TaskStore, config: dict[str, Any]) -> int:
                 continue
 
             try:
-                parsed = parse_markdown(md_path)
+                parsed = parse_markdown(md_path, vault_root=base)
             except Exception as exc:
                 logger.error("parse error %s: %s", md_path, exc)
                 continue
