@@ -44,7 +44,11 @@ _OLLAMA_TIMEOUT_S = float(os.environ.get("AIRFLOW_OLLAMA_TIMEOUT_S", "180"))
 def load_model_config(path: str = ".airflow/config/model-config.yaml") -> dict[str, Any]:
     p = Path(path)
     if p.exists():
-        return yaml.safe_load(p.read_text()) or {}
+        cfg = yaml.safe_load(p.read_text()) or {}
+        if not isinstance(cfg, dict):
+            logger.warning("model config is not a dict, using defaults")
+            return {}
+        return cfg
     return {}
 
 
@@ -124,8 +128,9 @@ def _call_ollama(
     OLLAMA_STUB=true の場合はスタブ応答。
     """
     if os.environ.get("OLLAMA_STUB", "false").lower() == "true":
+        user_preview = messages[1]["content"][:30] if len(messages) > 1 else ""
         stub = {
-            "summary": f"[STUB] タスク '{messages[1]['content'][:30]}...' の要約",
+            "summary": f"[STUB] タスク '{user_preview}...' の要約",
             "key_points": ["スタブ応答 1", "スタブ応答 2", "スタブ応答 3"],
             "confidence": 0.99,
             "suggested_tags": ["stub"],
@@ -144,7 +149,7 @@ def _call_ollama(
     }
     resp = httpx.post(f"{ollama_url}/api/chat", json=payload, timeout=_OLLAMA_TIMEOUT_S)
     resp.raise_for_status()
-    content = resp.json()["message"]["content"]
+    content = resp.json().get("message", {}).get("content", "")
 
     try:
         parsed = json.loads(content)
@@ -209,7 +214,7 @@ class _ExecResult:
     schema_valid: bool
     retry_count: int
     latency_ms: int
-    log_id: str
+    log_id: str | None
     rerouted_from: str | None
 
 
@@ -236,6 +241,7 @@ def _execute_with_reroute(
     )
     latency_ms = int(time.time() * 1000) - start_ms
 
+    log_id: str | None = None
     try:
         exec_record = append_execution_log(
             task_id=task_id, agent_id=agent_id, model_id=model_id,
@@ -246,7 +252,6 @@ def _execute_with_reroute(
         log_id = exec_record["id"]
     except Exception as exc:
         logger.warning("execution_log write failed: %s", exc)
-        log_id = "log_" + aid[:16].lower()
 
     auto_score_primary = compute_auto_score(schema_valid, retry_count)
     features = task.get("features", {})
@@ -257,7 +262,6 @@ def _execute_with_reroute(
     )
 
     if should_reroute and features.get("latency_sensitivity") in skip_for:
-        schema_valid = False
         should_reroute = False
 
     rerouted_from: str | None = None
@@ -310,19 +314,20 @@ def _build_handoff_note(
     latency_ms: int,
     retry_count: int,
     rerouted_from: str | None,
-    log_id: str,
+    log_id: str | None,
 ) -> str:
     """成功時の handoff_note 本文を組み立てる。"""
     summary = parsed.get("summary", "") if parsed else content[:200]
     key_points = parsed.get("key_points", []) if parsed else []
     confidence = parsed.get("confidence", 0.0) if parsed else 0.0
     reroute_note = f" | **reroute**: {rerouted_from}→{model_id}" if rerouted_from else ""
+    log_note = f" | **実行ログ**: {log_id}" if log_id else ""
     return (
         f"**要約**: {summary}\n\n"
         f"**重要ポイント**:\n" + "\n".join(f"- {p}" for p in key_points) + "\n\n"
         f"**確信度**: {confidence:.2f} | **モデル**: {model_id} | "
         f"**レイテンシ**: {latency_ms}ms | **リトライ**: {retry_count}回"
-        f"{reroute_note} | **実行ログ**: {log_id}"
+        f"{reroute_note}{log_note}"
     )
 
 

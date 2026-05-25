@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 from pathlib import Path
@@ -23,6 +24,7 @@ from ..scheduler.profile import get_profile_models, select_best_profile
 from ..scheduler.queue import SchedulerQueue
 from .state_manager import GpuStateManager
 
+logger = logging.getLogger(__name__)
 server = Server("gpu-mcp")
 
 _PARALLEL_CONFIG = Path(os.environ.get("AIRFLOW_PARALLEL_CONFIG", ".airflow/config/parallel.yaml"))
@@ -43,7 +45,10 @@ _state_lock = threading.RLock()
 def _load_config() -> None:
     global _current_profile, _scheduler_queue, _gpu
     if _PARALLEL_CONFIG.exists():
-        cfg = yaml.safe_load(_PARALLEL_CONFIG.read_text())
+        cfg = yaml.safe_load(_PARALLEL_CONFIG.read_text()) or {}
+        if not isinstance(cfg, dict):
+            logger.warning("parallel config is not a dict, using defaults")
+            cfg = {}
         sched = cfg.get("scheduler", {})
         pinned = cfg.get("gpu", {}).get("pinned_models", [])
         new_gpu = GpuStateManager(

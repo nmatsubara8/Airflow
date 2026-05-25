@@ -118,7 +118,7 @@ def verify_chain(since: str | None = None) -> list[dict[str, str]]:
             failures.append({"date": hf.stem, "expected_hash": "N/A",
                              "actual_hash": f"CORRUPT: {exc}"})
             continue
-        date_str = record["date"]
+        date_str = record.get("date") or hf.stem
         expected = compute_chain_hash(date_str, prev_hash)
 
         if record.get("hash") != expected:

@@ -40,6 +40,9 @@ def _load_agents() -> None:
                 parts = content.split("---", 2)
                 if len(parts) >= 3:
                     meta = yaml.safe_load(parts[1]) or {}
+                    if not isinstance(meta, dict):
+                        logger.warning("agents: non-dict frontmatter in %s, skipping", skills_path)
+                        continue
                     meta["skills_md_path"] = str(skills_path)
                     meta["body"] = parts[2].strip()
                     agent_id = meta.get("agent_id")
