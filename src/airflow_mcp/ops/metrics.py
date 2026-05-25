@@ -28,7 +28,8 @@ def collect_task_metrics(store: TaskStore) -> dict[str, Any]:
     for status in statuses:
         try:
             tasks = store.list_by_status(status)
-        except Exception:
+        except Exception as exc:
+            logger.debug("collect_task_metrics: list_by_status(%s) failed: %s", status, exc)
             tasks = []
         for t in tasks:
             section = t.get("section", "unknown") if isinstance(t, dict) else "unknown"

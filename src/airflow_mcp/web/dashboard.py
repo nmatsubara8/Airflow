@@ -72,7 +72,8 @@ def render_home(store: TaskStore) -> str:
     for s in statuses:
         try:
             count = len(store.list_by_status(s))
-        except Exception:
+        except Exception as exc:
+            logger.debug("render_home: list_by_status(%s) failed: %s", s, exc)
             count = 0
         total += count
         rows.append([_badge(s), str(count)])
@@ -90,8 +91,8 @@ def render_tasks(store: TaskStore, status: str | None = None, section: str | Non
             continue
         try:
             tasks.extend(store.list_by_status(s))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("render_tasks: list_by_status(%s) failed: %s", s, exc)
 
     if section:
         tasks = [t for t in tasks if t.get("section") == section]
@@ -123,7 +124,8 @@ def render_tasks(store: TaskStore, status: str | None = None, section: str | Non
 def render_task_detail(store: TaskStore, task_id: str) -> str | None:
     try:
         task = store.get(task_id)
-    except Exception:
+    except Exception as exc:
+        logger.debug("render_task_detail: task %s not found: %s", task_id, exc)
         return None
 
     rows = [
