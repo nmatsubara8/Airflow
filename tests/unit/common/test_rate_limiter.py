@@ -156,7 +156,6 @@ def test_build_rate_limiter_uses_defaults_when_no_config(monkeypatch):
 
 def test_load_rate_limit_config_non_dict_yaml_returns_empty(tmp_path, monkeypatch):
     """auth.yaml が list などの非dict を返した場合 {} を返すこと。"""
-    from pathlib import Path
     from airflow_mcp.common import rate_limiter as mod
     cfg = tmp_path / "auth.yaml"
     cfg.write_text("- item1\n- item2\n")
@@ -167,7 +166,6 @@ def test_load_rate_limit_config_non_dict_yaml_returns_empty(tmp_path, monkeypatc
 
 def test_load_rate_limit_config_empty_file_returns_empty(tmp_path, monkeypatch):
     """auth.yaml が空ファイルの場合 {} を返すこと。"""
-    from pathlib import Path
     from airflow_mcp.common import rate_limiter as mod
     cfg = tmp_path / "auth.yaml"
     cfg.write_text("")

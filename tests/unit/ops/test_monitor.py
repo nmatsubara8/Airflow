@@ -263,7 +263,6 @@ def test_print_status_outputs_dashboard(monkeypatch, capsys):
 
 def test_load_active_profile_non_dict_yaml_returns_unknown(tmp_path, monkeypatch):
     """parallel.yaml が list などの非dict の場合 'unknown' を返すこと。"""
-    from pathlib import Path
     import airflow_mcp.ops.monitor as mon
     cfg = tmp_path / "parallel.yaml"
     cfg.write_text("- item1\n- item2\n")
@@ -274,7 +273,6 @@ def test_load_active_profile_non_dict_yaml_returns_unknown(tmp_path, monkeypatch
 
 def test_load_active_profile_empty_file_returns_unknown(tmp_path, monkeypatch):
     """parallel.yaml が空ファイルの場合 'unknown' を返すこと。"""
-    from pathlib import Path
     import airflow_mcp.ops.monitor as mon
     cfg = tmp_path / "parallel.yaml"
     cfg.write_text("")
