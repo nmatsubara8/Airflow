@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import mcp.types as types
-import yaml
+from ..common.io import safe_yaml_load
 from mcp.server import Server
 
 from ..common.audit import log_event, new_audit_id
@@ -77,11 +77,8 @@ def _save_degradation_override(mode: str) -> None:
 
 def _load_config() -> None:
     global _current_profile, _scheduler_queue, _gpu
-    if _PARALLEL_CONFIG.exists():
-        cfg = yaml.safe_load(_PARALLEL_CONFIG.read_text()) or {}
-        if not isinstance(cfg, dict):
-            logger.warning("parallel config is not a dict, using defaults")
-            cfg = {}
+    cfg = safe_yaml_load(_PARALLEL_CONFIG)
+    if cfg:
         sched = cfg.get("scheduler", {})
         pinned = cfg.get("gpu", {}).get("pinned_models", [])
         new_gpu = GpuStateManager(

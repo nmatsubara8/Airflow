@@ -10,10 +10,9 @@ import time
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from ..common.audit import log_event, new_audit_id
 from ..common.errors import TaskAlreadyClaimed, TaskLockConflict
+from ..common.io import safe_yaml_load
 from ..taskboard.store import TaskStore
 
 logger = logging.getLogger(__name__)
@@ -28,14 +27,7 @@ _MVP_AGENT_MAP: dict[str, str] = {
 
 
 def load_config(config_path: str = ".airflow/config/dispatch.yaml") -> dict[str, Any]:
-    p = Path(config_path)
-    if p.exists():
-        cfg = yaml.safe_load(p.read_text()) or {}
-        if not isinstance(cfg, dict):
-            logger.warning("dispatch config is not a dict, using defaults")
-            return {}
-        return cfg
-    return {}
+    return safe_yaml_load(Path(config_path))
 
 
 def infer_section(task: dict[str, Any], config: dict[str, Any]) -> str:

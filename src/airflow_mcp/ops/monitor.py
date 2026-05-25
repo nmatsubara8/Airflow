@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import yaml
+from ..common.io import safe_yaml_load
 
 logger = logging.getLogger(__name__)
 
@@ -88,12 +88,7 @@ def _recent_events(n: int = 5) -> list[dict[str, Any]]:
 
 
 def _load_active_profile() -> str:
-    if _PARALLEL_CONFIG.exists():
-        cfg = yaml.safe_load(_PARALLEL_CONFIG.read_text()) or {}
-        if not isinstance(cfg, dict):
-            return "unknown"
-        return cfg.get("mvp_profile", "unknown")
-    return "unknown"
+    return safe_yaml_load(_PARALLEL_CONFIG).get("mvp_profile", "unknown")
 
 
 def _format_dashboard(

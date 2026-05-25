@@ -11,10 +11,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import yaml
-
 if TYPE_CHECKING:
     from ..taskboard.store import TaskStore
+
+from ..common.io import safe_yaml_load
 
 logger = logging.getLogger(__name__)
 
@@ -26,21 +26,14 @@ _DEFAULT_CONFIG = Path(os.environ.get("AIRFLOW_CHAINS_CONFIG", ".airflow/config/
 
 def load_chains(config_path: Path = _DEFAULT_CONFIG) -> list[dict[str, Any]]:
     """chains.yaml からチェーン定義リストを返す。ファイルが無ければ空リスト。"""
-    if not config_path.exists():
+    cfg = safe_yaml_load(config_path)
+    if not cfg:
         return []
-    try:
-        cfg = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-        if not isinstance(cfg, dict):
-            logger.warning("handoff_chain: chains.yaml is not a mapping, ignoring")
-            return []
-        chains = cfg.get("chains", [])
-        if not isinstance(chains, list):
-            logger.warning("handoff_chain: 'chains' must be a list, ignoring")
-            return []
-        return chains
-    except (OSError, yaml.YAMLError) as exc:
-        logger.warning("handoff_chain: failed to load chains config: %s", exc)
+    chains = cfg.get("chains", [])
+    if not isinstance(chains, list):
+        logger.warning("handoff_chain: 'chains' must be a list, ignoring")
         return []
+    return chains
 
 
 # ── マッチング ────────────────────────────────────────────

@@ -12,8 +12,8 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-import yaml
 
+from ..common.io import safe_yaml_load
 from ..common.url_validator import validate_slack_webhook_url
 
 logger = logging.getLogger(__name__)
@@ -49,12 +49,7 @@ _TEMPLATES = {
 
 
 def _load_config() -> dict[str, Any]:
-    if _CONFIG_PATH.exists():
-        cfg = yaml.safe_load(_CONFIG_PATH.read_text()) or {}
-        if not isinstance(cfg, dict):
-            return {}
-        return cfg.get("notifications", {})
-    return {}
+    return safe_yaml_load(_CONFIG_PATH).get("notifications", {})
 
 
 _EMAIL_EVENTS = {"critical", "audit_tamper"}

@@ -11,11 +11,10 @@ import time
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from ..common.audit import log_event, new_audit_id
 from ..taskboard.store import TaskStore
 from .notes_index import load_index, note_id_for_path, save_index, upsert_note
+from ..common.io import safe_yaml_load
 from .parser import frontmatter_to_task_fields, normalize_path, parse_markdown
 
 logger = logging.getLogger(__name__)
@@ -27,14 +26,7 @@ _notes_index_path: Path = Path(".airflow/notes/index.json")
 
 
 def load_config(config_path: str = ".airflow/config/ingester.yaml") -> dict[str, Any]:
-    p = Path(config_path)
-    if p.exists():
-        cfg = yaml.safe_load(p.read_text()) or {}
-        if not isinstance(cfg, dict):
-            logger.warning("ingester config is not a dict, using defaults")
-            return {}
-        return cfg
-    return {}
+    return safe_yaml_load(Path(config_path))
 
 
 def _write_processed_at(path: Path, processed_at: str) -> bool:

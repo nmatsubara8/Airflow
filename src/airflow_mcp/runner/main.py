@@ -23,10 +23,10 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-import yaml
 from jsonschema import Draft202012Validator
 
 from ..common.audit import log_event, new_audit_id
+from ..common.io import safe_yaml_load
 from ..common.thresholds import REROUTE_SCORE_THRESHOLD
 from ..common.url_validator import validate_ollama_url
 from ..orchestrator.execution_log import append_execution_log, compute_auto_score, load_history
@@ -43,14 +43,7 @@ _OLLAMA_TIMEOUT_S = float(os.environ.get("AIRFLOW_OLLAMA_TIMEOUT_S", "180"))
 
 
 def load_model_config(path: str = ".airflow/config/model-config.yaml") -> dict[str, Any]:
-    p = Path(path)
-    if p.exists():
-        cfg = yaml.safe_load(p.read_text()) or {}
-        if not isinstance(cfg, dict):
-            logger.warning("model config is not a dict, using defaults")
-            return {}
-        return cfg
-    return {}
+    return safe_yaml_load(Path(path))
 
 
 def _load_registry(path: str = ".airflow/models/registry.json") -> dict[str, dict]:

@@ -59,6 +59,7 @@ _STRUCT_OUTPUT_RETRIES = 2
 
 
 def _load_registry() -> None:
+    _models.clear()
     if _REGISTRY_PATH.exists():
         data = json.loads(_REGISTRY_PATH.read_text())
         if not isinstance(data, dict):

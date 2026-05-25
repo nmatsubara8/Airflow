@@ -10,9 +10,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from .errors import AuthRateLimited
+from .io import safe_yaml_load
 
 _CONFIG_PATH = Path(".airflow/config/auth.yaml")
 
@@ -88,12 +87,7 @@ class RateLimiter:
 
 
 def _load_rate_limit_config() -> dict[str, Any]:
-    if _CONFIG_PATH.exists():
-        cfg = yaml.safe_load(_CONFIG_PATH.read_text()) or {}
-        if not isinstance(cfg, dict):
-            return {}
-        return cfg.get("rate_limit", {})
-    return {}
+    return safe_yaml_load(_CONFIG_PATH).get("rate_limit", {})
 
 
 def build_rate_limiter() -> RateLimiter:

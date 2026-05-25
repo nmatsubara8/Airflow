@@ -12,10 +12,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from ..common.audit import log_event, new_audit_id
 from ..ops.audit_integrity import run_chain_hash
+from ..common.io import safe_yaml_load
 from ..ops.notifier import notify_batch_complete
 
 logger = logging.getLogger(__name__)
@@ -24,11 +23,8 @@ _SCHEDULES_PATH = Path(os.environ.get("AIRFLOW_SCHEDULES", ".airflow/config/sche
 
 
 def _load_schedules() -> list[dict[str, Any]]:
-    if not _SCHEDULES_PATH.exists():
-        return []
-    cfg = yaml.safe_load(_SCHEDULES_PATH.read_text())
-    if not isinstance(cfg, dict):
-        logger.warning("batch_scheduler: schedules.yaml is not a mapping (got %s)", type(cfg).__name__)
+    cfg = safe_yaml_load(_SCHEDULES_PATH)
+    if not cfg:
         return []
     raw = cfg.get("schedules", {})
     # dict 形式（name がキー）をリストに正規化
