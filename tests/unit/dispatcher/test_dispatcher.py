@@ -79,6 +79,23 @@ def test_select_agent_unknown_section_falls_back():
     assert select_agent("unknown_section", {}) == "agent_docs"
 
 
+def test_select_agent_uses_yaml_section_agents():
+    """dispatch.yaml の section_agents キーが _MVP_AGENT_MAP より優先されること。"""
+    config = {"section_agents": {"content": "agent_content_director"}}
+    assert select_agent("content", {}, config) == "agent_content_director"
+
+
+def test_select_agent_yaml_non_dict_section_agents_falls_back():
+    """section_agents が dict でない場合はフォールバックすること。"""
+    config = {"section_agents": ["not-a-dict"]}
+    assert select_agent("engineering", {}, config) == "agent_docs"
+
+
+def test_select_agent_no_config_uses_mvp_map():
+    """config=None のとき _MVP_AGENT_MAP のフォールバックを使うこと。"""
+    assert select_agent("business", {}, None) == "agent_docs"
+
+
 # ── dispatch_once ─────────────────────────────────────
 
 def test_dispatch_once_claims_inbox_task(task_store, sample_task_fields):

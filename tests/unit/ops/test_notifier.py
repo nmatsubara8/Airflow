@@ -126,7 +126,8 @@ def test_send_notification_slack_http_error(monkeypatch):
     )
     monkeypatch.setenv("AIRFLOW_SLACK_WEBHOOK", "https://hooks.slack.com/services/test")
     with patch("airflow_mcp.ops.notifier.httpx.post",
-               side_effect=httpx.ConnectError("refused")):
+               side_effect=httpx.ConnectError("refused")), \
+         patch("time.sleep"):
         result = send_notification("batch_complete", {
             "name": "nightly", "success": 5, "total": 5, "duration_s": 10.0,
         })
@@ -340,3 +341,11 @@ def test_notify_gpu_oom_does_not_raise(monkeypatch):
         lambda: {"channels": {"cli": {"enabled": True}, "slack": {"enabled": False}, "email": {"enabled": False}}},
     )
     notify_gpu_oom("qwen14b", 0.5)
+
+
+def test_smtp_test_no_args_loads_config_from_yaml(monkeypatch):
+    """smtp_test() を引数なしで呼んだとき _load_config() から email 設定を読むこと（line 125）。"""
+    from airflow_mcp.ops.notifier import smtp_test
+    # autouse fixture が _load_config を smtp_host なし設定でパッチ済み → False を返すこと
+    result = smtp_test()
+    assert result is False

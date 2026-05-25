@@ -321,6 +321,17 @@ def test_dashboard_api_status_http_returns_200(store):
 
 # ── render_task_detail join display ───────────────────────
 
+def test_render_api_status_exception_branch():
+    """list_by_status が例外を投げても count=0 でクラッシュしないこと（lines 225-226）。"""
+    import json as _json
+    from unittest.mock import MagicMock
+    from airflow_mcp.web.dashboard import render_api_status
+    bad_store = MagicMock()
+    bad_store.list_by_status.side_effect = RuntimeError("db down")
+    data = _json.loads(render_api_status(bad_store))
+    assert all(v == 0 for v in data["tasks"].values())
+
+
 def test_render_task_detail_shows_join_info(store):
     """join フィールドがあるタスクの詳細 HTML に Fan-in Join セクションが含まれること。"""
     t = store.create({"title": "親タスク", "section": "content", "tags": [], "priority": 5, "owner": None})

@@ -1122,3 +1122,49 @@ async def test_model_reload_registry_reloads(tmp_path, monkeypatch):
     result = await _call("model.reload_registry", {})
     assert result["reloaded"] == 1
     assert "model_reloaded" in models_mod._models
+
+
+@pytest.mark.asyncio
+async def test_model_recommend_model_unavailable_when_candidates_unregistered():
+    """candidate_models が全て未登録のとき MODEL_UNAVAILABLE エラーを返すこと（line 298）。"""
+    # _models は空（clean_models fixture が適用済み）
+    result = await _call("model.recommend", {
+        "features": {},
+        "candidate_models": ["unregistered_model_x", "unregistered_model_y"],
+    })
+    assert "error" in result
+    assert result["error"]["code"] == "MODEL_UNAVAILABLE"
+
+
+@pytest.mark.asyncio
+async def test_model_recommend_selected_not_in_knn_recs(monkeypatch):
+    """knn_recommend が selected_id を含まないとき else ブランチが実行されること（line 341 else branch）。"""
+    from unittest.mock import patch
+    _add_model("model_solo")
+    with patch("airflow_mcp.models.server.knn_recommend", return_value=[]):
+        result = await _call("model.recommend", {
+            "features": {},
+            "candidate_models": ["model_solo"],
+        })
+    assert "recommendations" in result
+    assert result["recommendations"][0]["model_id"] == "model_solo"
+
+
+@pytest.mark.asyncio
+async def test_model_recommend_sets_reason_when_exploration_type_in_reason_map(monkeypatch):
+    """selected_id が knn_recs に含まれ exploration_type が _reason_map にあるとき reason が上書きされること（line 341）。"""
+    from unittest.mock import patch
+    _add_model("model_x")
+    fake_knn_recs = [{"model_id": "model_x", "score": 0.8, "expected_accuracy": 0.8,
+                      "swap_cost_ms": 0, "confidence": 0.5, "sample_count": 0}]
+    with patch("airflow_mcp.models.server.knn_recommend", return_value=fake_knn_recs), \
+         patch("airflow_mcp.models.server.select_model",
+               return_value=("model_x", "cold_start_fallback")):
+        result = await _call("model.recommend", {
+            "features": {},
+            "candidate_models": ["model_x"],
+        })
+    assert "recommendations" in result
+    rec = result["recommendations"][0]
+    assert rec["model_id"] == "model_x"
+    assert "コールドスタート" in rec["reason"]

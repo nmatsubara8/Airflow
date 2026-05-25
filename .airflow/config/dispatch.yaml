@@ -36,3 +36,11 @@ priority:
 agent_selection:
   strategy: skills_match             # match task tags to agent skills
   fallback: round_robin              # if no skills match, round-robin
+
+# section → default agent mapping (overrides _MVP_AGENT_MAP in dispatcher/main.py)
+# Uncomment and set the appropriate agent_id when agents are registered.
+section_agents:
+  engineering:   agent_docs
+  content:       agent_docs          # Replace with agent_content_director when available
+  business:      agent_docs          # Replace with agent_marketing_director when available
+  orchestration: agent_docs

@@ -559,3 +559,117 @@ def test_route_to_next_agent_reassign_fails_returns_none(tmp_path):
     with patch.object(store, "reassign_in_progress", side_effect=TaskInvalidTransition("in_progress", "reassign_in_progress")):
         result = route_to_next_agent(updated, "agent_writer", store, chains)
     assert result is None
+
+
+# ── spawn_with_join_tracking update exception ─────────────
+
+def test_spawn_with_join_tracking_update_exception_does_not_crash(tmp_path):
+    """store.update() が例外を投げても child_ids を返してクラッシュしないこと（line 171-172）。"""
+    from unittest.mock import patch
+    from airflow_mcp.taskboard.store import TaskStore
+    store = TaskStore(base_dir=tmp_path)
+    t = store.create({"title": "親", "section": "design",
+                      "tags": ["approved"], "priority": 5, "owner": None})
+    store.claim(t["id"], "agent_pm")
+    store.transition(t["id"], "done")
+    done_task = store.get(t["id"])
+    chains = [{
+        "name": "fanout_err",
+        "trigger": {"section": "design"},
+        "steps": [
+            {"title_prefix": "[A] ", "section": "qa", "owner": "agent_qa"},
+            {"title_prefix": "[B] ", "section": "review", "owner": "agent_rev"},
+        ],
+    }]
+    with patch.object(store, "update", side_effect=RuntimeError("lock conflict")):
+        child_ids = spawn_with_join_tracking(done_task, store, chains)
+    # update が失敗しても child_ids は返る
+    assert len(child_ids) == 2
+
+
+# ── route_to_next_agent edge cases ───────────────────────
+
+def test_route_to_next_agent_skips_non_dict_chain_entry(tmp_path):
+    """chains リストに dict でない要素があってもクラッシュせず None を返すこと（line 214）。"""
+    store, task = _make_store_with_task(tmp_path)
+    chains = ["not-a-dict", None, 42]
+    result = route_to_next_agent(task, "agent_writer", store, chains)
+    assert result is None
+
+
+def test_route_to_next_agent_skips_non_list_agents(tmp_path):
+    """chain.agents が list でない場合スキップして None を返すこと（line 223）。"""
+    store, task = _make_store_with_task(tmp_path)
+    chains = [{
+        "name": "bad_chain",
+        "mode": "sequential",
+        "trigger": {"section": "content"},
+        "agents": "not-a-list",
+    }]
+    result = route_to_next_agent(task, "agent_writer", store, chains)
+    assert result is None
+
+
+def test_route_to_next_agent_skips_non_dict_agent_entry(tmp_path):
+    """agents リスト内の要素が dict でない場合スキップして None を返すこと（line 229）。"""
+    store, task = _make_store_with_task(tmp_path)
+    # chain_depth=0 なので agents[0] がターゲット
+    chains = [{
+        "name": "bad_agents",
+        "mode": "sequential",
+        "trigger": {"section": "content"},
+        "agents": ["string-not-dict", {"id": "agent_reviewer"}],
+    }]
+    result = route_to_next_agent(task, "agent_writer", store, chains)
+    assert result is None
+
+
+def test_route_to_next_agent_skips_agent_without_id(tmp_path):
+    """agents エントリに id が無い場合スキップして None を返すこと（line 233）。"""
+    store, task = _make_store_with_task(tmp_path)
+    chains = [{
+        "name": "noid_chain",
+        "mode": "sequential",
+        "trigger": {"section": "content"},
+        "agents": [{"name": "no_id_field"}, {"id": "agent_reviewer"}],
+    }]
+    result = route_to_next_agent(task, "agent_writer", store, chains)
+    assert result is None
+
+
+def test_route_to_next_agent_logs_warning_on_cycle(tmp_path):
+    """detect_cycle が True のとき logger.warning が呼ばれ None を返すこと（lines 241-245）。"""
+    store, task = _make_store_with_task(tmp_path)
+    # agent_writer が 1 回完了済み → chain_depth=1 → agents[1]=agent_writer → cycle
+    store.update(task["id"], task["lock"]["version"], {"chain": [
+        {"agent_id": "agent_writer", "completed_at": "2026-01-01T00:00:00Z", "result_ref": None},
+    ]})
+    updated = store.get(task["id"])
+    chains = [{
+        "name": "cycle_chain",
+        "mode": "sequential",
+        "trigger": {"section": "content"},
+        "agents": [
+            {"id": "agent_reviewer"},   # step 0
+            {"id": "agent_writer"},     # step 1 → agent_writer がすでに chain にある → cycle
+            {"id": "agent_publisher"},  # step 2
+        ],
+    }]
+    # current_agent=agent_reviewer, next=agent_writer (in chain already) → cycle detected
+    result = route_to_next_agent(updated, "agent_reviewer", store, chains)
+    assert result is None
+
+
+def test_route_to_next_agent_logs_error_on_reassign_exception(tmp_path):
+    """store.reassign_in_progress() が例外を投げたとき logger.error が呼ばれ None を返すこと（lines 258-259）。"""
+    from unittest.mock import patch
+    store, task = _make_store_with_task(tmp_path)
+    # chain_depth=1: agent_writer completed → next=agent_reviewer (different from current)
+    store.update(task["id"], task["lock"]["version"], {"chain": [
+        {"agent_id": "agent_writer", "completed_at": "2026-01-01T00:00:00Z", "result_ref": None},
+    ]})
+    updated = store.get(task["id"])
+    chains = _sequential_chains()
+    with patch.object(store, "reassign_in_progress", side_effect=RuntimeError("db failure")):
+        result = route_to_next_agent(updated, "agent_writer", store, chains)
+    assert result is None

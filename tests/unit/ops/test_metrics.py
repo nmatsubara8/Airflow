@@ -7,6 +7,7 @@ import urllib.request
 import pytest
 
 from airflow_mcp.ops.metrics import (
+    collect_chain_metrics,
     collect_execution_metrics,
     collect_gpu_metrics,
     collect_task_metrics,
@@ -226,3 +227,72 @@ def test_collect_execution_metrics_result_stats(tmp_path, monkeypatch):
     assert stats["sum"] == 55.0
     assert stats["p50"] == 6.0   # vals_sorted[10//2] = vals_sorted[5] = 6.0
     assert stats["p95"] == 10.0  # vals_sorted[9] = 10.0
+
+
+# ── collect_chain_metrics ─────────────────────────────────
+
+def test_collect_chain_metrics_missing_file(tmp_path, monkeypatch):
+    """ログファイルが存在しない場合 {} を返すこと。"""
+    monkeypatch.setenv("AIRFLOW_EXECUTION_LOG", str(tmp_path / "nonexistent.jsonl"))
+    assert collect_chain_metrics() == {}
+
+
+def test_collect_chain_metrics_counts_rerouted_entries(tmp_path, monkeypatch):
+    """rerouted_from を持つ行が agent ごとにカウントされること。"""
+    log = tmp_path / "exec.jsonl"
+    log.write_text(
+        '{"agent_id": "agent_a", "rerouted_from": "agent_x"}\n'
+        '{"agent_id": "agent_a", "chain_step": 2}\n'
+        '{"agent_id": "agent_b", "rerouted_from": "agent_y"}\n'
+        '{"agent_id": "agent_c"}\n'          # chain_step/rerouted なし → カウント対象外
+        "\n"                                  # 空行
+        "bad-line\n"                          # 不正 JSON
+    )
+    monkeypatch.setenv("AIRFLOW_EXECUTION_LOG", str(log))
+    result = collect_chain_metrics()
+    assert result["chain_steps"]["agent_a"] == 2
+    assert result["chain_steps"]["agent_b"] == 1
+    assert "agent_c" not in result["chain_steps"]
+
+
+def test_collect_chain_metrics_oserror(tmp_path, monkeypatch):
+    """OSError 発生時にカウントなしの chain_steps を返してクラッシュしないこと。"""
+    from unittest.mock import patch
+    log = tmp_path / "exec.jsonl"
+    log.write_text('{"agent_id": "a", "chain_step": 1}\n')
+    monkeypatch.setenv("AIRFLOW_EXECUTION_LOG", str(log))
+    with patch("pathlib.Path.read_text", side_effect=OSError("unreadable")):
+        result = collect_chain_metrics()
+    assert result["chain_steps"] == {}
+
+
+# ── render_prometheus_text chain_metrics ─────────────────
+
+def test_render_includes_chain_steps():
+    """chain_metrics が渡されたとき airflow_handoff_chain_steps_total が出力されること。"""
+    chain_m = {"chain_steps": {"agent_docs": 5}}
+    text = render_prometheus_text({}, {}, {}, chain_m)
+    assert 'airflow_handoff_chain_steps_total{agent_id="agent_docs"} 5' in text
+
+
+def test_render_no_chain_metrics_omits_section():
+    """chain_metrics=None のとき handoff セクションが出力されないこと。"""
+    text = render_prometheus_text({}, {}, {}, None)
+    assert "airflow_handoff_chain_steps_total" not in text
+
+
+# ── _MetricsHandler /health ───────────────────────────────
+
+def test_metrics_server_responds_to_health():
+    """/health エンドポイントが 200 + JSON を返すこと。"""
+    import json as _json
+    port = _find_free_port()
+    httpd = start_metrics_server(store=None, port=port)
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=5) as resp:
+            assert resp.status == 200
+            data = _json.loads(resp.read().decode())
+            assert data["status"] == "ok"
+            assert "ts" in data
+    finally:
+        httpd.shutdown()

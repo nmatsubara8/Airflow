@@ -17,7 +17,8 @@ from ..taskboard.store import TaskStore
 
 logger = logging.getLogger(__name__)
 
-# section → デフォルトエージェントのマッピング（Phase 2 MVP 固定）
+# section → デフォルトエージェントのフォールバックマッピング
+# dispatch.yaml の section_agents: キーで上書き可能
 _MVP_AGENT_MAP: dict[str, str] = {
     "engineering":   "agent_docs",
     "content":       "agent_docs",
@@ -56,12 +57,18 @@ def infer_section(task: dict[str, Any], config: dict[str, Any]) -> str:
     return config.get("routing", {}).get("default_category", "engineering")
 
 
-def select_agent(section: str, task: dict[str, Any], agents_dir: str = "agents") -> str:
+def select_agent(section: str, task: dict[str, Any], config: dict[str, Any] | None = None) -> str:
+    """セクションから担当エージェントを選択する。
+
+    優先順位:
+    1. config（dispatch.yaml）の ``section_agents`` キー
+    2. `_MVP_AGENT_MAP` フォールバック
+    3. ``agent_docs``（最終デフォルト）
     """
-    セクションから担当エージェントを選択。
-    Phase 2 MVP: section ごとに固定エージェント（_MVP_AGENT_MAP）。
-    Phase 3 以降でディレクトリスキャンによる動的選択に切り替える。
-    """
+    if config:
+        yaml_map: dict[str, str] = config.get("section_agents", {})
+        if isinstance(yaml_map, dict) and section in yaml_map:
+            return yaml_map[section]
     return _MVP_AGENT_MAP.get(section, "agent_docs")
 
 
@@ -76,7 +83,7 @@ def dispatch_once(store: TaskStore, config: dict[str, Any]) -> int:
             # セクション推定
             section = infer_section(task, config)
             # エージェント選択
-            agent_id = select_agent(section, task)
+            agent_id = select_agent(section, task, config)
             # タスクにセクションを書き込み（前回未設定の場合）
             if not task.get("section"):
                 task = store.update(task_id, task["lock"]["version"],

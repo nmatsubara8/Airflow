@@ -1065,3 +1065,50 @@ def test_process_task_logs_when_handoff_spawned(task_store, sample_task_fields, 
         result = process_task(task_in_progress, _ctx(task_store))
 
     assert result is True
+
+
+# ── model selection exception → needs_human (lines 354-360) ──
+
+def test_process_task_model_selection_exception_transitions_to_needs_human(
+    task_store, sample_task_fields, monkeypatch
+):
+    """_select_model が例外を投げたとき needs_human に遷移し notify が呼ばれること。"""
+    import os
+    os.environ["OLLAMA_STUB"] = "true"
+    task = task_store.create(sample_task_fields)
+    task_store.claim(task["id"], "agent_docs")
+    task_in_progress = task_store.get(task["id"])
+
+    with patch("airflow_mcp.runner.main._select_model",
+               side_effect=RuntimeError("registry unavailable")), \
+         patch("airflow_mcp.runner.main.notify_needs_human") as mock_notify:
+        result = process_task(task_in_progress, _ctx(task_store))
+
+    assert result is False
+    updated = task_store.get(task["id"])
+    assert updated["status"] == "needs_human"
+    mock_notify.assert_called_once()
+    _, _, _, _, reason = mock_notify.call_args[0]
+    assert "MODEL_SELECTION_ERROR" in reason
+
+
+# ── sequential handoff early return True (lines 412-416) ──
+
+def test_process_task_sequential_handoff_returns_true(
+    task_store, sample_task_fields, monkeypatch
+):
+    """route_to_next_agent が next_agent を返したとき process_task が True で返ること。"""
+    import os
+    os.environ["OLLAMA_STUB"] = "true"
+    task = task_store.create(sample_task_fields)
+    task_store.claim(task["id"], "agent_docs")
+    task_in_progress = task_store.get(task["id"])
+
+    with patch("airflow_mcp.runner.main.route_to_next_agent",
+               return_value="agent_reviewer"):
+        result = process_task(task_in_progress, _ctx(task_store))
+
+    assert result is True
+    # done に遷移していないこと（オーナー変遷前の状態を確認）
+    updated = task_store.get(task["id"])
+    assert updated["status"] == "in_progress"
