@@ -30,6 +30,7 @@ from ..common.audit import log_event, new_audit_id
 from ..common.thresholds import REROUTE_SCORE_THRESHOLD
 from ..common.url_validator import validate_ollama_url
 from ..orchestrator.execution_log import append_execution_log, compute_auto_score, load_history
+from ..orchestrator.handoff_chain import load_chains, record_chain_step, spawn_handoff_tasks
 from ..orchestrator.recommender import select_model, simple_rule_select
 from ..taskboard.store import TaskStore
 
@@ -403,6 +404,15 @@ def process_task(
 
     logger.info("task %s → done (%.1fs, model=%s%s)", task_id, r.latency_ms / 1000, r.model_id,
                 f" via reroute from {r.rerouted_from}" if r.rerouted_from else "")
+
+    # handoff チェーン：完了ステップを記録し、次タスクを生成する（DDD-06 §3）
+    done_task = store.get(task_id)
+    record_chain_step(task_id, agent_id, r.log_id, store)
+    chains = load_chains()
+    spawned = spawn_handoff_tasks(done_task, store, chains)
+    if spawned:
+        logger.info("handoff.spawned count=%d parent=%s", len(spawned), task_id)
+
     return True
 
 

@@ -2,7 +2,8 @@
 
 ツール: tasks.list / tasks.get / tasks.create / tasks.update /
         tasks.transition / tasks.claim / tasks.add_handoff_note /
-        tasks.assign / tasks.join / audit.trace / audit.query
+        tasks.assign / tasks.join / tasks.spawn_handoff /
+        audit.trace / audit.query
 """
 from __future__ import annotations
 
@@ -17,6 +18,7 @@ from ..common.audit import now_iso, record_audit
 from ..common.auth import require_scope
 from ..common.errors import TaskNotFound
 from ..common.mcp import dispatch, mcp_result, require_args, run_stdio_server
+from ..orchestrator.handoff_chain import load_chains, spawn_handoff_tasks
 from .store import TaskStore
 
 _ALL_STATUSES = ["inbox", "in_progress", "done", "needs_human", "blocked", "cancelled"]
@@ -178,6 +180,18 @@ async def list_tools() -> list[types.Tool]:
                         "enum": ["all_done", "any_done", "majority"],
                         "default": "all_done",
                     },
+                    "_meta": {"type": "object"},
+                },
+            },
+        ),
+        types.Tool(
+            name="tasks.spawn_handoff",
+            description="完了タスクを起点に chains.yaml で定義された次ステップのタスクを生成",
+            inputSchema={
+                "type": "object",
+                "required": ["task_id"],
+                "properties": {
+                    "task_id": {"type": "string"},
                     "_meta": {"type": "object"},
                 },
             },
@@ -420,6 +434,16 @@ async def _audit_query(args: dict[str, Any], token: str | None) -> list[types.Te
     return mcp_result({"events": results[-limit:]})
 
 
+async def _tasks_spawn_handoff(args: dict[str, Any], token: str | None) -> list[types.TextContent]:
+    require_scope(token, "tasks:write")
+    require_args(args, "task_id")
+    store = _get_store()
+    task = store.get(args["task_id"])  # raises TaskNotFound
+    chains = load_chains()
+    created_ids = spawn_handoff_tasks(task, store, chains)
+    return mcp_result({"spawned": created_ids, "count": len(created_ids)})
+
+
 # ── ツール実装 ────────────────────────────────────────────
 _HANDLERS = {
     "tasks.list": _tasks_list,
@@ -431,6 +455,7 @@ _HANDLERS = {
     "tasks.add_handoff_note": _tasks_add_handoff_note,
     "tasks.assign": _tasks_assign,
     "tasks.join": _tasks_join,
+    "tasks.spawn_handoff": _tasks_spawn_handoff,
     "audit.trace": _audit_trace,
     "audit.query": _audit_query,
 }
