@@ -41,16 +41,36 @@ python -m airflow_mcp config validate
 
 ```bash
 cp .env.example .env
-# .env の VAULT_ROOT 等を編集
-
-docker compose up -d ollama           # まず Ollama を起動
-docker compose exec ollama ollama pull qwen2.5:14b-instruct-q4_K_M
-docker compose up -d                  # 全サービス起動
+# .env の VAULT_ROOT と AIRFLOW_MCP_TOKEN_* を編集（← 必須）
 ```
 
-## MCP サーバー（ローカル起動）
+サービスは用途に応じて選択して起動します:
+
+| サービス | 必須 | 役割 |
+|---------|:----:|------|
+| `ollama` | ✅ | LLM バックエンド |
+| `dispatcher` | ✅ | タスク処理メインループ |
+| `dashboard` | 任意 | Web UI（:7400）|
+| `metrics` | 任意 | Prometheus（:9090）|
 
 ```bash
+docker compose up -d ollama           # まず Ollama を起動
+docker compose exec ollama ollama pull qwen2.5:14b-instruct-q4_K_M
+
+# 最小構成（タスク処理のみ）
+docker compose up -d ollama dispatcher
+
+# 標準構成（Web UI も使う場合）
+docker compose up -d
+```
+
+## MCP サーバー（Claude Desktop 用）
+
+MCP サーバーは Docker Compose ではなく **Claude Desktop が直接起動**します。
+`claude_desktop_config.json` に `deploy/mcp-start.sh` を登録してください。
+
+```bash
+# ローカル直接起動する場合のみ（開発・テスト用）
 python -m airflow_mcp taskboard   # タスクボード MCP
 python -m airflow_mcp models      # モデル管理 MCP
 python -m airflow_mcp gpu         # GPU 状態 MCP
@@ -121,17 +141,33 @@ deploy/systemd/      # 本番用 systemd ユニットファイル
 ## 本番デプロイ（systemd）
 
 ```bash
-# ユニットファイルをコピーして有効化
-sudo cp deploy/systemd/*.service deploy/systemd/*.timer /etc/systemd/system/
+sudo deploy/systemd/install.sh   # パスを自動置換してインストール
 sudo systemctl daemon-reload
-sudo systemctl enable airflow-taskboard airflow-models airflow-gpu \
-  airflow-notes airflow-agents airflow-dashboard airflow-dispatcher airflow-batch.timer
-sudo systemctl start airflow-taskboard airflow-models airflow-gpu \
-  airflow-notes airflow-agents airflow-dashboard airflow-dispatcher
-sudo systemctl start airflow-batch.timer   # 毎朝 03:00 に自動実行
-
-# 詳細手順: deploy/systemd/README.md を参照
 ```
+
+| ユニット | 必須 | 役割 |
+|---------|:----:|------|
+| `airflow-dispatcher` | ✅ | タスク処理メインループ |
+| `airflow-dashboard` | 任意 | Web UI（:7400） |
+| `airflow-batch.timer` | 任意 | 毎朝 03:00 の定期バッチ |
+| `airflow-taskboard` 等 MCP | 任意 | Claude Desktop 用（5種） |
+
+```bash
+# 最小構成
+sudo systemctl enable --now airflow-dispatcher
+
+# 標準構成
+sudo systemctl enable --now \
+  airflow-dispatcher airflow-dashboard airflow-batch.timer
+
+# フル構成（MCP サーバー含む）
+sudo systemctl enable --now \
+  airflow-dispatcher airflow-dashboard airflow-batch.timer \
+  airflow-taskboard airflow-notes airflow-models \
+  airflow-gpu airflow-agents
+```
+
+詳細手順: `deploy/systemd/README.md` を参照。
 
 ## フェーズ状況
 
