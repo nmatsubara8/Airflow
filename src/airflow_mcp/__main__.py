@@ -4,6 +4,11 @@ MCP サーバー起動:
     airflow-mcp taskboard
     airflow-mcp notes | models | gpu | agents
 
+常駐サービス（Docker Compose / systemd）:
+    airflow-mcp dispatcher       -- inbox ポーリングループ
+    airflow-mcp dashboard        -- Web ダッシュボード（port 7400）
+    airflow-mcp metrics          -- Prometheus メトリクス（port 9090）
+
 運用 CLI（DDD-08 §4, §5, §7）:
     airflow-mcp status           -- ダッシュボード表示
     airflow-mcp batch [--loop]   -- バッチスケジューラ（1回 or ループ）
@@ -26,6 +31,11 @@ def main() -> None:
     # MCP サーバー起動
     if cmd in ("taskboard", "notes", "models", "gpu", "agents"):
         _run_mcp_server(cmd)
+        return
+
+    # 常駐サービス（Docker Compose / systemd）
+    if cmd in ("dispatcher", "dashboard", "metrics"):
+        _run_daemon(cmd)
         return
 
     # 運用 CLI
@@ -94,6 +104,32 @@ def main() -> None:
     print(f"Unknown command: {cmd}", file=sys.stderr)
     _print_usage()
     sys.exit(1)
+
+
+def _run_daemon(service: str) -> None:
+    import os
+    import time
+    if service == "dispatcher":
+        import logging
+        logging.basicConfig(level=logging.INFO,
+                            format="%(asctime)s %(levelname)s [%(name)s] %(message)s")
+        from .dispatcher.main import load_config, run_loop
+        from .taskboard.store import TaskStore
+        store = TaskStore(os.environ.get("AIRFLOW_TASKBOARD_DIR", ".airflow/tasks"))
+        config = load_config()
+        run_loop(store, config)
+    elif service == "dashboard":
+        from .taskboard.store import TaskStore
+        from .web.dashboard import start_dashboard
+        store = TaskStore(os.environ.get("AIRFLOW_TASKBOARD_DIR", ".airflow/tasks"))
+        start_dashboard(store)
+        while True:
+            time.sleep(60)
+    elif service == "metrics":
+        from .ops.metrics import start_metrics_server
+        start_metrics_server(store=None)
+        while True:
+            time.sleep(60)
 
 
 def _run_mcp_server(server_name: str) -> None:
@@ -238,6 +274,7 @@ def _run_config_command() -> None:
 def _print_usage() -> None:
     print("Usage: airflow-mcp <command>", file=sys.stderr)
     print("  MCP servers : taskboard | notes | models | gpu | agents", file=sys.stderr)
+    print("  Daemons     : dispatcher | dashboard | metrics", file=sys.stderr)
     print("  Ops CLI     : status [--watch [--interval N]] | batch [--loop]", file=sys.stderr)
     print("              : audit <verify|hash>", file=sys.stderr)
     print("  Config CLI  : config validate", file=sys.stderr)

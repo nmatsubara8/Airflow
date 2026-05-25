@@ -384,3 +384,27 @@ def test_main_auth_rotate_unknown_flag_skipped(capsys):
         _main(["auth", "rotate", "--agent", "agent_x", "--scopes", "tasks:read", "--unknown"])
     out = capsys.readouterr().out
     assert "rotated" in out
+
+
+# ── daemon commands (dispatcher / dashboard / metrics) ────────────────────────
+
+@pytest.mark.parametrize("cmd,expected_mock", [
+    ("dispatcher", "airflow_mcp.dispatcher.main.run_loop"),
+    ("dashboard",  "airflow_mcp.web.dashboard.start_dashboard"),
+    ("metrics",    "airflow_mcp.ops.metrics.start_metrics_server"),
+])
+def test_main_daemon_commands_call_correct_entry(cmd, expected_mock):
+    with patch(expected_mock) as mock_fn, patch("time.sleep", side_effect=KeyboardInterrupt):
+        try:
+            _main([cmd])
+        except KeyboardInterrupt:
+            pass
+    mock_fn.assert_called_once()
+
+
+def test_main_dispatcher_passes_store_and_config():
+    with patch("airflow_mcp.dispatcher.main.run_loop") as mock_loop, \
+         patch("airflow_mcp.dispatcher.main.load_config", return_value={}), \
+         patch("airflow_mcp.taskboard.store.TaskStore"):
+        _main(["dispatcher"])
+    mock_loop.assert_called_once()

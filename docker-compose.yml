@@ -24,7 +24,7 @@ services:
   # ── Dispatcher (inbox polling loop) ──────────────────────────────────────
   dispatcher:
     build: .
-    command: ["python", "-m", "airflow_mcp.dispatcher.main"]
+    command: ["python", "-m", "airflow_mcp", "dispatcher"]
     volumes:
       - airflow_tasks:/data/tasks
       - ./.airflow/config:/app/.airflow/config:ro
@@ -37,40 +37,39 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # ── Dashboard (status display loop) ──────────────────────────────────────
+  # ── Dashboard (Web UI :7400) ──────────────────────────────────────────────
   dashboard:
     build: .
-    command: ["python", "deploy/systemd/airflow-dashboard.sh"]
+    command: ["python", "-m", "airflow_mcp", "dashboard"]
     volumes:
       - airflow_tasks:/data/tasks
       - ./.airflow/config:/app/.airflow/config:ro
-      - ./deploy/systemd/airflow-dashboard.sh:/app/deploy/systemd/airflow-dashboard.sh:ro
     env_file: .env
     environment:
       AIRFLOW_TASKBOARD_DIR: /data/tasks
     ports:
-      - "7400:7400"
+      - "127.0.0.1:7400:7400"
     depends_on:
-      - dispatcher
+      ollama:
+        condition: service_healthy
     restart: unless-stopped
 
-  # ── Metrics (Prometheus exporter) ────────────────────────────────────────
+  # ── Metrics (Prometheus exporter :9090) ──────────────────────────────────
   metrics:
     build: .
-    command: ["python", "deploy/systemd/airflow-metrics.sh"]
+    command: ["python", "-m", "airflow_mcp", "metrics"]
     volumes:
       - airflow_tasks:/data/tasks
-      - ./deploy/systemd/airflow-metrics.sh:/app/deploy/systemd/airflow-metrics.sh:ro
     env_file: .env
     environment:
       AIRFLOW_TASKBOARD_DIR: /data/tasks
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     restart: unless-stopped
 
   # NOTE: MCP servers (taskboard, notes, models, gpu, agents) are stdio-based
   # and must be launched by Claude Desktop, not as persistent Docker services.
-  # Configure them in Claude Desktop's MCP settings instead.
+  # Configure them in Claude Desktop's MCP settings using deploy/mcp-start.sh.
 
 volumes:
   ollama_data:
