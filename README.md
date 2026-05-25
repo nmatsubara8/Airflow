@@ -34,15 +34,26 @@ Obsidian Vault (.md)
 
 ### Docker Compose サービス構成
 
-| サービス | 役割 | ポート |
-|---------|------|--------|
-| `ollama` | LLM バックエンド | 127.0.0.1:11434 |
-| `dispatcher` | inbox タスクのエージェント割り当てループ | — |
-| `dashboard` | Web ダッシュボード | 127.0.0.1:7400 |
-| `metrics` | Prometheus メトリクスエクスポータ | 127.0.0.1:9090 |
+| サービス | 必須 | 役割 | ポート |
+|---------|:----:|------|--------|
+| `ollama` | ✅ | LLM バックエンド（dispatcher が依存） | 127.0.0.1:11434 |
+| `dispatcher` | ✅ | inbox タスクをエージェントへ割り当てるループ | — |
+| `dashboard` | 任意 | Web ダッシュボード（タスク状態の確認用） | 127.0.0.1:7400 |
+| `metrics` | 任意 | Prometheus メトリクス（Grafana 連携する場合のみ） | 127.0.0.1:9090 |
+
+**最小構成**（タスク処理だけしたい場合）:
+```bash
+docker compose up -d ollama dispatcher
+```
+
+**標準構成**（ダッシュボードで状態確認もしたい場合）:
+```bash
+docker compose up -d   # 全サービス起動
+```
 
 > **MCP サーバー**（taskboard / notes / models / gpu / agents）は stdio ベースのため  
-> Claude Desktop が直接起動します。`deploy/mcp-start.sh` で設定します。
+> Docker Compose ではなく **Claude Desktop が直接起動** します。  
+> `deploy/mcp-start.sh` で設定します（後述）。
 
 ---
 
@@ -264,15 +275,28 @@ nvidia-container-toolkit が必要です。
 ```bash
 pip install -e ".[dev]"
 cp .env.example .env  # OLLAMA_BASE_URL=http://localhost:11434 のまま
+```
 
-# MCP サーバー（別ターミナルで）
-python -m airflow_mcp taskboard
-python -m airflow_mcp notes
+起動するプロセスは用途に応じて選択します（それぞれ別ターミナルで実行）:
 
-# 常駐サービス（別ターミナルで）
+| プロセス | 必須 | コマンド |
+|---------|:----:|---------|
+| Ollama（別途インストール） | ✅ | `ollama serve` |
+| Dispatcher（タスク処理） | ✅ | `python -m airflow_mcp dispatcher` |
+| Dashboard（Web UI） | 任意 | `python -m airflow_mcp dashboard` |
+| Metrics（Prometheus） | 任意 | `python -m airflow_mcp metrics` |
+| Taskboard MCP（Claude Desktop 用） | 任意 | `python -m airflow_mcp taskboard` |
+| その他 MCP サーバー | 任意 | `python -m airflow_mcp notes\|models\|gpu\|agents` |
+
+**最小構成**（Dispatcher のみ）:
+```bash
 python -m airflow_mcp dispatcher
+```
+
+**標準構成**（Dispatcher + Dashboard）:
+```bash
+python -m airflow_mcp dispatcher &
 python -m airflow_mcp dashboard
-python -m airflow_mcp metrics
 ```
 
 ### テスト
@@ -304,7 +328,7 @@ ruff check src/ tests/
 
 ## 本番デプロイ（systemd）
 
-Docker を使わずに systemd で直接デプロイする場合:
+Docker を使わずに systemd で直接デプロイする場合。
 
 ```bash
 # 仮想環境と依存関係
@@ -313,12 +337,39 @@ python3 -m venv .venv
 
 # systemd ユニットファイルをインストール（install.sh がパスを自動置換）
 sudo deploy/systemd/install.sh
+sudo systemctl daemon-reload
+```
 
-# 全サービス有効化・起動
+起動するサービスは用途に応じて選択します:
+
+| ユニット | 必須 | 役割 |
+|---------|:----:|------|
+| `airflow-dispatcher` | ✅ | タスク処理メインループ |
+| `airflow-dashboard` | 任意 | Web ダッシュボード（:7400） |
+| `airflow-batch.timer` | 任意 | 毎朝 03:00 の定期バッチ |
+| `airflow-taskboard` | 任意 | MCP サーバー（Claude Desktop 用） |
+| `airflow-notes` | 任意 | MCP サーバー（Claude Desktop 用） |
+| `airflow-models` | 任意 | MCP サーバー（Claude Desktop 用） |
+| `airflow-gpu` | 任意 | MCP サーバー（Claude Desktop 用） |
+| `airflow-agents` | 任意 | MCP サーバー（Claude Desktop 用） |
+
+**最小構成**（Dispatcher のみ）:
+```bash
+sudo systemctl enable --now airflow-dispatcher
+```
+
+**標準構成**（Dispatcher + Dashboard + 定期バッチ）:
+```bash
 sudo systemctl enable --now \
-  airflow-taskboard airflow-models airflow-gpu \
-  airflow-notes airflow-agents airflow-dashboard \
-  airflow-dispatcher airflow-batch.timer
+  airflow-dispatcher airflow-dashboard airflow-batch.timer
+```
+
+**MCP サーバーを含むフル構成**（Claude Desktop 連携も行う場合）:
+```bash
+sudo systemctl enable --now \
+  airflow-dispatcher airflow-dashboard airflow-batch.timer \
+  airflow-taskboard airflow-notes airflow-models \
+  airflow-gpu airflow-agents
 ```
 
 詳細は `deploy/systemd/README.md` を参照。
