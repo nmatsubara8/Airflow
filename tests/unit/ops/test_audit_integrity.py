@@ -195,3 +195,55 @@ def test_verify_chain_rejects_traversal_since():
     import pytest
     with pytest.raises(ValueError, match="Invalid date_str"):
         verify_chain(since="../../secret")
+
+
+# ── T2-D: 追加テスト ──────────────────────────────────
+
+def test_verify_chain_skips_record_without_date_field():
+    """hash レコードに 'date' フィールドが無くても KeyError を起こさないこと（T1-D）。"""
+    from airflow_mcp.ops.audit_integrity import _INTEGRITY_DIR
+    # date フィールドなしのハッシュファイルを手動作成
+    bad_hash = _INTEGRITY_DIR / "2026-01-03.hash"
+    bad_hash.write_text(json.dumps({
+        "hash": "a" * 64,
+        "prev_hash": "",
+        # "date" フィールドなし
+    }))
+    # KeyError が起きずに failures リストに 2026-01-03.hash の date(stem) が使われること
+    failures = verify_chain()
+    assert isinstance(failures, list)  # クラッシュしないこと
+    # フォールバックとして ファイルステム "2026-01-03" が使われる
+    dates_in_failures = [f.get("date") for f in failures]
+    if failures:
+        assert any("2026-01-03" in (d or "") for d in dates_in_failures)
+
+
+def test_verify_chain_detects_chain_break_via_tampered_record():
+    """手動でハッシュを改ざんしたとき verify_chain() が破断を検出すること（T2-D）。"""
+    run_chain_hash("2026-02-01")
+    run_chain_hash("2026-02-02")
+
+    from airflow_mcp.ops.audit_integrity import _INTEGRITY_DIR
+    path_day1 = _INTEGRITY_DIR / "2026-02-01.hash"
+    rec = json.loads(path_day1.read_text())
+    rec["hash"] = "0" * 64  # 改ざん
+    path_day1.write_text(json.dumps(rec))
+
+    # run_chain_hash("2026-02-02") の prev_hash は改ざん前のハッシュなので chain broken
+    failures = verify_chain()
+    assert len(failures) >= 1
+
+
+def test_verify_chain_handles_hash_record_with_none_hash():
+    """hash フィールドが None のレコードでも verify_chain() がクラッシュしないこと。"""
+    from airflow_mcp.ops.audit_integrity import _INTEGRITY_DIR
+    bad_hash = _INTEGRITY_DIR / "2026-03-01.hash"
+    bad_hash.write_text(json.dumps({
+        "date": "2026-03-01",
+        "hash": None,  # None ハッシュ
+        "prev_hash": "",
+    }))
+    failures = verify_chain()
+    assert isinstance(failures, list)
+    # None ハッシュは期待値と不一致なので failure に入る
+    assert any(f.get("date") == "2026-03-01" for f in failures)

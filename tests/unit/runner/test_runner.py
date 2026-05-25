@@ -869,3 +869,161 @@ def test_execute_with_reroute_uses_fallback_on_primary_failure(
     assert r.schema_valid is True
     assert r.rerouted_from == "model_qwen25_14b_q4"
     assert r.model_id == "model_qwen25_32b_q3"
+
+
+# ── T2-A: 追加テスト ──────────────────────────────────
+
+def test_call_ollama_timeout_error_propagates(monkeypatch):
+    """httpx.TimeoutError が _call_ollama から伝播して _execute_with_retry に catch されること。"""
+    import os
+    import httpx
+    from unittest.mock import patch
+    os.environ["OLLAMA_STUB"] = "false"
+    schema = {"type": "object", "required": ["summary"],
+              "properties": {"summary": {"type": "string"}}}
+    messages = [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}]
+    with patch("airflow_mcp.runner.main.httpx.post",
+               side_effect=httpx.TimeoutException("timed out")), \
+         patch("airflow_mcp.runner.main.time.sleep"):
+        content, parsed, valid, retries = _execute_with_retry(
+            "http://localhost:11434", "model", messages, schema
+        )
+    assert valid is False
+    assert parsed is None
+
+
+def test_call_ollama_read_timeout_propagates(monkeypatch):
+    """httpx.ReadTimeout が _execute_with_retry に catch されること。"""
+    import os
+    import httpx
+    from unittest.mock import patch
+    os.environ["OLLAMA_STUB"] = "false"
+    schema = {"type": "object", "required": ["summary"],
+              "properties": {"summary": {"type": "string"}}}
+    messages = [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}]
+    with patch("airflow_mcp.runner.main.httpx.post",
+               side_effect=httpx.ReadTimeout("read timed out")), \
+         patch("airflow_mcp.runner.main.time.sleep"):
+        _, _, valid, _ = _execute_with_retry(
+            "http://localhost:11434", "model", messages, schema
+        )
+    assert valid is False
+
+
+def test_call_ollama_missing_message_key_returns_empty_content(monkeypatch):
+    """Ollama レスポンスに 'message' キーが無い場合 content='' で schema_invalid になること（T1-A）。"""
+    import os
+    from unittest.mock import MagicMock, patch
+    os.environ["OLLAMA_STUB"] = "false"
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"done": True}  # "message" キーなし
+    mock_resp.raise_for_status = lambda: None
+    schema = {"type": "object", "required": ["summary"],
+              "properties": {"summary": {"type": "string"}}}
+    messages = [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}]
+    with patch("airflow_mcp.runner.main.httpx.post", return_value=mock_resp):
+        content, parsed, valid = _call_ollama(
+            "http://localhost:11434", "model", messages, schema, 0.3, 512, 0
+        )
+    assert valid is False
+    assert content == ""
+
+
+def test_call_ollama_stub_single_message_no_index_error(monkeypatch):
+    """messages が 1 要素以下でもスタブモードが IndexError を起こさないこと（T1-A）。"""
+    import os
+    os.environ["OLLAMA_STUB"] = "true"
+    schema = {"type": "object", "required": ["summary"],
+              "properties": {"summary": {"type": "string"}}}
+    messages = [{"role": "system", "content": "only system"}]  # user メッセージなし
+    content, parsed, valid = _call_ollama(
+        "http://localhost:11434", "stub-model", messages, schema, 0.3, 512, 0
+    )
+    assert valid is True
+    assert "summary" in parsed
+
+
+def test_process_task_uses_fallback_prompt_when_file_missing(
+    task_store, sample_task_fields, monkeypatch, tmp_path
+):
+    """システムプロンプトファイルが存在しない場合にデフォルトプロンプトを使うこと。"""
+    monkeypatch.setenv("OLLAMA_STUB", "true")
+    # _SYSTEM_PROMPT_PATH を存在しないパスにパッチ
+    monkeypatch.setattr("airflow_mcp.runner.main._SYSTEM_PROMPT_PATH",
+                        tmp_path / "nonexistent-prompt.md")
+    task = task_store.create(sample_task_fields)
+    task_store.claim(task["id"], "agent_docs")
+    task_in_progress = task_store.get(task["id"])
+
+    built_messages: list = []
+
+    original_build = __import__(
+        "airflow_mcp.runner.main", fromlist=["_build_messages"]
+    )._build_messages
+
+    def capturing_build(task, system_prompt):
+        built_messages.append(system_prompt)
+        return original_build(task, system_prompt)
+
+    with patch("airflow_mcp.runner.main._build_messages", side_effect=capturing_build):
+        result = process_task(task_in_progress, task_store, {}, {}, "agent_docs", "http://localhost")
+
+    assert result is True
+    # デフォルトプロンプトが使われていること
+    assert len(built_messages) == 1
+    assert "JSON" in built_messages[0]
+
+
+def test_execute_with_reroute_skips_when_fallback_not_in_registry(
+    task_store, sample_task_fields, monkeypatch
+):
+    """fallback_chain に fallback_id があっても registry に無い場合は reroute しないこと。"""
+    monkeypatch.setenv("OLLAMA_STUB", "false")
+    task = task_store.create(sample_task_fields)
+    schema = {"type": "object", "required": ["summary"],
+              "properties": {"summary": {"type": "string"}}}
+    messages = [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}]
+
+    def always_fail(*args, **kwargs):
+        return '{"bad":"x"}', {"bad": "x"}, False
+
+    model_config = {"reroute": {
+        "max_reroute_attempts": 1,
+        "fallback_chain": {"model_qwen25_14b_q4": ["model_nonexistent"]},
+    }}
+    # model_nonexistent は registry に存在しない
+    registry = {"model_qwen25_14b_q4": {"ollama_tag": "qwen2.5:14b", "preferred_tasks": []}}
+
+    from airflow_mcp.common.audit import new_audit_id
+    with patch("airflow_mcp.runner.main._call_ollama", side_effect=always_fail):
+        r = _execute_with_reroute(
+            task, "model_qwen25_14b_q4", None, model_config, registry,
+            "agent_docs", "http://localhost", messages, schema, new_audit_id(),
+        )
+    # reroute されずプライマリ結果のまま
+    assert r.rerouted_from is None
+    assert r.schema_valid is False
+
+
+def test_load_model_config_non_dict_yaml_returns_empty(tmp_path):
+    """YAML が list などの非dict を返した場合 {} を返すこと（T1-A）。"""
+    from airflow_mcp.runner.main import load_model_config
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("- item1\n- item2\n")  # list YAML
+    result = load_model_config(str(cfg_file))
+    assert result == {}
+
+
+def test_build_handoff_note_with_none_log_id():
+    """log_id が None の場合でも handoff_note を生成できること（T1-B）。"""
+    note = _build_handoff_note(
+        parsed={"summary": "テスト", "key_points": [], "confidence": 0.9},
+        content="raw",
+        model_id="model_qwen25_14b_q4",
+        latency_ms=500,
+        retry_count=0,
+        rerouted_from=None,
+        log_id=None,
+    )
+    assert "テスト" in note
+    assert "実行ログ" not in note  # log_id なし → 実行ログ行は省略

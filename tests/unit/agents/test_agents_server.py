@@ -257,3 +257,35 @@ async def test_run_starts_stdio_server(monkeypatch, fake_stdio_ctx):
         await agents_mod.run()
 
     mock_run.assert_awaited_once()
+
+
+# ── T2-C: agents frontmatter YAML ガードテスト ────────
+
+def test_load_agents_skips_non_dict_frontmatter(tmp_path, monkeypatch):
+    """frontmatter YAML が非dict（list など）の場合にスキップすること（T1-D）。"""
+    skills_dir = tmp_path / "agents" / "test_agent"
+    skills_dir.mkdir(parents=True)
+    skills_file = skills_dir / "skills.md"
+    # frontmatter に list を書く（yaml.safe_load → list ではなく dict にならない）
+    skills_file.write_text(
+        "---\n- item1\n- item2\n---\n\n# Body\n"
+    )
+    monkeypatch.setattr(agents_mod, "_AGENTS_DIR", tmp_path / "agents")
+    agents_mod._agents.clear()
+    agents_mod._load_agents()
+    # list frontmatter のエージェントは登録されないこと
+    assert len(agents_mod._agents) == 0
+
+
+def test_load_agents_registers_valid_frontmatter(tmp_path, monkeypatch):
+    """有効な dict frontmatter があるとき agent_id でエージェントが登録されること。"""
+    skills_dir = tmp_path / "agents" / "test_agent"
+    skills_dir.mkdir(parents=True)
+    skills_file = skills_dir / "skills.md"
+    skills_file.write_text(
+        "---\nagent_id: test_agent_001\nname: Test Agent\n---\n\n# Skills\n"
+    )
+    monkeypatch.setattr(agents_mod, "_AGENTS_DIR", tmp_path / "agents")
+    agents_mod._agents.clear()
+    agents_mod._load_agents()
+    assert "test_agent_001" in agents_mod._agents

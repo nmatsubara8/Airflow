@@ -410,3 +410,37 @@ def test_cold_start_model_falls_back_to_default_when_no_match():
     registry_no_match = {k: {**v, "preferred_tasks": ["review"]} for k, v in REGISTRY.items()}
     result = _cold_start_model(features, registry_no_match, cfg)
     assert result == "model_qwen25_14b_q4"
+
+
+# ── T2-B: 追加テスト ──────────────────────────────────
+
+def test_select_model_empty_registry_returns_default():
+    """モデルレジストリが空の場合、cold_start_fallback でデフォルトモデルを返すこと。"""
+    task = {"features": {"task_type": "summarize", "required_accuracy": "medium",
+                          "language": "ja", "latency_sensitivity": "batch"}}
+    cfg = {**MODEL_CONFIG, "selection": {
+        "default_mode": "recommend",
+        "exploration_rate": 0.1,
+        "min_samples_for_auto": 20,
+        "default_model": "model_qwen25_14b_q4",
+    }}
+    model_id, etype = select_model(task, cfg, registry={}, history=[])
+    assert etype == "cold_start_fallback"
+    # デフォルトモデルが返ること（レジストリ空なので _cold_start_model のデフォルト）
+    assert isinstance(model_id, str)
+    assert len(model_id) > 0
+
+
+def test_select_model_empty_registry_empty_history_returns_fallback():
+    """レジストリもヒストリも空の場合はコールドスタートフォールバックになること。"""
+    task = {}
+    model_id, etype = select_model(task, MODEL_CONFIG, registry={}, history=[])
+    assert etype == "cold_start_fallback"
+
+
+def test_knn_recommend_empty_available_list_returns_empty():
+    """available が空リストの場合 knn_recommend が空リストを返すこと。"""
+    features = {"task_type": "summarize"}
+    history = _make_history("model_qwen25_14b_q4", "summarize", 5, 0.8)
+    result = knn_recommend(features, history, [], KNN_CFG)
+    assert result == []

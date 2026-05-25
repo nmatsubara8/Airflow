@@ -225,3 +225,34 @@ async def test_run_starts_stdio_server(fake_stdio_ctx):
         await notes_mod.run()
 
     mock_run.assert_awaited_once()
+
+
+# ── T2-B: 追加テスト ──────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_search_no_match_in_nonempty_store_returns_empty():
+    """ノートが存在するが query と一致しない場合 results=[] を返すこと。"""
+    _add_note("n1", "Python入門", "Python は動的型付け言語です")
+    _add_note("n2", "JavaScript入門", "JSはブラウザで動く")
+    result = await _call("notes.search", {"query": "Rust システムプログラミング"})
+    assert result["results"] == []
+
+
+@pytest.mark.asyncio
+async def test_search_no_match_with_category_filter_returns_empty():
+    """カテゴリフィルタで絞ったとき一致しない場合 results=[] を返すこと。"""
+    _add_note("eng", "エンジニアリング", "Python コード", section="engineering")
+    result = await _call("notes.search", {
+        "query": "Python",
+        "filters": {"category": ["business"]},  # engineering のみあるが business を指定
+    })
+    assert result["results"] == []
+
+
+@pytest.mark.asyncio
+async def test_search_top_k_one_limits_to_single_result():
+    """top_k=1 のとき複数マッチがあっても 1 件だけ返ること。"""
+    for i in range(5):
+        _add_note(f"n{i}", f"Python {i}", f"Python コード {i}")
+    result = await _call("notes.search", {"query": "Python", "top_k": 1})
+    assert len(result["results"]) == 1

@@ -287,3 +287,24 @@ async def test_run_starts_stdio_server(monkeypatch, fake_stdio_ctx):
         await gpu_mod.run()
 
     mock_run.assert_awaited_once()
+
+
+# ── T2-C: _load_config YAML ガードテスト ──────────────
+
+def test_load_config_none_yaml_uses_defaults(tmp_path, monkeypatch):
+    """YAML が None（空ファイル）のとき _load_config がクラッシュしないこと（T1-C）。"""
+    cfg_file = tmp_path / "parallel.yaml"
+    cfg_file.write_text("")  # yaml.safe_load → None
+    monkeypatch.setattr(gpu_mod, "_PARALLEL_CONFIG", cfg_file)
+    gpu_mod._load_config()  # AttributeError が起きないこと
+    # デフォルト値が維持されていること
+    assert isinstance(gpu_mod._profiles, list)
+
+
+def test_load_config_non_dict_yaml_uses_defaults(tmp_path, monkeypatch):
+    """YAML が list などの非dict のとき _load_config がクラッシュしないこと（T1-C）。"""
+    cfg_file = tmp_path / "parallel.yaml"
+    cfg_file.write_text("- item1\n- item2\n")  # list YAML
+    monkeypatch.setattr(gpu_mod, "_PARALLEL_CONFIG", cfg_file)
+    gpu_mod._load_config()  # AttributeError が起きないこと
+    assert isinstance(gpu_mod._profiles, list)

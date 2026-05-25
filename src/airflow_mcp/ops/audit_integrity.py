@@ -121,15 +121,16 @@ def verify_chain(since: str | None = None) -> list[dict[str, str]]:
         date_str = record.get("date") or hf.stem
         expected = compute_chain_hash(date_str, prev_hash)
 
-        if record.get("hash") != expected:
+        actual_hash = record.get("hash") or ""
+        if actual_hash != expected:
             failures.append({
                 "date": date_str,
                 "expected_hash": expected,
-                "actual_hash": record.get("hash", ""),
+                "actual_hash": actual_hash,
             })
             logger.error(
                 "audit.chain_broken date=%s expected=%s... got=%s...",
-                date_str, expected[:16], record.get("hash", "")[:16],
+                date_str, expected[:16], actual_hash[:16],
             )
 
         prev_hash = record.get("hash", "")
