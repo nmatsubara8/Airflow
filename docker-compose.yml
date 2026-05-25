@@ -7,11 +7,11 @@ services:
     ports:
       - "127.0.0.1:11434:11434"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/version"]
+      test: ["CMD", "ollama", "list"]
       interval: 10s
-      timeout: 5s
+      timeout: 10s
       retries: 10
-      start_period: 10s
+      start_period: 20s
     # GPU: uncomment if nvidia-container-toolkit is installed
     # deploy:
     #   resources:
