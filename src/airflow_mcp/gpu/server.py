@@ -159,12 +159,12 @@ def suggest_profile_switch() -> str | None:
 async def list_tools() -> list[types.Tool]:
     return [
         types.Tool(
-            name="gpu.state",
+            name="gpu_state",
             description="現在の GPU メモリ・ロード済みモデルを返す",
             inputSchema={"type": "object", "properties": {}},
         ),
         types.Tool(
-            name="gpu.reserve",
+            name="gpu_reserve",
             description="モデルロードを要求。VRAM 不足時は LRU で退避",
             inputSchema={
                 "type": "object",
@@ -178,7 +178,7 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="gpu.release",
+            name="gpu_release",
             description="モデルをアンロード",
             inputSchema={
                 "type": "object",
@@ -190,12 +190,12 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="scheduler.queue_status",
+            name="scheduler_queue_status",
             description="各モデルのキュー深度・待機時間を返す",
             inputSchema={"type": "object", "properties": {}},
         ),
         types.Tool(
-            name="scheduler.profile_switch",
+            name="scheduler_profile_switch",
             description="スケジューラプロファイルを切替",
             inputSchema={
                 "type": "object",
@@ -204,7 +204,7 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="scheduler.degrade",
+            name="scheduler_degrade",
             description="デグラデーションモードを手動制御（on/off/auto）。再起動後も維持される。",
             inputSchema={
                 "type": "object",
@@ -299,12 +299,12 @@ async def _scheduler_degrade(
 
 
 _HANDLERS = {
-    "gpu.state": _gpu_state,
-    "gpu.reserve": _gpu_reserve,
-    "gpu.release": _gpu_release,
-    "scheduler.queue_status": _scheduler_queue_status,
-    "scheduler.profile_switch": _scheduler_profile_switch,
-    "scheduler.degrade": _scheduler_degrade,
+    "gpu_state": _gpu_state,
+    "gpu_reserve": _gpu_reserve,
+    "gpu_release": _gpu_release,
+    "scheduler_queue_status": _scheduler_queue_status,
+    "scheduler_profile_switch": _scheduler_profile_switch,
+    "scheduler_degrade": _scheduler_degrade,
 }
 
 

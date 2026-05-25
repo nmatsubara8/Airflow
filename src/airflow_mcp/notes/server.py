@@ -43,7 +43,7 @@ def _load_notes() -> None:
 async def list_tools() -> list[types.Tool]:
     return [
         types.Tool(
-            name="notes.search",
+            name="notes_search",
             description="ベクトル検索 + メタデータフィルタでノートを検索",
             inputSchema={
                 "type": "object",
@@ -63,7 +63,7 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="notes.get",
+            name="notes_get",
             description="ID 指定でノートを取得",
             inputSchema={
                 "type": "object",
@@ -72,7 +72,7 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="notes.list_by_category",
+            name="notes_list_by_category",
             description="カテゴリでノートをフィルタ",
             inputSchema={
                 "type": "object",
@@ -84,7 +84,7 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="notes.related",
+            name="notes_related",
             description="内部リンクから関連ノートを取得",
             inputSchema={
                 "type": "object",
@@ -96,7 +96,7 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="notes.reindex",
+            name="notes_reindex",
             description="ノートを再インデックス（管理用）",
             inputSchema={
                 "type": "object",
@@ -180,11 +180,11 @@ async def _notes_reindex(args: dict[str, Any], token: str | None) -> list[types.
 
 
 _HANDLERS = {
-    "notes.search": _notes_search,
-    "notes.get": _notes_get,
-    "notes.list_by_category": _notes_list_by_category,
-    "notes.related": _notes_related,
-    "notes.reindex": _notes_reindex,
+    "notes_search": _notes_search,
+    "notes_get": _notes_get,
+    "notes_list_by_category": _notes_list_by_category,
+    "notes_related": _notes_related,
+    "notes_reindex": _notes_reindex,
 }
 
 

@@ -115,7 +115,7 @@ class TestFindForTask:
     async def test_find_returns_feature_extractor_for_orchestration_task(self, loaded_agents):
         """section=orchestration のタスクで feature-extractor が候補に現れること。"""
         task = {"section": "orchestration", "tags": ["workflow", "feature"]}
-        result = await _call("agents.find_for_task", {"task": task})
+        result = await _call("agents_find_for_task", {"task": task})
         candidate_ids = [c["agent_id"] for c in result["candidates"]]
         assert "agent_feature_extractor" in candidate_ids, \
             f"feature-extractor not found in: {candidate_ids}"
@@ -128,8 +128,8 @@ class TestFindForTask:
         task_orch = {"section": "orchestration", "tags": []}
         task_eng = {"section": "engineering", "tags": []}
 
-        result_orch = await _call("agents.find_for_task", {"task": task_orch})
-        result_eng = await _call("agents.find_for_task", {"task": task_eng})
+        result_orch = await _call("agents_find_for_task", {"task": task_orch})
+        result_eng = await _call("agents_find_for_task", {"task": task_eng})
 
         # orchestration タスクのときは候補に含まれる
         orch_ids = [c["agent_id"] for c in result_orch["candidates"]]
@@ -151,21 +151,21 @@ class TestFindForTask:
     @pytest.mark.asyncio
     async def test_get_feature_extractor_agent_via_mcp(self, loaded_agents):
         """agents.get でメタデータを取得できること。"""
-        result = await _call("agents.get", {"agent_id": "agent_feature_extractor"})
+        result = await _call("agents_get", {"agent_id": "agent_feature_extractor"})
         assert result["agent_id"] == "agent_feature_extractor"
         assert result["section"] == "orchestration"
 
     @pytest.mark.asyncio
     async def test_agents_list_includes_feature_extractor(self, loaded_agents):
         """agents.list に feature-extractor が含まれること。"""
-        result = await _call("agents.list", {})
+        result = await _call("agents_list", {})
         ids = [a["agent_id"] for a in result["agents"]]
         assert "agent_feature_extractor" in ids
 
     @pytest.mark.asyncio
     async def test_agents_list_orchestration_filter_finds_feature_extractor(self, loaded_agents):
         """section=orchestration フィルタで feature-extractor が絞り込まれること。"""
-        result = await _call("agents.list", {"section": "orchestration"})
+        result = await _call("agents_list", {"section": "orchestration"})
         ids = [a["agent_id"] for a in result["agents"]]
         assert "agent_feature_extractor" in ids
 
@@ -177,7 +177,7 @@ class TestExtractFeaturesAllFields:
     @pytest.mark.asyncio
     async def test_empty_task_infers_all_four_fields(self):
         """空タスクでは 4 フィールド全て推論されること（skills.md §Process step 2）。"""
-        result = await _call("agents.extract_features", {"task": {}})
+        result = await _call("agents_extract_features", {"task": {}})
         assert "features" in result
         assert "inferred_fields" in result
         inferred = set(result["inferred_fields"])
@@ -192,7 +192,7 @@ class TestExtractFeaturesAllFields:
             "title": "test",
             "tags": [],
         }
-        result = await _call("agents.extract_features", {"task": task})
+        result = await _call("agents_extract_features", {"task": task})
         inferred = set(result["inferred_fields"])
         assert "task_type" not in inferred
         assert "required_accuracy" not in inferred
@@ -203,21 +203,21 @@ class TestExtractFeaturesAllFields:
     @pytest.mark.asyncio
     async def test_default_accuracy_is_medium(self):
         """section が未指定のとき required_accuracy のデフォルトは 'medium'。"""
-        result = await _call("agents.extract_features", {"task": {"title": "generic task"}})
+        result = await _call("agents_extract_features", {"task": {"title": "generic task"}})
         assert result["features"]["required_accuracy"] == "medium"
         assert "required_accuracy" in result["inferred_fields"]
 
     @pytest.mark.asyncio
     async def test_default_latency_is_batch(self):
         """urgent/interactive タグなしのとき latency_sensitivity のデフォルトは 'batch'。"""
-        result = await _call("agents.extract_features", {"task": {"title": "generic task"}})
+        result = await _call("agents_extract_features", {"task": {"title": "generic task"}})
         assert result["features"]["latency_sensitivity"] == "batch"
         assert "latency_sensitivity" in result["inferred_fields"]
 
     @pytest.mark.asyncio
     async def test_english_title_infers_language_en(self):
         """ASCII タイトルは language='en' と推論されること。"""
-        result = await _call("agents.extract_features",
+        result = await _call("agents_extract_features",
                              {"task": {"title": "Implement rate limiting"}})
         assert result["features"]["language"] == "en"
 
@@ -225,27 +225,27 @@ class TestExtractFeaturesAllFields:
     async def test_business_section_infers_high_accuracy(self):
         """section=business → required_accuracy='high'（skills.md §Process step 2）。"""
         task = {"section": "business", "title": "contract review"}
-        result = await _call("agents.extract_features", {"task": task})
+        result = await _call("agents_extract_features", {"task": task})
         assert result["features"]["required_accuracy"] == "high"
 
     @pytest.mark.asyncio
     async def test_legal_section_infers_high_accuracy(self):
         task = {"section": "legal", "title": "legal review"}
-        result = await _call("agents.extract_features", {"task": task})
+        result = await _call("agents_extract_features", {"task": task})
         assert result["features"]["required_accuracy"] == "high"
 
     @pytest.mark.asyncio
     async def test_urgent_tag_infers_interactive_latency(self):
         """tags に 'urgent' → latency_sensitivity='interactive'。"""
         task = {"tags": ["urgent", "review"], "title": "urgent fix"}
-        result = await _call("agents.extract_features", {"task": task})
+        result = await _call("agents_extract_features", {"task": task})
         assert result["features"]["latency_sensitivity"] == "interactive"
 
     @pytest.mark.asyncio
     async def test_code_review_tag_alias(self):
         """tags に 'code-review' → task_type='review'（エイリアス経由）。"""
         task = {"tags": ["code-review"], "title": "PR review"}
-        result = await _call("agents.extract_features", {"task": task})
+        result = await _call("agents_extract_features", {"task": task})
         assert result["features"]["task_type"] == "review"
 
     @pytest.mark.asyncio
@@ -262,7 +262,7 @@ class TestExtractFeaturesAllFields:
             "tags": ["urgent"],     # normally → interactive, but already set
             "title": "日本語",       # normally → ja, but already set
         }
-        result = await _call("agents.extract_features", {"task": task})
+        result = await _call("agents_extract_features", {"task": task})
         feats = result["features"]
         assert feats["task_type"] == "extract"
         assert feats["required_accuracy"] == "high"
@@ -283,7 +283,7 @@ class TestDelegationConsistency:
 
         task = {"tags": ["summarize", "urgent"], "section": "engineering", "title": "要約タスク"}
         direct_features, direct_inferred = extract_features(task)
-        mcp_result = await _call("agents.extract_features", {"task": task})
+        mcp_result = await _call("agents_extract_features", {"task": task})
 
         assert mcp_result["features"] == direct_features
         assert set(mcp_result["inferred_fields"]) == set(direct_inferred)
@@ -292,7 +292,7 @@ class TestDelegationConsistency:
     async def test_tag_aliases_handled_consistently(self):
         """code-review / summary タグが MCP 経由でも正しくエイリアス解決されること。"""
         for tag, expected in [("code-review", "review"), ("summary", "summarize")]:
-            result = await _call("agents.extract_features",
+            result = await _call("agents_extract_features",
                                  {"task": {"tags": [tag], "title": "t"}})
             assert result["features"]["task_type"] == expected, \
                 f"tag={tag!r} expected task_type={expected!r}, got {result['features']['task_type']!r}"
@@ -309,7 +309,7 @@ class TestEscalationBoundaries:
         """4000 文字超の description でも features が返ること（クラッシュしない）。"""
         big_desc = "あ" * 4100
         task = {"title": "大きなタスク", "description": big_desc, "tags": []}
-        result = await _call("agents.extract_features", {"task": task})
+        result = await _call("agents_extract_features", {"task": task})
         assert "features" in result
         assert result["features"]["language"] == "ja"
 
@@ -317,20 +317,20 @@ class TestEscalationBoundaries:
     async def test_mixed_language_title_returns_ja_when_cjk_present(self):
         """CJK 文字を含む mixed タイトルは 'ja' と推論されること。"""
         task = {"title": "API設計 for backend", "tags": []}
-        result = await _call("agents.extract_features", {"task": task})
+        result = await _call("agents_extract_features", {"task": task})
         assert result["features"]["language"] == "ja"
 
     @pytest.mark.asyncio
     async def test_pure_ascii_title_returns_en(self):
         """純 ASCII タイトルは 'en' と推論されること。"""
         task = {"title": "Build REST API endpoint", "tags": []}
-        result = await _call("agents.extract_features", {"task": task})
+        result = await _call("agents_extract_features", {"task": task})
         assert result["features"]["language"] == "en"
 
     @pytest.mark.asyncio
     async def test_empty_title_defaults_to_en(self):
         """title なしのタスクは language='en' がデフォルト。"""
-        result = await _call("agents.extract_features", {"task": {}})
+        result = await _call("agents_extract_features", {"task": {}})
         assert result["features"]["language"] == "en"
 
 
@@ -345,7 +345,7 @@ class TestDispatcherIntegration:
         from airflow_mcp.ingester.parser import frontmatter_to_task_fields, parse_markdown
 
         # ingester が読む .md を作成
-        md = tmp_path / "task.md"
+        md = tmp_path / "task_md"
         md.write_text(
             "---\n"
             "title: コンテンツ戦略の策定\n"
@@ -361,7 +361,7 @@ class TestDispatcherIntegration:
         fields = frontmatter_to_task_fields(parsed)
 
         # ingester が生成したフィールドを extract_features に渡す
-        result = await _call("agents.extract_features", {"task": fields})
+        result = await _call("agents_extract_features", {"task": fields})
 
         assert result["features"]["required_accuracy"] == "high"  # section=business
         assert result["features"]["language"] == "ja"              # Japanese title

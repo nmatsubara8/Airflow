@@ -113,7 +113,7 @@ def test_check_rate_limit_uses_global_limiter():
 def test_load_rate_limit_config_reads_yaml(tmp_path, monkeypatch):
     """config ファイルが存在するとき rate_limit セクションを返すこと（lines 91-93）。"""
     from airflow_mcp.common import rate_limiter as mod
-    cfg = tmp_path / "auth.yaml"
+    cfg = tmp_path / "auth_yaml"
     cfg.write_text("rate_limit:\n  default:\n    capacity: 50\n    refill_rate: 5\n")
     monkeypatch.setattr(mod, "_CONFIG_PATH", cfg)
     result = mod._load_rate_limit_config()
@@ -134,7 +134,7 @@ def test_load_rate_limit_config_returns_empty_when_no_file(monkeypatch):
 def test_build_rate_limiter_uses_config_values(tmp_path, monkeypatch):
     """auth.yaml の値で RateLimiter が構築されること（lines 99-103）。"""
     from airflow_mcp.common import rate_limiter as mod
-    cfg = tmp_path / "auth.yaml"
+    cfg = tmp_path / "auth_yaml"
     cfg.write_text("rate_limit:\n  default:\n    capacity: 42\n    refill_rate: 7\n")
     monkeypatch.setattr(mod, "_CONFIG_PATH", cfg)
     rl = mod.build_rate_limiter()
@@ -157,7 +157,7 @@ def test_build_rate_limiter_uses_defaults_when_no_config(monkeypatch):
 def test_load_rate_limit_config_non_dict_yaml_returns_empty(tmp_path, monkeypatch):
     """auth.yaml が list などの非dict を返した場合 {} を返すこと。"""
     from airflow_mcp.common import rate_limiter as mod
-    cfg = tmp_path / "auth.yaml"
+    cfg = tmp_path / "auth_yaml"
     cfg.write_text("- item1\n- item2\n")
     monkeypatch.setattr(mod, "_CONFIG_PATH", cfg)
     result = mod._load_rate_limit_config()
@@ -167,7 +167,7 @@ def test_load_rate_limit_config_non_dict_yaml_returns_empty(tmp_path, monkeypatc
 def test_load_rate_limit_config_empty_file_returns_empty(tmp_path, monkeypatch):
     """auth.yaml が空ファイルの場合 {} を返すこと。"""
     from airflow_mcp.common import rate_limiter as mod
-    cfg = tmp_path / "auth.yaml"
+    cfg = tmp_path / "auth_yaml"
     cfg.write_text("")
     monkeypatch.setattr(mod, "_CONFIG_PATH", cfg)
     result = mod._load_rate_limit_config()
@@ -181,12 +181,12 @@ def test_per_action_limits_use_separate_bucket():
     limiter = RateLimiter(
         default_capacity=100,
         default_refill_rate=10.0,
-        per_action_limits={"models.execute": (2, 0.01)},  # 2 burst only
+        per_action_limits={"models_execute": (2, 0.01)},  # 2 burst only
     )
-    limiter.check("tok", action="models.execute")
-    limiter.check("tok", action="models.execute")
+    limiter.check("tok", action="models_execute")
+    limiter.check("tok", action="models_execute")
     with pytest.raises(AuthRateLimited):
-        limiter.check("tok", action="models.execute")
+        limiter.check("tok", action="models_execute")
     # デフォルトバケットは独立しているので通る
     limiter.check("tok")
 
@@ -197,21 +197,21 @@ def test_per_action_limits_different_actions_are_independent():
         default_capacity=1,
         default_refill_rate=0.01,
         per_action_limits={
-            "tasks.create": (3, 0.01),
-            "notes.search": (5, 0.01),
+            "tasks_create": (3, 0.01),
+            "notes_search": (5, 0.01),
         },
     )
     # tasks.create: capacity=3
     for _ in range(3):
-        limiter.check("tok", action="tasks.create")
+        limiter.check("tok", action="tasks_create")
     with pytest.raises(AuthRateLimited):
-        limiter.check("tok", action="tasks.create")
+        limiter.check("tok", action="tasks_create")
 
     # notes.search: capacity=5 — independent
     for _ in range(5):
-        limiter.check("tok", action="notes.search")
+        limiter.check("tok", action="notes_search")
     with pytest.raises(AuthRateLimited):
-        limiter.check("tok", action="notes.search")
+        limiter.check("tok", action="notes_search")
 
 
 def test_per_action_unknown_action_falls_back_to_default():
@@ -219,12 +219,12 @@ def test_per_action_unknown_action_falls_back_to_default():
     limiter = RateLimiter(
         default_capacity=2,
         default_refill_rate=0.01,
-        per_action_limits={"models.execute": (10, 1.0)},
+        per_action_limits={"models_execute": (10, 1.0)},
     )
-    limiter.check("tok", action="unknown.tool")
-    limiter.check("tok", action="unknown.tool")
+    limiter.check("tok", action="unknown_tool")
+    limiter.check("tok", action="unknown_tool")
     with pytest.raises(AuthRateLimited):
-        limiter.check("tok", action="unknown.tool")
+        limiter.check("tok", action="unknown_tool")
 
 
 def test_reset_with_action_clears_action_bucket():
@@ -232,13 +232,13 @@ def test_reset_with_action_clears_action_bucket():
     limiter = RateLimiter(
         default_capacity=1,
         default_refill_rate=0.01,
-        per_action_limits={"tasks.create": (1, 0.01)},
+        per_action_limits={"tasks_create": (1, 0.01)},
     )
-    limiter.check("tok", action="tasks.create")
+    limiter.check("tok", action="tasks_create")
     with pytest.raises(AuthRateLimited):
-        limiter.check("tok", action="tasks.create")
-    limiter.reset("tok", action="tasks.create")
-    limiter.check("tok", action="tasks.create")  # should not raise
+        limiter.check("tok", action="tasks_create")
+    limiter.reset("tok", action="tasks_create")
+    limiter.check("tok", action="tasks_create")  # should not raise
 
 
 def test_stats_with_action_returns_action_bucket_state():
@@ -246,34 +246,34 @@ def test_stats_with_action_returns_action_bucket_state():
     limiter = RateLimiter(
         default_capacity=100,
         default_refill_rate=10.0,
-        per_action_limits={"models.execute": (5, 1.0)},
+        per_action_limits={"models_execute": (5, 1.0)},
     )
     # 未消費の場合は capacity=5
-    stats = limiter.stats("tok", action="models.execute")
+    stats = limiter.stats("tok", action="models_execute")
     assert stats["capacity"] == 5
-    limiter.check("tok", action="models.execute")
-    stats = limiter.stats("tok", action="models.execute")
+    limiter.check("tok", action="models_execute")
+    stats = limiter.stats("tok", action="models_execute")
     assert stats["tokens"] < 5
 
 
 def test_build_rate_limiter_loads_per_action_limits(tmp_path, monkeypatch):
     """auth.yaml の per_action_limits が RateLimiter に反映されること。"""
     from airflow_mcp.common import rate_limiter as mod
-    cfg = tmp_path / "auth.yaml"
+    cfg = tmp_path / "auth_yaml"
     cfg.write_text(
         "rate_limit:\n"
         "  default:\n"
         "    capacity: 100\n"
         "    refill_rate: 10\n"
         "  per_action_limits:\n"
-        "    models.execute: {capacity: 20, refill_rate: 0.33}\n"
-        "    tasks.create: {capacity: 60, refill_rate: 1.0}\n"
+        "    models_execute: {capacity: 20, refill_rate: 0.33}\n"
+        "    tasks_create: {capacity: 60, refill_rate: 1.0}\n"
     )
     monkeypatch.setattr(mod, "_CONFIG_PATH", cfg)
     rl = mod.build_rate_limiter()
-    assert "models.execute" in rl._per_action
-    assert rl._per_action["models.execute"][0] == pytest.approx(20.0)
-    assert "tasks.create" in rl._per_action
+    assert "models_execute" in rl._per_action
+    assert rl._per_action["models_execute"][0] == pytest.approx(20.0)
+    assert "tasks_create" in rl._per_action
 
 
 def test_check_rate_limit_passes_action_to_limiter():
@@ -283,11 +283,11 @@ def test_check_rate_limit_passes_action_to_limiter():
     mod._limiter = RateLimiter(
         default_capacity=100,
         default_refill_rate=10.0,
-        per_action_limits={"tiny.action": (1, 0.01)},
+        per_action_limits={"tiny_action": (1, 0.01)},
     )
     try:
-        check_rate_limit("tok", action="tiny.action")
+        check_rate_limit("tok", action="tiny_action")
         with pytest.raises(AuthRateLimited):
-            check_rate_limit("tok", action="tiny.action")
+            check_rate_limit("tok", action="tiny_action")
     finally:
         mod._limiter = original

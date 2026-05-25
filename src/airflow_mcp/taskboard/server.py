@@ -49,7 +49,7 @@ def _get_store() -> TaskStore:
 async def list_tools() -> list[types.Tool]:
     return [
         types.Tool(
-            name="tasks.list",
+            name="tasks_list",
             description="タスクをフィルタ条件で一覧取得",
             inputSchema={
                 "type": "object",
@@ -64,7 +64,7 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="tasks.get",
+            name="tasks_get",
             description="ID 指定でタスクを取得",
             inputSchema={
                 "type": "object",
@@ -73,7 +73,7 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="tasks.create",
+            name="tasks_create",
             description="タスクを新規作成",
             inputSchema={
                 "type": "object",
@@ -91,7 +91,7 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="tasks.update",
+            name="tasks_update",
             description="タスクを編集（楽観的ロック必須）",
             inputSchema={
                 "type": "object",
@@ -105,7 +105,7 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="tasks.transition",
+            name="tasks_transition",
             description="タスクのステータスを遷移",
             inputSchema={
                 "type": "object",
@@ -119,7 +119,7 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="tasks.claim",
+            name="tasks_claim",
             description="エージェントがタスクを自分にアサイン",
             inputSchema={
                 "type": "object",
@@ -132,7 +132,7 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="tasks.add_handoff_note",
+            name="tasks_add_handoff_note",
             description="タスクに handoff_note を追加",
             inputSchema={
                 "type": "object",
@@ -146,7 +146,7 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="tasks.assign",
+            name="tasks_assign",
             description="タスクの owner を上書き設定（人間操作 / F-08）",
             inputSchema={
                 "type": "object",
@@ -167,7 +167,7 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="tasks.join",
+            name="tasks_join",
             description="親タスクが子タスク群の完了を待機・集約",
             inputSchema={
                 "type": "object",
@@ -185,7 +185,7 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="tasks.spawn_handoff",
+            name="tasks_spawn_handoff",
             description="完了タスクを起点に chains.yaml で定義された次ステップのタスクを生成",
             inputSchema={
                 "type": "object",
@@ -197,7 +197,7 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="tasks.route_next_agent",
+            name="tasks_route_next_agent",
             description="sequential chain に従い in_progress タスクを次エージェントへルーティングする",
             inputSchema={
                 "type": "object",
@@ -210,7 +210,7 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="audit.trace",
+            name="audit_trace",
             description="audit_id 起点で全派生イベントを取得",
             inputSchema={
                 "type": "object",
@@ -222,7 +222,7 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="audit.query",
+            name="audit_query",
             description="構造化フィルタで監査ログを検索",
             inputSchema={
                 "type": "object",
@@ -471,19 +471,19 @@ async def _tasks_route_next_agent(args: dict[str, Any], token: str | None) -> li
 
 # ── ツール実装 ────────────────────────────────────────────
 _HANDLERS = {
-    "tasks.list": _tasks_list,
-    "tasks.get": _tasks_get,
-    "tasks.create": _tasks_create,
-    "tasks.update": _tasks_update,
-    "tasks.transition": _tasks_transition,
-    "tasks.claim": _tasks_claim,
-    "tasks.add_handoff_note": _tasks_add_handoff_note,
-    "tasks.assign": _tasks_assign,
-    "tasks.join": _tasks_join,
-    "tasks.spawn_handoff": _tasks_spawn_handoff,
-    "tasks.route_next_agent": _tasks_route_next_agent,
-    "audit.trace": _audit_trace,
-    "audit.query": _audit_query,
+    "tasks_list": _tasks_list,
+    "tasks_get": _tasks_get,
+    "tasks_create": _tasks_create,
+    "tasks_update": _tasks_update,
+    "tasks_transition": _tasks_transition,
+    "tasks_claim": _tasks_claim,
+    "tasks_add_handoff_note": _tasks_add_handoff_note,
+    "tasks_assign": _tasks_assign,
+    "tasks_join": _tasks_join,
+    "tasks_spawn_handoff": _tasks_spawn_handoff,
+    "tasks_route_next_agent": _tasks_route_next_agent,
+    "audit_trace": _audit_trace,
+    "audit_query": _audit_query,
 }
 
 

@@ -81,11 +81,11 @@ def test_load_agents_suppresses_read_error(tmp_path, monkeypatch):
 async def test_list_tools_returns_all_agent_tools():
     tools = await agents_mod.list_tools()
     names = [t.name for t in tools]
-    assert "agents.list" in names
-    assert "agents.get" in names
-    assert "agents.find_for_task" in names
-    assert "agents.extract_features" in names
-    assert "agents.register" in names
+    assert "agents_list" in names
+    assert "agents_get" in names
+    assert "agents_find_for_task" in names
+    assert "agents_extract_features" in names
+    assert "agents_register" in names
 
 
 # ── agents.list ───────────────────────────────────────
@@ -93,7 +93,7 @@ async def test_list_tools_returns_all_agent_tools():
 @pytest.mark.asyncio
 async def test_agents_list_returns_all_agents():
     agents_mod._agents["agent_docs"] = {"agent_id": "agent_docs", "section": "engineering"}
-    result = await _call("agents.list", {})
+    result = await _call("agents_list", {})
     assert result["total"] == 1
     assert result["agents"][0]["agent_id"] == "agent_docs"
 
@@ -102,7 +102,7 @@ async def test_agents_list_returns_all_agents():
 async def test_agents_list_filters_by_section():
     agents_mod._agents["a1"] = {"agent_id": "a1", "section": "engineering"}
     agents_mod._agents["a2"] = {"agent_id": "a2", "section": "content"}
-    result = await _call("agents.list", {"section": "engineering"})
+    result = await _call("agents_list", {"section": "engineering"})
     assert result["total"] == 1
 
 
@@ -110,14 +110,14 @@ async def test_agents_list_filters_by_section():
 async def test_agents_list_filters_by_platform():
     agents_mod._agents["a1"] = {"agent_id": "a1", "platform": "linux"}
     agents_mod._agents["a2"] = {"agent_id": "a2", "platform": "mac"}
-    result = await _call("agents.list", {"platform": "linux"})
+    result = await _call("agents_list", {"platform": "linux"})
     assert result["total"] == 1
 
 
 @pytest.mark.asyncio
 async def test_agents_list_body_excluded_from_summary():
     agents_mod._agents["a1"] = {"agent_id": "a1", "body": "long content here"}
-    result = await _call("agents.list", {})
+    result = await _call("agents_list", {})
     assert "body" not in result["agents"][0]
 
 
@@ -126,13 +126,13 @@ async def test_agents_list_body_excluded_from_summary():
 @pytest.mark.asyncio
 async def test_agents_get_returns_agent():
     agents_mod._agents["agent_docs"] = {"agent_id": "agent_docs", "section": "engineering"}
-    result = await _call("agents.get", {"agent_id": "agent_docs"})
+    result = await _call("agents_get", {"agent_id": "agent_docs"})
     assert result["agent_id"] == "agent_docs"
 
 
 @pytest.mark.asyncio
 async def test_agents_get_returns_error_for_unknown():
-    result = await _call("agents.get", {"agent_id": "nonexistent"})
+    result = await _call("agents_get", {"agent_id": "nonexistent"})
     assert "error" in result
     assert result["error"]["code"] == "AGENT_NOT_FOUND"
 
@@ -145,7 +145,7 @@ async def test_agents_find_for_task_matches_section():
         "agent_id": "a1", "section": "engineering", "responsibilities": ["api", "backend"]
     }
     task = {"section": "engineering", "tags": ["api"]}
-    result = await _call("agents.find_for_task", {"task": task})
+    result = await _call("agents_find_for_task", {"task": task})
     assert len(result["candidates"]) == 1
     assert result["candidates"][0]["agent_id"] == "a1"
 
@@ -154,7 +154,7 @@ async def test_agents_find_for_task_matches_section():
 async def test_agents_find_for_task_returns_empty_when_no_match():
     agents_mod._agents["a1"] = {"agent_id": "a1", "section": "content", "responsibilities": []}
     task = {"section": "engineering", "tags": []}
-    result = await _call("agents.find_for_task", {"task": task})
+    result = await _call("agents_find_for_task", {"task": task})
     assert result["candidates"] == []
 
 
@@ -163,42 +163,42 @@ async def test_agents_find_for_task_returns_empty_when_no_match():
 @pytest.mark.asyncio
 async def test_agents_extract_features_infers_task_type_review():
     task = {"tags": ["code-review"], "title": "review PR"}
-    result = await _call("agents.extract_features", {"task": task})
+    result = await _call("agents_extract_features", {"task": task})
     assert result["features"]["task_type"] == "review"
 
 
 @pytest.mark.asyncio
 async def test_agents_extract_features_infers_task_type_summarize():
     task = {"tags": ["summarize"], "title": "summary"}
-    result = await _call("agents.extract_features", {"task": task})
+    result = await _call("agents_extract_features", {"task": task})
     assert result["features"]["task_type"] == "summarize"
 
 
 @pytest.mark.asyncio
 async def test_agents_extract_features_infers_task_type_translate():
     task = {"tags": ["translate"], "title": "translate doc"}
-    result = await _call("agents.extract_features", {"task": task})
+    result = await _call("agents_extract_features", {"task": task})
     assert result["features"]["task_type"] == "translate"
 
 
 @pytest.mark.asyncio
 async def test_agents_extract_features_defaults_to_document():
     task = {"tags": [], "title": "unknown task"}
-    result = await _call("agents.extract_features", {"task": task})
+    result = await _call("agents_extract_features", {"task": task})
     assert result["features"]["task_type"] == "document"
 
 
 @pytest.mark.asyncio
 async def test_agents_extract_features_detects_japanese():
     task = {"tags": [], "title": "日本語タイトル"}
-    result = await _call("agents.extract_features", {"task": task})
+    result = await _call("agents_extract_features", {"task": task})
     assert result["features"]["language"] == "ja"
 
 
 @pytest.mark.asyncio
 async def test_agents_extract_features_preserves_existing():
     task = {"features": {"task_type": "plan", "required_accuracy": "high"}, "tags": [], "title": "t"}
-    result = await _call("agents.extract_features", {"task": task})
+    result = await _call("agents_extract_features", {"task": task})
     assert result["features"]["task_type"] == "plan"
     assert result["features"]["required_accuracy"] == "high"
 
@@ -208,7 +208,7 @@ async def test_agents_extract_features_preserves_existing():
 @pytest.mark.asyncio
 async def test_agents_register_adds_agent():
     agent = {"agent_id": "agent_new", "section": "engineering"}
-    result = await _call("agents.register", {"agent": agent})
+    result = await _call("agents_register", {"agent": agent})
     assert result["registered"] == "agent_new"
     assert "agent_new" in agents_mod._agents
 
@@ -216,7 +216,7 @@ async def test_agents_register_adds_agent():
 @pytest.mark.asyncio
 async def test_agents_register_uses_id_field_as_fallback():
     agent = {"id": "agent_alt", "section": "content"}
-    result = await _call("agents.register", {"agent": agent})
+    result = await _call("agents_register", {"agent": agent})
     assert result["registered"] == "agent_alt"
 
 
@@ -224,7 +224,7 @@ async def test_agents_register_uses_id_field_as_fallback():
 
 @pytest.mark.asyncio
 async def test_unknown_tool_returns_error():
-    result = await _call("agents.unknown", {})
+    result = await _call("agents_unknown", {})
     assert "error" in result
     assert result["error"]["code"] == "UNKNOWN_TOOL"
 
@@ -239,7 +239,7 @@ async def test_call_tool_returns_mcp_result_on_airflow_error(monkeypatch):
     # require_scope を強制的に AirflowError を raise させる
     with patch("airflow_mcp.agents.server.require_scope",
                side_effect=AuthScopeInsufficient("agents:read")):
-        result = await agents_mod.call_tool("agents.list", {})
+        result = await agents_mod.call_tool("agents_list", {})
     data = json.loads(result[0].text)
     assert "error" in data
 
@@ -303,7 +303,7 @@ async def test_agents_reload_clears_and_reloads(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(agents_mod, "_AGENTS_DIR", tmp_path / "agents")
     agents_mod._agents["stale_agent"] = {"agent_id": "stale_agent"}
-    result = await _call("agents.reload", {})
+    result = await _call("agents_reload", {})
     assert result["reloaded"] == 1
     assert "stale_agent" not in agents_mod._agents
     assert "reload_agent_001" in agents_mod._agents

@@ -39,7 +39,7 @@ _call = make_mcp_caller(notes_mod.call_tool)
 async def test_search_returns_matching_notes():
     _add_note("n1", "Python入門", "Python は動的型付け言語です")
     _add_note("n2", "JavaScript入門", "JSはブラウザで動く")
-    result = await _call("notes.search", {"query": "Python"})
+    result = await _call("notes_search", {"query": "Python"})
     assert len(result["results"]) == 1
     assert result["results"][0]["note_id"] == "n1"
 
@@ -47,14 +47,14 @@ async def test_search_returns_matching_notes():
 @pytest.mark.asyncio
 async def test_search_excludes_confidential_by_default():
     _add_note("secret", "秘密情報", "机密データ Python", confidential=True)
-    result = await _call("notes.search", {"query": "Python"})
+    result = await _call("notes_search", {"query": "Python"})
     assert all(r["note_id"] != "secret" for r in result["results"])
 
 
 @pytest.mark.asyncio
 async def test_search_includes_confidential_when_flag_false():
     _add_note("secret", "秘密", "confidential Python", confidential=True)
-    result = await _call("notes.search", {
+    result = await _call("notes_search", {
         "query": "Python",
         "filters": {"exclude_confidential": False},
     })
@@ -65,7 +65,7 @@ async def test_search_includes_confidential_when_flag_false():
 async def test_search_respects_top_k():
     for i in range(10):
         _add_note(f"n{i}", f"Python {i}", f"Python コード {i}")
-    result = await _call("notes.search", {"query": "Python", "top_k": 3})
+    result = await _call("notes_search", {"query": "Python", "top_k": 3})
     assert len(result["results"]) <= 3
 
 
@@ -73,7 +73,7 @@ async def test_search_respects_top_k():
 async def test_search_filters_by_category():
     _add_note("eng", "エンジニアリング", "Python コード", section="engineering")
     _add_note("biz", "ビジネス", "Python 分析", section="business")
-    result = await _call("notes.search", {
+    result = await _call("notes_search", {
         "query": "Python",
         "filters": {"category": ["engineering"]},
     })
@@ -84,7 +84,7 @@ async def test_search_filters_by_category():
 
 @pytest.mark.asyncio
 async def test_search_empty_store_returns_empty_list():
-    result = await _call("notes.search", {"query": "anything"})
+    result = await _call("notes_search", {"query": "anything"})
     assert result["results"] == []
 
 
@@ -93,14 +93,14 @@ async def test_search_empty_store_returns_empty_list():
 @pytest.mark.asyncio
 async def test_get_returns_note_by_id():
     _add_note("note_001", "タイトル", "内容")
-    result = await _call("notes.get", {"note_id": "note_001"})
+    result = await _call("notes_get", {"note_id": "note_001"})
     assert result["id"] == "note_001"
     assert result["title"] == "タイトル"
 
 
 @pytest.mark.asyncio
 async def test_get_unknown_note_returns_error():
-    result = await _call("notes.get", {"note_id": "nonexistent"})
+    result = await _call("notes_get", {"note_id": "nonexistent"})
     assert "error" in result
     assert result["error"]["code"] == "NOTE_NOT_FOUND"
 
@@ -112,7 +112,7 @@ async def test_list_by_category_returns_matching():
     _add_note("e1", "E1", "本文", section="engineering")
     _add_note("e2", "E2", "本文", section="engineering")
     _add_note("b1", "B1", "本文", section="business")
-    result = await _call("notes.list_by_category", {"category": "engineering"})
+    result = await _call("notes_list_by_category", {"category": "engineering"})
     ids = [n["id"] for n in result["notes"]]
     assert "e1" in ids and "e2" in ids
     assert "b1" not in ids
@@ -122,7 +122,7 @@ async def test_list_by_category_returns_matching():
 async def test_list_by_category_respects_limit():
     for i in range(10):
         _add_note(f"e{i}", f"E{i}", "本文", section="engineering")
-    result = await _call("notes.list_by_category", {"category": "engineering", "limit": 3})
+    result = await _call("notes_list_by_category", {"category": "engineering", "limit": 3})
     assert len(result["notes"]) <= 3
 
 
@@ -132,14 +132,14 @@ async def test_list_by_category_respects_limit():
 async def test_related_finds_linked_notes():
     _add_note("source", "Source", "内容 [[Target Note]]")
     _add_note("target", "Target Note", "リンク先の内容")
-    result = await _call("notes.related", {"note_id": "source"})
+    result = await _call("notes_related", {"note_id": "source"})
     ids = [n["id"] for n in result["related"]]
     assert "target" in ids
 
 
 @pytest.mark.asyncio
 async def test_related_unknown_note_returns_error():
-    result = await _call("notes.related", {"note_id": "nonexistent"})
+    result = await _call("notes_related", {"note_id": "nonexistent"})
     assert "error" in result
     assert result["error"]["code"] == "NOTE_NOT_FOUND"
 
@@ -147,7 +147,7 @@ async def test_related_unknown_note_returns_error():
 @pytest.mark.asyncio
 async def test_related_no_links_returns_empty():
     _add_note("lonely", "孤立ノート", "リンクなしの内容")
-    result = await _call("notes.related", {"note_id": "lonely"})
+    result = await _call("notes_related", {"note_id": "lonely"})
     assert result["related"] == []
 
 
@@ -157,7 +157,7 @@ async def test_related_no_links_returns_empty():
 async def test_reindex_returns_ok_status(tmp_path, monkeypatch):
     """reindex は notes/index.json を再ロードして indexed 件数を返す。"""
     import json
-    index_path = tmp_path / "index.json"
+    index_path = tmp_path / "index_json"
     index_path.write_text(json.dumps({
         "schema_version": "1.0.0",
         "notes": {
@@ -165,7 +165,7 @@ async def test_reindex_returns_ok_status(tmp_path, monkeypatch):
         },
     }))
     monkeypatch.setattr("airflow_mcp.notes.server._NOTES_INDEX_PATH", index_path)
-    result = await _call("notes.reindex", {})
+    result = await _call("notes_reindex", {})
     assert result["status"] == "ok"
     assert result["indexed"] == 1
 
@@ -184,7 +184,7 @@ async def test_reindex_requires_notes_write_scope(monkeypatch):
     # tokens.json ありの場合の notes:write なしテストは auth 単体テストで担保
     monkeypatch.setenv("AIRFLOW_MCP_TOKEN", "different_token")
 
-    result = await srv.call_tool("notes.reindex", {})
+    result = await srv.call_tool("notes_reindex", {})
     data = json.loads(result[0].text)
     assert "error" in data
     assert data["error"]["code"] in ("AUTH_TOKEN_INVALID", "AUTH_SCOPE_INSUFFICIENT")
@@ -194,7 +194,7 @@ async def test_reindex_requires_notes_write_scope(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_unknown_tool_returns_error():
-    result = await _call("notes.unknown", {})
+    result = await _call("notes_unknown", {})
     assert "error" in result
 
 
@@ -205,11 +205,11 @@ async def test_list_tools_returns_all_tool_names():
     import airflow_mcp.notes.server as notes_mod
     tools = await notes_mod.list_tools()
     names = [t.name for t in tools]
-    assert "notes.search" in names
-    assert "notes.get" in names
-    assert "notes.list_by_category" in names
-    assert "notes.related" in names
-    assert "notes.reindex" in names
+    assert "notes_search" in names
+    assert "notes_get" in names
+    assert "notes_list_by_category" in names
+    assert "notes_related" in names
+    assert "notes_reindex" in names
 
 
 # ── run() (lines 193-194) ─────────────────────────────
@@ -234,7 +234,7 @@ async def test_search_no_match_in_nonempty_store_returns_empty():
     """ノートが存在するが query と一致しない場合 results=[] を返すこと。"""
     _add_note("n1", "Python入門", "Python は動的型付け言語です")
     _add_note("n2", "JavaScript入門", "JSはブラウザで動く")
-    result = await _call("notes.search", {"query": "Rust システムプログラミング"})
+    result = await _call("notes_search", {"query": "Rust システムプログラミング"})
     assert result["results"] == []
 
 
@@ -242,7 +242,7 @@ async def test_search_no_match_in_nonempty_store_returns_empty():
 async def test_search_no_match_with_category_filter_returns_empty():
     """カテゴリフィルタで絞ったとき一致しない場合 results=[] を返すこと。"""
     _add_note("eng", "エンジニアリング", "Python コード", section="engineering")
-    result = await _call("notes.search", {
+    result = await _call("notes_search", {
         "query": "Python",
         "filters": {"category": ["business"]},  # engineering のみあるが business を指定
     })
@@ -254,5 +254,5 @@ async def test_search_top_k_one_limits_to_single_result():
     """top_k=1 のとき複数マッチがあっても 1 件だけ返ること。"""
     for i in range(5):
         _add_note(f"n{i}", f"Python {i}", f"Python コード {i}")
-    result = await _call("notes.search", {"query": "Python", "top_k": 1})
+    result = await _call("notes_search", {"query": "Python", "top_k": 1})
     assert len(result["results"]) == 1

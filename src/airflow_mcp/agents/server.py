@@ -56,7 +56,7 @@ def _load_agents() -> None:
 async def list_tools() -> list[types.Tool]:
     return [
         types.Tool(
-            name="agents.list",
+            name="agents_list",
             description="登録済みエージェント一覧を返す",
             inputSchema={
                 "type": "object",
@@ -67,7 +67,7 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="agents.get",
+            name="agents_get",
             description="ID 指定でエージェント情報と skills.md を取得",
             inputSchema={
                 "type": "object",
@@ -76,7 +76,7 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="agents.find_for_task",
+            name="agents_find_for_task",
             description="タスク特徴から担当エージェント候補を返す",
             inputSchema={
                 "type": "object",
@@ -85,7 +85,7 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="agents.extract_features",
+            name="agents_extract_features",
             description="タスクから features を推定して返す",
             inputSchema={
                 "type": "object",
@@ -94,7 +94,7 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="agents.register",
+            name="agents_register",
             description="エージェントを新規登録",
             inputSchema={
                 "type": "object",
@@ -103,7 +103,7 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="agents.reload",
+            name="agents_reload",
             description="agents/ ディレクトリから skills.md を再ロード",
             inputSchema={"type": "object", "properties": {}},
         ),
@@ -193,12 +193,12 @@ async def _agents_reload(args: dict[str, Any], token: str | None) -> list[types.
 
 
 _HANDLERS = {
-    "agents.list": _agents_list,
-    "agents.get": _agents_get,
-    "agents.find_for_task": _agents_find_for_task,
-    "agents.extract_features": _agents_extract_features,
-    "agents.register": _agents_register,
-    "agents.reload": _agents_reload,
+    "agents_list": _agents_list,
+    "agents_get": _agents_get,
+    "agents_find_for_task": _agents_find_for_task,
+    "agents_extract_features": _agents_extract_features,
+    "agents_register": _agents_register,
+    "agents_reload": _agents_reload,
 }
 
 

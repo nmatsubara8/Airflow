@@ -44,10 +44,10 @@ rate_limit:
   # Per-action limits (DDD-08 §4.2) — independent bucket per (token, action) pair
   # Restricts high-cost MCP tool calls separately from the global token bucket.
   per_action_limits:
-    tasks.create:    { capacity: 60,  refill_rate: 1.0  }  # 60/min burst
-    models.execute:  { capacity: 20,  refill_rate: 0.33 }  # 20/min burst
-    notes.search:    { capacity: 100, refill_rate: 1.67 }  # 100/min burst
-    notes.reindex:   { capacity: 2,   refill_rate: 0.03 }  # 2/min (high-cost op)
+    tasks_create:    { capacity: 60,  refill_rate: 1.0  }  # 60/min burst
+    models_execute:  { capacity: 20,  refill_rate: 0.33 }  # 20/min burst
+    notes_search:    { capacity: 100, refill_rate: 1.67 }  # 100/min burst
+    notes_reindex:   { capacity: 2,   refill_rate: 0.03 }  # 2/min (high-cost op)
 
 mcp_auth:
   require_token: true

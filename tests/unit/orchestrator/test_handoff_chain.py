@@ -22,13 +22,13 @@ from airflow_mcp.orchestrator.handoff_chain import (
 def test_load_chains_returns_empty_when_no_file(tmp_path, monkeypatch):
     """ファイルが存在しない場合は空リストを返すこと。"""
     import airflow_mcp.orchestrator.handoff_chain as mod
-    monkeypatch.setattr(mod, "_DEFAULT_CONFIG", tmp_path / "nonexistent.yaml")
+    monkeypatch.setattr(mod, "_DEFAULT_CONFIG", tmp_path / "nonexistent_yaml")
     assert load_chains() == []
 
 
 def test_load_chains_reads_config(tmp_path):
     """chains.yaml を読み込んでリストを返すこと。"""
-    cfg = tmp_path / "chains.yaml"
+    cfg = tmp_path / "chains_yaml"
     cfg.write_text(
         "chains:\n"
         "  - name: eng_qa\n"
@@ -45,21 +45,21 @@ def test_load_chains_reads_config(tmp_path):
 
 def test_load_chains_non_dict_returns_empty(tmp_path):
     """chains.yaml が list など非dict の場合は空リストを返すこと。"""
-    cfg = tmp_path / "chains.yaml"
+    cfg = tmp_path / "chains_yaml"
     cfg.write_text("- item1\n- item2\n")
     assert load_chains(cfg) == []
 
 
 def test_load_chains_missing_chains_key_returns_empty(tmp_path):
     """chains キーが無い場合は空リストを返すこと。"""
-    cfg = tmp_path / "chains.yaml"
+    cfg = tmp_path / "chains_yaml"
     cfg.write_text("other_key: value\n")
     assert load_chains(cfg) == []
 
 
 def test_load_chains_chains_not_list_returns_empty(tmp_path):
     """chains キーが list でない場合は空リストを返すこと。"""
-    cfg = tmp_path / "chains.yaml"
+    cfg = tmp_path / "chains_yaml"
     cfg.write_text("chains: not-a-list\n")
     assert load_chains(cfg) == []
 
@@ -67,7 +67,7 @@ def test_load_chains_chains_not_list_returns_empty(tmp_path):
 def test_load_chains_oserror_returns_empty(tmp_path, monkeypatch):
     """OSError 発生時は空リストを返すこと。"""
     from unittest.mock import patch
-    cfg = tmp_path / "chains.yaml"
+    cfg = tmp_path / "chains_yaml"
     cfg.write_text("chains: []\n")
     with patch.object(Path, "read_text", side_effect=OSError("unreadable")):
         assert load_chains(cfg) == []
@@ -347,7 +347,7 @@ async def test_tasks_spawn_handoff_mcp_tool(tmp_path, monkeypatch):
     store.claim(t["id"], "agent_docs")
     store.transition(t["id"], "done")
 
-    chains_cfg = tmp_path / "chains.yaml"
+    chains_cfg = tmp_path / "chains_yaml"
     chains_cfg.write_text(
         "chains:\n"
         "  - name: eng_qa\n"
@@ -360,7 +360,7 @@ async def test_tasks_spawn_handoff_mcp_tool(tmp_path, monkeypatch):
     monkeypatch.setattr(hc_mod, "_DEFAULT_CONFIG", chains_cfg)
     monkeypatch.setattr(sv, "load_chains", lambda: hc_mod.load_chains(chains_cfg))
 
-    result = await _call("tasks.spawn_handoff", {"task_id": t["id"]})
+    result = await _call("tasks_spawn_handoff", {"task_id": t["id"]})
     assert result["count"] == 1
     assert len(result["spawned"]) == 1
 

@@ -20,7 +20,7 @@ def mgr(tmp_path) -> GpuStateManager:
     return GpuStateManager(
         vram_available_gb=15.0,
         vram_total_gb=16.0,
-        snapshot_path=tmp_path / "gpu_state.json",
+        snapshot_path=tmp_path / "gpu_state_json",
     )
 
 
@@ -30,7 +30,7 @@ def mgr_pinned(tmp_path) -> GpuStateManager:
         vram_available_gb=15.0,
         vram_total_gb=16.0,
         pinned_models=["model_bge"],
-        snapshot_path=tmp_path / "gpu_state.json",
+        snapshot_path=tmp_path / "gpu_state_json",
     )
 
 
@@ -154,7 +154,7 @@ def test_snapshot_schema_fields(mgr):
 
 
 def test_snapshot_persisted_to_file(tmp_path):
-    snap_path = tmp_path / "gpu_state.json"
+    snap_path = tmp_path / "gpu_state_json"
     mgr = GpuStateManager(snapshot_path=snap_path)
     mgr.reserve("model_14b", registry=_REGISTRY)
     assert snap_path.exists()
@@ -173,7 +173,7 @@ def test_snapshot_used_vram_is_sum_of_loaded(mgr):
 
 def test_periodic_snapshot_writes_file(tmp_path):
     import time
-    snap_path = tmp_path / "periodic_gpu.json"
+    snap_path = tmp_path / "periodic_gpu_json"
     mgr = GpuStateManager(
         snapshot_path=snap_path,
         snapshot_interval_s=0.1,
@@ -204,7 +204,7 @@ def test_iso_to_duration_ms_returns_zero_for_invalid_string():
 def test_evict_stops_early_when_enough_vram_freed(tmp_path):
     """必要 VRAM 確保済みなら break して残りの候補を退避しないこと（line 188）。"""
     mgr = GpuStateManager(vram_available_gb=15.0, vram_total_gb=16.0,
-                          snapshot_path=tmp_path / "s.json")
+                          snapshot_path=tmp_path / "s_json")
     mgr.reserve("model_14b", vram_gb=9.0)
     mgr.reserve("model_bge", vram_gb=1.0)
     # model_14b を LRU 最古に設定 → 先に退避される
@@ -222,7 +222,7 @@ def test_evict_stops_early_when_enough_vram_freed(tmp_path):
 def test_reserve_raises_gpu_busy_with_wait_true_gives_10s(tmp_path):
     """wait=True でも VRAM 不足なら GpuBusy(retry_after_ms=10_000)（line 198）。"""
     mgr = GpuStateManager(vram_available_gb=9.5, vram_total_gb=16.0,
-                          snapshot_path=tmp_path / "s.json")
+                          snapshot_path=tmp_path / "s_json")
     mgr.reserve("model_14b", vram_gb=9.0)
     mgr._loaded["model_14b"]["pending_tasks"] = 2  # 退避不可
     with pytest.raises(GpuBusy) as exc_info:
@@ -242,7 +242,7 @@ def test_write_snapshot_suppresses_write_exception(mgr):
 
 def test_free_vram_gb_clamped_to_zero_when_overcommitted(tmp_path):
     """ロード済みモデルが VRAM を超えた場合 free_vram_gb が 0 にクランプされること（lines 66-68）。"""
-    mgr2 = GpuStateManager(snapshot_path=tmp_path / "gpu.json", vram_available_gb=8.0)
+    mgr2 = GpuStateManager(snapshot_path=tmp_path / "gpu_json", vram_available_gb=8.0)
     # VRAM 合計が available を超えるモデルを直接登録
     mgr2._loaded["model_big"] = {"id": "model_big", "vram_gb": 10.0}
     assert mgr2.free_vram_gb == 0.0

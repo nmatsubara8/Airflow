@@ -49,8 +49,8 @@ def test_validate_auth_per_action_limits_is_dict():
         "rate_limit": {
             "default": {"capacity": 100, "refill_rate": 10},
             "per_action_limits": {
-                "tasks.create":   {"capacity": 60, "refill_rate": 1.0},
-                "models.execute": {"capacity": 20, "refill_rate": 0.33},
+                "tasks_create":   {"capacity": 60, "refill_rate": 1.0},
+                "models_execute": {"capacity": 20, "refill_rate": 0.33},
             },
         },
         "mcp_auth": {"localhost_bypass": False},

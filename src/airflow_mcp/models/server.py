@@ -130,12 +130,12 @@ def _text_similarity(a: str, b: str) -> float:
 async def list_tools() -> list[types.Tool]:
     return [
         types.Tool(
-            name="model.list",
+            name="model_list",
             description="登録済みモデル一覧を返す",
             inputSchema={"type": "object", "properties": {}},
         ),
         types.Tool(
-            name="model.get",
+            name="model_get",
             description="ID 指定でモデルを取得",
             inputSchema={
                 "type": "object",
@@ -144,7 +144,7 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="model.recommend",
+            name="model_recommend",
             description="タスク特徴から推奨モデルを返す",
             inputSchema={
                 "type": "object",
@@ -158,7 +158,7 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="model.execute",
+            name="model_execute",
             description="指定モデルで推論実行",
             inputSchema={
                 "type": "object",
@@ -176,7 +176,7 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="model.feedback",
+            name="model_feedback",
             description="実行結果に対するフィードバックを登録",
             inputSchema={
                 "type": "object",
@@ -193,7 +193,7 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="model.stats",
+            name="model_stats",
             description="モデル別統計を返す",
             inputSchema={
                 "type": "object",
@@ -201,7 +201,7 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="model.register",
+            name="model_register",
             description="新規モデルを registry に登録",
             inputSchema={
                 "type": "object",
@@ -210,7 +210,7 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="model.load",
+            name="model_load",
             description="モデルを明示的に VRAM にロード（keep_alive=-1）",
             inputSchema={
                 "type": "object",
@@ -219,7 +219,7 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="model.unload",
+            name="model_unload",
             description="モデルを明示的に VRAM からアンロード（keep_alive=0）",
             inputSchema={
                 "type": "object",
@@ -228,12 +228,12 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="model.ps",
+            name="model_ps",
             description="現在 VRAM にロードされているモデル一覧を返す（/api/ps）",
             inputSchema={"type": "object", "properties": {}},
         ),
         types.Tool(
-            name="model.reload_registry",
+            name="model_reload_registry",
             description="registry.json を再ロードしてインメモリキャッシュを更新",
             inputSchema={"type": "object", "properties": {}},
         ),
@@ -667,17 +667,17 @@ async def _model_reload_registry(
 
 
 _HANDLERS = {
-    "model.list": _model_list,
-    "model.get": _model_get,
-    "model.recommend": _model_recommend,
-    "model.execute": _model_execute,
-    "model.feedback": _model_feedback,
-    "model.stats": _model_stats,
-    "model.register": _model_register,
-    "model.load": _model_load,
-    "model.unload": _model_unload,
-    "model.ps": _model_ps,
-    "model.reload_registry": _model_reload_registry,
+    "model_list": _model_list,
+    "model_get": _model_get,
+    "model_recommend": _model_recommend,
+    "model_execute": _model_execute,
+    "model_feedback": _model_feedback,
+    "model_stats": _model_stats,
+    "model_register": _model_register,
+    "model_load": _model_load,
+    "model_unload": _model_unload,
+    "model_ps": _model_ps,
+    "model_reload_registry": _model_reload_registry,
 }
 
 

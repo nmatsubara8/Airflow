@@ -42,7 +42,7 @@ _call = make_mcp_caller(models_mod.call_tool)
 
 @pytest.mark.asyncio
 async def test_model_list_returns_empty_when_no_models():
-    result = await _call("model.list", {})
+    result = await _call("model_list", {})
     assert result["models"] == []
 
 
@@ -50,7 +50,7 @@ async def test_model_list_returns_empty_when_no_models():
 async def test_model_list_returns_registered_models():
     _add_model("model_a")
     _add_model("model_b")
-    result = await _call("model.list", {})
+    result = await _call("model_list", {})
     ids = [m["id"] for m in result["models"]]
     assert "model_a" in ids
     assert "model_b" in ids
@@ -61,14 +61,14 @@ async def test_model_list_returns_registered_models():
 @pytest.mark.asyncio
 async def test_model_get_returns_correct_model():
     _add_model("model_qwen25_14b_q4", vram_gb=8.5)
-    result = await _call("model.get", {"model_id": "model_qwen25_14b_q4"})
+    result = await _call("model_get", {"model_id": "model_qwen25_14b_q4"})
     assert result["id"] == "model_qwen25_14b_q4"
     assert result["vram_gb"] == 8.5
 
 
 @pytest.mark.asyncio
 async def test_model_get_unknown_returns_not_found_error():
-    result = await _call("model.get", {"model_id": "nonexistent"})
+    result = await _call("model_get", {"model_id": "nonexistent"})
     assert "error" in result
     assert result["error"]["code"] == "MODEL_NOT_FOUND"
 
@@ -79,7 +79,7 @@ async def test_model_get_unknown_returns_not_found_error():
 async def test_model_recommend_returns_recommendations():
     _add_model("model_qwen25_14b_q4")
     _add_model("model_qwen25_32b_q3")
-    result = await _call("model.recommend", {
+    result = await _call("model_recommend", {
         "features": {"required_accuracy": "high", "latency_sensitivity": "batch"},
     })
     assert "recommendations" in result
@@ -90,7 +90,7 @@ async def test_model_recommend_returns_recommendations():
 async def test_model_recommend_high_accuracy_prefers_32b():
     _add_model("model_qwen25_14b_q4")
     _add_model("model_qwen25_32b_q3")
-    result = await _call("model.recommend", {
+    result = await _call("model_recommend", {
         "features": {"required_accuracy": "high", "latency_sensitivity": "batch"},
     })
     # ε-greedy があるためランダム性あり。recommendationsが存在することを確認
@@ -102,7 +102,7 @@ async def test_model_recommend_high_accuracy_prefers_32b():
 async def test_model_recommend_manual_mode_returns_first_candidate(monkeypatch):
     _add_model("model_a")
     _add_model("model_b")
-    result = await _call("model.recommend", {
+    result = await _call("model_recommend", {
         "features": {},
         "mode": "manual",
         "candidate_models": ["model_a", "model_b"],
@@ -114,7 +114,7 @@ async def test_model_recommend_manual_mode_returns_first_candidate(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_model_execute_unknown_model_returns_error():
-    result = await _call("model.execute", {
+    result = await _call("model_execute", {
         "model_id": "nonexistent",
         "messages": [{"role": "user", "content": "hello"}],
     })
@@ -126,7 +126,7 @@ async def test_model_execute_unknown_model_returns_error():
 async def test_model_execute_stub_returns_content(monkeypatch):
     monkeypatch.setenv("OLLAMA_STUB", "true")
     _add_model("model_qwen25_14b_q4")
-    result = await _call("model.execute", {
+    result = await _call("model_execute", {
         "model_id": "model_qwen25_14b_q4",
         "messages": [{"role": "user", "content": "テスト"}],
     })
@@ -138,7 +138,7 @@ async def test_model_execute_stub_returns_content(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_model_stats_returns_zero_when_no_executions():
-    result = await _call("model.stats", {})
+    result = await _call("model_stats", {})
     assert result["total_executions"] == 0
     assert result["success_rate"] == 0
 
@@ -147,11 +147,11 @@ async def test_model_stats_returns_zero_when_no_executions():
 async def test_model_stats_counts_executions(monkeypatch):
     monkeypatch.setenv("OLLAMA_STUB", "true")
     _add_model("model_qwen25_14b_q4")
-    await _call("model.execute", {
+    await _call("model_execute", {
         "model_id": "model_qwen25_14b_q4",
         "messages": [{"role": "user", "content": "テスト"}],
     })
-    result = await _call("model.stats", {"model_id": "model_qwen25_14b_q4"})
+    result = await _call("model_stats", {"model_id": "model_qwen25_14b_q4"})
     assert result["total_executions"] == 1
     assert result["success_rate"] == 1.0
 
@@ -161,7 +161,7 @@ async def test_model_stats_counts_executions(monkeypatch):
 @pytest.mark.asyncio
 async def test_model_register_adds_to_registry():
     new_model = {"id": "model_new", "name": "New Model", "vram_gb": 5.0}
-    result = await _call("model.register", {"model": new_model})
+    result = await _call("model_register", {"model": new_model})
     assert result["registered"] == "model_new"
     assert "model_new" in models_mod._models
 
@@ -176,7 +176,7 @@ async def test_model_register_requires_models_write_scope(monkeypatch):
     monkeypatch.setattr(mcp_mod, "get_token_from_env", lambda: "execute_only_token")
     monkeypatch.setenv("AIRFLOW_MCP_TOKEN", "different_token")
 
-    result = await srv.call_tool("model.register", {"model": {"id": "m_evil", "name": "evil"}})
+    result = await srv.call_tool("model_register", {"model": {"id": "m_evil", "name": "evil"}})
     data = json.loads(result[0].text)
     assert "error" in data
     assert data["error"]["code"] in ("AUTH_TOKEN_INVALID", "AUTH_SCOPE_INSUFFICIENT")
@@ -190,7 +190,7 @@ async def test_model_feedback_returns_task_id(tmp_path, monkeypatch):
     monkeypatch.setenv("AIRFLOW_LOG_DIR", str(tmp_path / "logs"))
     # update_feedback は log_dir なしでデフォルトを使うため、
     # タスクが存在しなくても updated_record=None で正常終了する
-    result = await _call("model.feedback", {
+    result = await _call("model_feedback", {
         "task_id": "task_nonexistent",
         "human_feedback": "accepted",
     })
@@ -203,14 +203,14 @@ async def test_model_feedback_returns_task_id(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_unknown_tool_returns_error():
-    result = await _call("model.unknown", {})
+    result = await _call("model_unknown", {})
     assert "error" in result
 
 
 # ── _load_registry ────────────────────────────────────
 
 def test_load_registry_reads_file(tmp_path, monkeypatch):
-    reg = tmp_path / "registry.json"
+    reg = tmp_path / "registry_json"
     reg.write_text(json.dumps({"models": [
         {"id": "model_from_file", "ollama_tag": "file:latest", "vram_gb": 8.0}
     ]}))
@@ -227,9 +227,9 @@ async def test_list_tools_returns_all_tools():
     tools = await models_mod.list_tools()
     names = {t.name for t in tools}
     assert names == {
-        "model.list", "model.get", "model.recommend",
-        "model.execute", "model.feedback", "model.stats", "model.register",
-        "model.load", "model.unload", "model.ps", "model.reload_registry",
+        "model_list", "model_get", "model_recommend",
+        "model_execute", "model_feedback", "model_stats", "model_register",
+        "model_load", "model_unload", "model_ps", "model_reload_registry",
     }
 
 
@@ -239,7 +239,7 @@ async def test_list_tools_returns_all_tools():
 async def test_model_recommend_medium_accuracy_returns_14b(monkeypatch):
     _add_model("model_qwen25_14b_q4")
     monkeypatch.setattr("airflow_mcp.orchestrator.recommender.random.random", lambda: 1.0)
-    result = await _call("model.recommend", {
+    result = await _call("model_recommend", {
         "features": {"required_accuracy": "medium", "latency_sensitivity": "batch"},
     })
     assert result["recommendations"][0]["model_id"] == "model_qwen25_14b_q4"
@@ -252,7 +252,7 @@ async def test_model_recommend_interactive_latency_returns_14b(monkeypatch):
     _add_model("model_qwen25_14b_q4")
     _add_model("model_qwen25_32b_q3")
     monkeypatch.setattr("airflow_mcp.orchestrator.recommender.random.random", lambda: 1.0)
-    result = await _call("model.recommend", {
+    result = await _call("model_recommend", {
         "features": {"required_accuracy": "high", "latency_sensitivity": "interactive"},
     })
     # high accuracy but interactive → else branch (14b)
@@ -278,7 +278,7 @@ async def test_model_recommend_epsilon_greedy_explores(monkeypatch):
         "airflow_mcp.orchestrator.recommender.random.choice",
         lambda lst: lst[0],
     )
-    result = await _call("model.recommend", {
+    result = await _call("model_recommend", {
         "features": {"required_accuracy": "high", "latency_sensitivity": "batch",
                      "task_type": "review", "language": "ja"},
         "mode": "auto",
@@ -299,7 +299,7 @@ async def test_model_recommend_knn_uses_history_when_available(monkeypatch):
         for _ in range(10)
     ]
     monkeypatch.setattr("airflow_mcp.models.server.load_history", lambda: history)
-    result = await _call("model.recommend", {
+    result = await _call("model_recommend", {
         "features": {"task_type": "review", "language": "ja",
                      "required_accuracy": "high", "latency_sensitivity": "batch"},
         "mode": "recommend",
@@ -314,7 +314,7 @@ async def test_model_recommend_cold_start_reason(monkeypatch):
     """履歴なしのとき cold start 理由が返ること。"""
     _add_model("model_qwen25_14b_q4")
     monkeypatch.setattr("airflow_mcp.models.server.load_history", lambda: [])
-    result = await _call("model.recommend", {"features": {}})
+    result = await _call("model_recommend", {"features": {}})
     assert "コールドスタート" in result["recommendations"][0]["reason"]
 
 
@@ -324,7 +324,7 @@ async def test_model_recommend_cold_start_fallback_when_selected_not_in_candidat
     _add_model("model_preferred")   # _models に存在するが candidates には入れない
     _add_model("model_candidate")   # candidates に指定するモデル
     monkeypatch.setattr("airflow_mcp.models.server.load_history", lambda: [])
-    result = await _call("model.recommend", {
+    result = await _call("model_recommend", {
         "features": {"preferred_models": ["model_preferred"]},
         "candidate_models": ["model_candidate"],  # model_preferred は含まない
     })
@@ -344,7 +344,7 @@ async def test_model_execute_httpx_basic_call(monkeypatch):
     mock_resp.json.return_value = {"message": {"content": "some output"}}
     mock_resp.raise_for_status = lambda: None
     with patch("httpx.post", return_value=mock_resp):
-        result = await _call("model.execute", {
+        result = await _call("model_execute", {
             "model_id": "model_qwen25_14b_q4",
             "messages": [{"role": "user", "content": "hello"}],
         })
@@ -367,7 +367,7 @@ async def test_model_execute_uses_ollama_tag_from_registry(monkeypatch):
         return mock_resp
 
     with patch("httpx.post", side_effect=fake_post):
-        await _call("model.execute", {
+        await _call("model_execute", {
             "model_id": "model_qwen25_14b_q4",
             "messages": [{"role": "user", "content": "hi"}],
         })
@@ -390,7 +390,7 @@ async def test_model_execute_with_temperature_and_max_tokens(monkeypatch):
         return mock_resp
 
     with patch("httpx.post", side_effect=fake_post):
-        await _call("model.execute", {
+        await _call("model_execute", {
             "model_id": "model_qwen25_14b_q4",
             "messages": [{"role": "user", "content": "hi"}],
             "temperature": 0.7,
@@ -412,7 +412,7 @@ async def test_model_execute_structured_output_valid_schema(monkeypatch):
     mock_resp.json.return_value = {"message": {"content": json.dumps({"summary": "ok"})}}
     mock_resp.raise_for_status = lambda: None
     with patch("httpx.post", return_value=mock_resp):
-        result = await _call("model.execute", {
+        result = await _call("model_execute", {
             "model_id": "model_qwen25_14b_q4",
             "messages": [{"role": "user", "content": "hi"}],
             "structured_output": {"schema": schema},
@@ -433,7 +433,7 @@ async def test_model_execute_structured_output_schema_validation_fails(monkeypat
     mock_resp.raise_for_status = lambda: None
     # リトライ(_STRUCT_OUTPUT_RETRIES=2)後も失敗する
     with patch("httpx.post", return_value=mock_resp):
-        result = await _call("model.execute", {
+        result = await _call("model_execute", {
             "model_id": "model_qwen25_14b_q4",
             "messages": [{"role": "user", "content": "hi"}],
             "structured_output": {"schema": schema},
@@ -454,7 +454,7 @@ async def test_model_execute_structured_output_json_decode_error(monkeypatch):
     mock_resp.json.return_value = {"message": {"content": "not json {"}}
     mock_resp.raise_for_status = lambda: None
     with patch("httpx.post", return_value=mock_resp):
-        result = await _call("model.execute", {
+        result = await _call("model_execute", {
             "model_id": "model_qwen25_14b_q4",
             "messages": [{"role": "user", "content": "hi"}],
             "structured_output": {"schema": schema},
@@ -471,7 +471,7 @@ async def test_model_execute_ollama_connection_error_returns_execution_failed(mo
     monkeypatch.setenv("OLLAMA_STUB", "false")
     _add_model("model_qwen25_14b_q4")
     with patch("httpx.post", side_effect=_httpx.ConnectError("refused")):
-        result = await _call("model.execute", {
+        result = await _call("model_execute", {
             "model_id": "model_qwen25_14b_q4",
             "messages": [{"role": "user", "content": "hi"}],
         })
@@ -506,7 +506,7 @@ async def test_structured_output_retry_succeeds_on_second_attempt(monkeypatch):
         return mock_resp
 
     with patch("httpx.post", side_effect=lambda url, json, timeout: fake_post(url, json=json, timeout=timeout)):
-        result = await _call("model.execute", {
+        result = await _call("model_execute", {
             "model_id": "model_qwen25_14b_q4",
             "messages": [{"role": "user", "content": "hi"}],
             "structured_output": {"schema": schema},
@@ -540,7 +540,7 @@ async def test_structured_output_retry_hint_appended_to_messages(monkeypatch):
         return mock_resp
 
     with patch("httpx.post", side_effect=fake_post):
-        result = await _call("model.execute", {
+        result = await _call("model_execute", {
             "model_id": "model_qwen25_14b_q4",
             "messages": [{"role": "user", "content": "hi"}],
             "structured_output": {"schema": schema},
@@ -569,7 +569,7 @@ async def test_model_execute_writes_execution_log_when_task_id_given(monkeypatch
 
     with patch("airflow_mcp.models.server.append_execution_log",
                side_effect=fake_append) as mock_fn:
-        await _call("model.execute", {
+        await _call("model_execute", {
             "model_id": "model_qwen25_14b_q4",
             "messages": [{"role": "user", "content": "テスト"}],
             "task_id": "task_abc",
@@ -586,7 +586,7 @@ async def test_model_execute_no_jsonl_when_no_task_id(tmp_path, monkeypatch):
     monkeypatch.setattr(el_mod, "_DEFAULT_LOG_DIR", tmp_path / "logs")
     monkeypatch.setenv("OLLAMA_STUB", "true")
     _add_model("model_qwen25_14b_q4")
-    await _call("model.execute", {
+    await _call("model_execute", {
         "model_id": "model_qwen25_14b_q4",
         "messages": [{"role": "user", "content": "テスト"}],
     })
@@ -683,7 +683,7 @@ async def test_model_execute_dual_mode_structured_output_similarity(monkeypatch)
         return mock_resp
 
     with patch("httpx.post", side_effect=fake_post):
-        result = await _call("model.execute", {
+        result = await _call("model_execute", {
             "model_id": "model_qwen25_14b_q4",
             "messages": [{"role": "user", "content": "hi"}],
             "structured_output": {"schema": schema},
@@ -700,7 +700,7 @@ async def test_model_execute_dual_mode_high_similarity(monkeypatch):
     monkeypatch.setenv("OLLAMA_STUB", "true")
     _add_model("model_qwen25_14b_q4")
     # スタブは毎回同じ応答 → similarity=1.0
-    result = await _call("model.execute", {
+    result = await _call("model_execute", {
         "model_id": "model_qwen25_14b_q4",
         "messages": [{"role": "user", "content": "テスト"}],
         "features": {"required_accuracy": "high", "latency_sensitivity": "batch"},
@@ -732,7 +732,7 @@ async def test_model_execute_dual_mode_partial_similarity(monkeypatch):
         return mock_resp
 
     with patch("httpx.post", side_effect=fake_post):
-        result = await _call("model.execute", {
+        result = await _call("model_execute", {
             "model_id": "model_qwen25_14b_q4",
             "messages": [{"role": "user", "content": "hi"}],
             "features": {"required_accuracy": "high", "latency_sensitivity": "batch"},
@@ -762,7 +762,7 @@ async def test_model_execute_dual_mode_low_similarity_raises_error(monkeypatch):
         return mock_resp
 
     with patch("httpx.post", side_effect=fake_post):
-        result = await _call("model.execute", {
+        result = await _call("model_execute", {
             "model_id": "model_qwen25_14b_q4",
             "messages": [{"role": "user", "content": "hi"}],
             "features": {"required_accuracy": "high", "latency_sensitivity": "batch"},
@@ -777,14 +777,14 @@ async def test_model_execute_dual_mode_low_similarity_raises_error(monkeypatch):
 async def test_model_load_stub(monkeypatch):
     monkeypatch.setenv("OLLAMA_STUB", "true")
     _add_model("model_qwen25_14b_q4")
-    result = await _call("model.load", {"model_id": "model_qwen25_14b_q4"})
+    result = await _call("model_load", {"model_id": "model_qwen25_14b_q4"})
     assert result["loaded"] == "model_qwen25_14b_q4"
     assert result["status"] == "stub"
 
 
 @pytest.mark.asyncio
 async def test_model_load_unknown_model_returns_error():
-    result = await _call("model.load", {"model_id": "nonexistent"})
+    result = await _call("model_load", {"model_id": "nonexistent"})
     assert "error" in result
     assert result["error"]["code"] == "MODEL_NOT_FOUND"
 
@@ -805,7 +805,7 @@ async def test_model_load_sends_keep_alive_minus_one(monkeypatch):
         return mock_resp
 
     with patch("httpx.post", side_effect=fake_post):
-        result = await _call("model.load", {"model_id": "model_qwen25_14b_q4"})
+        result = await _call("model_load", {"model_id": "model_qwen25_14b_q4"})
     assert "api/generate" in captured["url"]
     assert captured["payload"]["keep_alive"] == -1
     assert captured["payload"]["model"] == "qwen2.5:14b-instruct-q4_K_M"
@@ -820,7 +820,7 @@ async def test_model_load_connection_error_falls_back(monkeypatch):
     monkeypatch.setenv("OLLAMA_STUB", "false")
     _add_model("model_qwen25_14b_q4")
     with patch("httpx.post", side_effect=_httpx.ConnectError("refused")):
-        result = await _call("model.load", {"model_id": "model_qwen25_14b_q4"})
+        result = await _call("model_load", {"model_id": "model_qwen25_14b_q4"})
     assert result["loaded"] == "model_qwen25_14b_q4"
     assert "load_error" in result["status"]
 
@@ -831,14 +831,14 @@ async def test_model_load_connection_error_falls_back(monkeypatch):
 async def test_model_unload_stub(monkeypatch):
     monkeypatch.setenv("OLLAMA_STUB", "true")
     _add_model("model_qwen25_14b_q4")
-    result = await _call("model.unload", {"model_id": "model_qwen25_14b_q4"})
+    result = await _call("model_unload", {"model_id": "model_qwen25_14b_q4"})
     assert result["unloaded"] == "model_qwen25_14b_q4"
     assert result["status"] == "stub"
 
 
 @pytest.mark.asyncio
 async def test_model_unload_unknown_model_returns_error():
-    result = await _call("model.unload", {"model_id": "nonexistent"})
+    result = await _call("model_unload", {"model_id": "nonexistent"})
     assert "error" in result
     assert result["error"]["code"] == "MODEL_NOT_FOUND"
 
@@ -858,7 +858,7 @@ async def test_model_unload_sends_keep_alive_zero(monkeypatch):
         return mock_resp
 
     with patch("httpx.post", side_effect=fake_post):
-        result = await _call("model.unload", {"model_id": "model_qwen25_14b_q4"})
+        result = await _call("model_unload", {"model_id": "model_qwen25_14b_q4"})
     assert captured["payload"]["keep_alive"] == 0
     assert result["unloaded"] == "model_qwen25_14b_q4"
 
@@ -871,7 +871,7 @@ async def test_model_unload_connection_error_falls_back(monkeypatch):
     monkeypatch.setenv("OLLAMA_STUB", "false")
     _add_model("model_qwen25_14b_q4")
     with patch("httpx.post", side_effect=_httpx.ConnectError("refused")):
-        result = await _call("model.unload", {"model_id": "model_qwen25_14b_q4"})
+        result = await _call("model_unload", {"model_id": "model_qwen25_14b_q4"})
     assert result["unloaded"] == "model_qwen25_14b_q4"
     assert "unload_error" in result["status"]
 
@@ -881,7 +881,7 @@ async def test_model_unload_connection_error_falls_back(monkeypatch):
 @pytest.mark.asyncio
 async def test_model_ps_stub(monkeypatch):
     monkeypatch.setenv("OLLAMA_STUB", "true")
-    result = await _call("model.ps", {})
+    result = await _call("model_ps", {})
     assert result["models"] == []
     assert result["status"] == "stub"
 
@@ -897,7 +897,7 @@ async def test_model_ps_returns_ollama_response(monkeypatch):
         "models": [{"name": "qwen2.5:14b-instruct-q4_K_M", "size": 123456}]
     }
     with patch("httpx.get", return_value=mock_resp):
-        result = await _call("model.ps", {})
+        result = await _call("model_ps", {})
     assert len(result["models"]) == 1
     assert result["models"][0]["name"] == "qwen2.5:14b-instruct-q4_K_M"
 
@@ -909,7 +909,7 @@ async def test_model_ps_connection_error_falls_back(monkeypatch):
     from unittest.mock import patch
     monkeypatch.setenv("OLLAMA_STUB", "false")
     with patch("httpx.get", side_effect=_httpx.ConnectError("refused")):
-        result = await _call("model.ps", {})
+        result = await _call("model_ps", {})
     assert result["models"] == []
     assert "ps_error" in result["status"]
 
@@ -965,13 +965,13 @@ async def test_model_recommend_falls_back_when_gpu_server_import_fails(monkeypat
     real_import = builtins.__import__
 
     def _bad_import(name, *args, **kwargs):
-        if name.endswith("gpu.server") or name == "airflow_mcp.gpu.server":
+        if name.endswith("gpu_server") or name == "airflow_mcp.gpu.server":
             raise ImportError("gpu server not available")
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", _bad_import)
 
-    result = await _call("model.recommend", {"features": {}})
+    result = await _call("model_recommend", {"features": {}})
     # GPU state 取得失敗でも推奨リストが返ること
     assert "recommendations" in result
     assert len(result["recommendations"]) >= 1
@@ -998,7 +998,7 @@ async def test_model_recommend_falls_back_when_gpu_state_attribute_raises(monkey
     fake_gpu_server._gpu = _BrokenGpu()
     monkeypatch.setattr("airflow_mcp.gpu.server", fake_gpu_server, raising=False)
 
-    result = await _call("model.recommend", {"features": {}})
+    result = await _call("model_recommend", {"features": {}})
     assert "recommendations" in result
     assert len(result["recommendations"]) >= 1
 
@@ -1051,7 +1051,7 @@ async def test_model_execute_missing_message_key_returns_error(monkeypatch):
     mock_resp.raise_for_status = lambda: None
     with patch("httpx.post", return_value=mock_resp), \
          patch("airflow_mcp.models.server.time.sleep"):
-        result = await _call("model.execute", {
+        result = await _call("model_execute", {
             "model_id": "model_qwen25_14b_q4",
             "messages": [{"role": "user", "content": "hello"}],
         })
@@ -1070,7 +1070,7 @@ async def test_model_execute_missing_content_key_returns_error(monkeypatch):
     mock_resp.raise_for_status = lambda: None
     with patch("httpx.post", return_value=mock_resp), \
          patch("airflow_mcp.models.server.time.sleep"):
-        result = await _call("model.execute", {
+        result = await _call("model_execute", {
             "model_id": "model_qwen25_14b_q4",
             "messages": [{"role": "user", "content": "hello"}],
         })
@@ -1081,7 +1081,7 @@ async def test_model_execute_missing_content_key_returns_error(monkeypatch):
 
 def test_load_registry_non_dict_data_ignored(tmp_path, monkeypatch):
     """registry.json が配列など非 dict の場合はモデルを登録しないこと（lines 64-66）。"""
-    reg = tmp_path / "registry.json"
+    reg = tmp_path / "registry_json"
     reg.write_text(json.dumps([{"id": "model_x"}]))  # list, not dict
     monkeypatch.setattr(models_mod, "_REGISTRY_PATH", reg)
     models_mod._models.clear()
@@ -1091,7 +1091,7 @@ def test_load_registry_non_dict_data_ignored(tmp_path, monkeypatch):
 
 def test_load_registry_skips_entry_without_id(tmp_path, monkeypatch):
     """registry.json のエントリに 'id' がない場合スキップすること（lines 68-70）。"""
-    reg = tmp_path / "registry.json"
+    reg = tmp_path / "registry_json"
     reg.write_text(json.dumps({"models": [{"name": "no_id_model", "vram_gb": 8.0}]}))
     monkeypatch.setattr(models_mod, "_REGISTRY_PATH", reg)
     models_mod._models.clear()
@@ -1103,7 +1103,7 @@ def test_load_registry_skips_entry_without_id(tmp_path, monkeypatch):
 async def test_model_execute_messages_not_list_returns_error():
     """messages が list でない場合エラーレスポンスが返ること（line 366）。"""
     _add_model("model_qwen25_14b_q4")
-    result = await _call("model.execute", {
+    result = await _call("model_execute", {
         "model_id": "model_qwen25_14b_q4",
         "messages": "not a list",
     })
@@ -1113,13 +1113,13 @@ async def test_model_execute_messages_not_list_returns_error():
 @pytest.mark.asyncio
 async def test_model_reload_registry_reloads(tmp_path, monkeypatch):
     """model.reload_registry がモデルキャッシュをクリアして再ロードすること（lines 658-662）。"""
-    reg = tmp_path / "registry.json"
+    reg = tmp_path / "registry_json"
     reg.write_text(json.dumps({"models": [
         {"id": "model_reloaded", "ollama_tag": "reload:latest", "vram_gb": 8.0}
     ]}))
     monkeypatch.setattr(models_mod, "_REGISTRY_PATH", reg)
     models_mod._models.clear()
-    result = await _call("model.reload_registry", {})
+    result = await _call("model_reload_registry", {})
     assert result["reloaded"] == 1
     assert "model_reloaded" in models_mod._models
 
@@ -1128,7 +1128,7 @@ async def test_model_reload_registry_reloads(tmp_path, monkeypatch):
 async def test_model_recommend_model_unavailable_when_candidates_unregistered():
     """candidate_models が全て未登録のとき MODEL_UNAVAILABLE エラーを返すこと（line 298）。"""
     # _models は空（clean_models fixture が適用済み）
-    result = await _call("model.recommend", {
+    result = await _call("model_recommend", {
         "features": {},
         "candidate_models": ["unregistered_model_x", "unregistered_model_y"],
     })
@@ -1142,7 +1142,7 @@ async def test_model_recommend_selected_not_in_knn_recs(monkeypatch):
     from unittest.mock import patch
     _add_model("model_solo")
     with patch("airflow_mcp.models.server.knn_recommend", return_value=[]):
-        result = await _call("model.recommend", {
+        result = await _call("model_recommend", {
             "features": {},
             "candidate_models": ["model_solo"],
         })
@@ -1160,7 +1160,7 @@ async def test_model_recommend_sets_reason_when_exploration_type_in_reason_map(m
     with patch("airflow_mcp.models.server.knn_recommend", return_value=fake_knn_recs), \
          patch("airflow_mcp.models.server.select_model",
                return_value=("model_x", "cold_start_fallback")):
-        result = await _call("model.recommend", {
+        result = await _call("model_recommend", {
             "features": {},
             "candidate_models": ["model_x"],
         })
