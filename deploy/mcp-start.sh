@@ -18,4 +18,8 @@ if [ -f "$ENV_FILE" ]; then
     done < "$ENV_FILE"
 fi
 
+# Ensure AIRFLOW_TASKBOARD_DIR is absolute
+export AIRFLOW_TASKBOARD_DIR="${PROJECT_DIR}/.airflow/tasks"
+
+cd "${PROJECT_DIR}" || exit 1
 exec "${PROJECT_DIR}/.venv/bin/python" -m airflow_mcp "$1"
