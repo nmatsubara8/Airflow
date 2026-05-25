@@ -191,6 +191,16 @@ def _get_fallback_model(model_id: str, model_config: dict[str, Any]) -> str | No
 
 
 @dataclass
+class ExecutionContext:
+    """runner の実行コンテキスト（store + 設定一式）。"""
+    store: "TaskStore"
+    model_config: dict[str, Any]
+    registry: dict[str, dict]
+    agent_id: str
+    ollama_url: str
+
+
+@dataclass
 class _ExecResult:
     model_id: str
     content: str
@@ -206,16 +216,17 @@ def _execute_with_reroute(
     task: dict[str, Any],
     model_id: str,
     exploration_type: str | None,
-    model_config: dict[str, Any],
-    registry: dict[str, dict],
-    agent_id: str,
-    ollama_url: str,
+    ctx: ExecutionContext,
     messages: list[dict],
     output_schema: dict,
     aid: str,
 ) -> _ExecResult:
     """プライマリ実行 + reroute を行い結果を返す（DDD-06 §7.3）。"""
     task_id = task["id"]
+    model_config = ctx.model_config
+    registry = ctx.registry
+    agent_id = ctx.agent_id
+    ollama_url = ctx.ollama_url
     max_reroute = model_config.get("reroute", {}).get("max_reroute_attempts", 1)
 
     model_tag = _model_id_to_ollama_tag(model_id, registry)
@@ -315,14 +326,7 @@ def _build_handoff_note(
     )
 
 
-def process_task(
-    task: dict[str, Any],
-    store: TaskStore,
-    model_config: dict[str, Any],
-    registry: dict[str, dict],
-    agent_id: str,
-    ollama_url: str,
-) -> bool:
+def process_task(task: dict[str, Any], ctx: ExecutionContext) -> bool:
     """
     タスク 1 件を処理する。成功時 True、最終失敗時 False。
     DDD-05 §9 + DDD-06 §7.3 の end-to-end フロー（reroute 含む）。
@@ -340,23 +344,20 @@ def process_task(
         output_schema = {"type": "object", "required": ["summary"],
                          "properties": {"summary": {"type": "string"}}}
 
-    model_id, exploration_type = _select_model(task, model_config, registry)
+    model_id, exploration_type = _select_model(task, ctx.model_config, ctx.registry)
     logger.info(
         "runner.model_selected task=%s model=%s exploration=%s",
         task_id, model_id, exploration_type,
     )
     messages = _build_messages(task, system_prompt)
 
-    r = _execute_with_reroute(
-        task, model_id, exploration_type, model_config, registry,
-        agent_id, ollama_url, messages, output_schema, aid,
-    )
+    r = _execute_with_reroute(task, model_id, exploration_type, ctx, messages, output_schema, aid)
 
     log_event(
         "info" if r.schema_valid else "error",
         "model.executed" if r.schema_valid else "escalation.triggered",
         "models-mcp", aid,
-        model_id=r.model_id, task_id=task_id, agent_id=agent_id,
+        model_id=r.model_id, task_id=task_id, agent_id=ctx.agent_id,
         duration_ms=r.latency_ms,
         error=None if r.schema_valid else {
             "class": "escalate",
@@ -373,67 +374,52 @@ def process_task(
             + (f" reroute({r.rerouted_from}→{r.model_id})も失敗。" if r.rerouted_from else "")
             + f" 生の出力: {r.content[:200]}"
         )
-        store.add_handoff_note(task_id, note, author=agent_id)
-        store.transition(task_id, "needs_human",
-                         reason="MODEL_STRUCTURED_OUTPUT_INVALID after retries")
+        ctx.store.add_handoff_note(task_id, note, author=ctx.agent_id)
+        ctx.store.transition(task_id, "needs_human",
+                             reason="MODEL_STRUCTURED_OUTPUT_INVALID after retries")
         logger.error("task %s → needs_human (schema invalid)", task_id)
         return False
 
     handoff_content = _build_handoff_note(
         r.parsed, r.content, r.model_id, r.latency_ms, r.retry_count, r.rerouted_from, r.log_id,
     )
-    store.add_handoff_note(task_id, handoff_content, author=agent_id)
-    store.transition(task_id, "done", reason="agent completed successfully")
+    ctx.store.add_handoff_note(task_id, handoff_content, author=ctx.agent_id)
+    ctx.store.transition(task_id, "done", reason="agent completed successfully")
 
     logger.info("task %s → done (%.1fs, model=%s%s)", task_id, r.latency_ms / 1000, r.model_id,
                 f" via reroute from {r.rerouted_from}" if r.rerouted_from else "")
 
     # handoff チェーン：完了ステップを記録し、次タスクを生成する（DDD-06 §3）
-    done_task = store.get(task_id)
-    record_chain_step(task_id, agent_id, r.log_id, store)
+    done_task = ctx.store.get(task_id)
+    record_chain_step(task_id, ctx.agent_id, r.log_id, ctx.store)
     chains = load_chains()
-    spawned = spawn_handoff_tasks(done_task, store, chains)
+    spawned = spawn_handoff_tasks(done_task, ctx.store, chains)
     if spawned:
         logger.info("handoff.spawned count=%d parent=%s", len(spawned), task_id)
 
     return True
 
 
-def run_once(
-    store: TaskStore,
-    model_config: dict[str, Any],
-    registry: dict[str, dict],
-    agent_id: str,
-    ollama_url: str,
-) -> int:
+def run_once(ctx: ExecutionContext) -> int:
     """in_progress で自分が owner のタスクを処理する。処理数を返す。"""
-    tasks = [t for t in store.list_by_status("in_progress")
-             if t.get("owner") == agent_id]
+    tasks = [t for t in ctx.store.list_by_status("in_progress")
+             if t.get("owner") == ctx.agent_id]
     processed = 0
     for task in tasks:
         try:
-            process_task(task, store, model_config, registry, agent_id, ollama_url)
+            process_task(task, ctx)
             processed += 1
         except Exception as exc:
             logger.error("runner error for %s: %s", task["id"], exc)
     return processed
 
 
-def run_loop(
-    store: TaskStore,
-    model_config: dict[str, Any],
-    registry: dict[str, dict],
-    agent_id: str = "agent_docs",
-    ollama_url: str | None = None,
-    poll_interval_s: float = 5.0,
-) -> None:
-    url = validate_ollama_url(
-        ollama_url or os.environ.get("OLLAMA_URL", "http://localhost:11434")
-    )
-    logger.info("runner started: agent=%s ollama=%s poll=%.1fs", agent_id, url, poll_interval_s)
+def run_loop(ctx: ExecutionContext, poll_interval_s: float = 5.0) -> None:
+    logger.info("runner started: agent=%s ollama=%s poll=%.1fs",
+                ctx.agent_id, ctx.ollama_url, poll_interval_s)
     while True:
         try:
-            n = run_once(store, model_config, registry, agent_id, url)
+            n = run_once(ctx)
             if n > 0:
                 logger.info("runner processed %d tasks", n)
         except Exception as exc:
@@ -446,7 +432,14 @@ def _cli() -> None:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s [%(name)s] %(message)s")
     from ..taskboard.store import TaskStore
-    store = TaskStore()
-    model_config = load_model_config()
-    registry = _load_registry()
-    run_loop(store, model_config, registry)
+    ollama_url = validate_ollama_url(
+        os.environ.get("OLLAMA_URL", "http://localhost:11434")
+    )
+    ctx = ExecutionContext(
+        store=TaskStore(),
+        model_config=load_model_config(),
+        registry=_load_registry(),
+        agent_id="agent_docs",
+        ollama_url=ollama_url,
+    )
+    run_loop(ctx)

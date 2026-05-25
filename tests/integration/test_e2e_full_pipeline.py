@@ -30,8 +30,19 @@ from airflow_mcp.dispatcher.main import dispatch_once
 from airflow_mcp.ingester.main import run_once as ingester_run_once
 from airflow_mcp.ops.monitor import get_status_dict
 from airflow_mcp.orchestrator.batch_scheduler import run_schedule
-from airflow_mcp.runner.main import run_once as runner_run_once
+from airflow_mcp.runner.main import ExecutionContext, run_once as runner_run_once
 from airflow_mcp.taskboard.store import TaskStore
+
+
+def _runner_ctx(store, model_config=None, registry=None, agent_id="agent_docs",
+                ollama_url="http://localhost"):
+    return ExecutionContext(
+        store=store,
+        model_config=model_config or {},
+        registry=registry or {},
+        agent_id=agent_id,
+        ollama_url=ollama_url,
+    )
 
 
 # ── 共通フィクスチャ ──────────────────────────────────────────────
@@ -156,8 +167,7 @@ class TestNeedsHumanEscalation:
             patch("airflow_mcp.runner.main.time.sleep"),  # リトライ待機をスキップ
         ):
             runner_run_once(
-                store, env["model_config"], env["registry"],
-                "agent_docs", "http://localhost",
+                _runner_ctx(store, env["model_config"], env["registry"])
             )
 
         assert store.list_by_status("needs_human"), "needs_human への遷移が起きていない"
@@ -178,10 +188,7 @@ class TestNeedsHumanEscalation:
                   return_value=("", None, False)),
             patch("airflow_mcp.runner.main.time.sleep"),
         ):
-            runner_run_once(
-                store, env["model_config"], env["registry"],
-                "agent_docs", "http://localhost",
-            )
+            runner_run_once(_runner_ctx(store, env["model_config"], env["registry"]))
 
         nh_tasks = store.list_by_status("needs_human")
         assert nh_tasks, "needs_human タスクが存在しない"
@@ -202,10 +209,7 @@ class TestNeedsHumanEscalation:
                   return_value=("", None, False)),
             patch("airflow_mcp.runner.main.time.sleep"),
         ):
-            runner_run_once(
-                store, env["model_config"], env["registry"],
-                "agent_docs", "http://localhost",
-            )
+            runner_run_once(_runner_ctx(store, env["model_config"], env["registry"]))
 
         status = get_status_dict()
         assert status["tasks"].get("needs_human", 0) >= 1
@@ -250,9 +254,7 @@ class TestBatchSchedulerPipeline:
         n_dispatched = dispatch_once(default_store, {})
         assert n_dispatched >= 1
 
-        n_processed = runner_run_once(
-            default_store, {}, {}, "agent_docs", "http://localhost",
-        )
+        n_processed = runner_run_once(_runner_ctx(default_store))
         assert n_processed >= 1
 
         after_done = len(default_store.list_by_status("done"))
@@ -300,8 +302,7 @@ class TestMonitorConsistency:
         _place_md(env["vault_dir"], "mon3.md", "done カウントテスト")
         ingester_run_once(store, env["ingester_config"])
         dispatch_once(store, env["dispatch_config"])
-        runner_run_once(store, env["model_config"], env["registry"],
-                        "agent_docs", "http://localhost")
+        runner_run_once(_runner_ctx(store, env["model_config"], env["registry"]))
 
         done_after = get_status_dict()["tasks"].get("done", 0)
         assert done_after > done_before, "done カウントが増加していない"
@@ -336,8 +337,7 @@ class TestMonitorConsistency:
         _place_md(env["vault_dir"], "full1.md", "完全パイプラインテスト")
         ingester_run_once(store, env["ingester_config"])
         dispatch_once(store, env["dispatch_config"])
-        runner_run_once(store, env["model_config"], env["registry"],
-                        "agent_docs", "http://localhost")
+        runner_run_once(_runner_ctx(store, env["model_config"], env["registry"]))
 
         assert store.list_by_status("inbox") == []
         assert store.list_by_status("in_progress") == []

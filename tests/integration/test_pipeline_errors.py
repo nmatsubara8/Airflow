@@ -20,12 +20,24 @@ os.environ.setdefault("OLLAMA_STUB", "true")
 from airflow_mcp.dispatcher.main import dispatch_once, load_config as load_dispatch_config
 from airflow_mcp.ingester.main import run_once as ingester_run_once
 from airflow_mcp.runner.main import (
+    ExecutionContext,
     _load_registry,
     load_model_config,
     process_task,
     run_once as runner_run_once,
 )
 from airflow_mcp.taskboard.store import TaskStore
+
+
+def _runner_ctx(store, model_config=None, registry=None, agent_id="agent_docs",
+                ollama_url="http://localhost"):
+    return ExecutionContext(
+        store=store,
+        model_config=model_config or {},
+        registry=registry or {},
+        agent_id=agent_id,
+        ollama_url=ollama_url,
+    )
 
 
 # ── ヘルパー ──────────────────────────────────────────────────────────────
@@ -62,7 +74,7 @@ def test_needs_human_on_schema_invalid(tmp_tasks_dir: Path):
     registry: dict[str, dict] = {}
 
     with patch("airflow_mcp.runner.main._call_ollama", return_value=_invalid_stub()):
-        result = process_task(task, store, model_config, registry, "agent_docs", "http://localhost")
+        result = process_task(task, _runner_ctx(store, model_config, registry))
 
     assert result is False
     nh = store.list_by_status("needs_human")
@@ -79,7 +91,7 @@ def test_needs_human_has_failure_detail_in_handoff_note(tmp_tasks_dir: Path):
     task = _create_in_progress(store)
 
     with patch("airflow_mcp.runner.main._call_ollama", return_value=("raw output xyz", None, False)):
-        process_task(task, store, {}, {}, "agent_docs", "http://localhost")
+        process_task(task, _runner_ctx(store))
 
     nh_task = store.list_by_status("needs_human")[0]
     note_body = nh_task["handoff_notes"][-1]["body"]
@@ -93,7 +105,7 @@ def test_done_count_zero_when_all_fail(tmp_tasks_dir: Path):
         _create_in_progress(store, title=f"タスク{i}")
 
     with patch("airflow_mcp.runner.main._call_ollama", return_value=_invalid_stub()):
-        n = runner_run_once(store, {}, {}, "agent_docs", "http://localhost")
+        n = runner_run_once(_runner_ctx(store))
 
     assert n == 3
     assert store.list_by_status("done") == []
@@ -110,7 +122,7 @@ def test_run_once_processes_all_in_progress_tasks(tmp_tasks_dir: Path):
     for i in range(N):
         _create_in_progress(store, title=f"並列タスク{i}")
 
-    n = runner_run_once(store, {}, {}, "agent_docs", "http://localhost")
+    n = runner_run_once(_runner_ctx(store))
 
     assert n == N
     assert len(store.list_by_status("done")) == N
@@ -128,7 +140,7 @@ def test_run_once_skips_other_agents_tasks(tmp_tasks_dir: Path):
     })
     store.claim(other["id"], "agent_other")
 
-    n = runner_run_once(store, {}, {}, "agent_docs", "http://localhost")
+    n = runner_run_once(_runner_ctx(store))
 
     assert n == 1
     assert store.get(mine["id"])["status"] == "done"
@@ -175,7 +187,7 @@ def test_reroute_to_fallback_on_primary_failure(tmp_tasks_dir: Path):
         return (stub_success, json.loads(stub_success), True)
 
     with patch("airflow_mcp.runner.main._call_ollama", side_effect=_side_effect):
-        result = process_task(task, store, model_config, registry, "agent_docs", "http://localhost")
+        result = process_task(task, _runner_ctx(store, model_config, registry))
 
     assert result is True
     done = store.list_by_status("done")
@@ -203,7 +215,7 @@ def test_needs_human_when_both_primary_and_fallback_fail(tmp_tasks_dir: Path):
     }
 
     with patch("airflow_mcp.runner.main._call_ollama", return_value=_invalid_stub()):
-        result = process_task(task, store, model_config, registry, "agent_docs", "http://localhost")
+        result = process_task(task, _runner_ctx(store, model_config, registry))
 
     assert result is False
     nh = store.list_by_status("needs_human")
@@ -267,7 +279,7 @@ features:
 
     model_config = load_model_config()
     registry = _load_registry()
-    n_run = runner_run_once(store, model_config, registry, "agent_docs", "http://localhost")
+    n_run = runner_run_once(_runner_ctx(store, model_config, registry))
     assert n_run == 3
 
     assert len(store.list_by_status("done")) == 3

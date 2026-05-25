@@ -16,11 +16,23 @@ os.environ["OLLAMA_STUB"] = "true"
 from airflow_mcp.dispatcher.main import dispatch_once, load_config as load_dispatch_config
 from airflow_mcp.ingester.main import run_once as ingester_run_once
 from airflow_mcp.runner.main import (
+    ExecutionContext,
     _load_registry,
     load_model_config,
     run_once as runner_run_once,
 )
 from airflow_mcp.taskboard.store import TaskStore
+
+
+def _runner_ctx(store, model_config=None, registry=None, agent_id="agent_docs",
+                ollama_url="http://localhost"):
+    return ExecutionContext(
+        store=store,
+        model_config=model_config or {},
+        registry=registry or {},
+        agent_id=agent_id,
+        ollama_url=ollama_url,
+    )
 
 VAULT_FIXTURE = Path(__file__).parent.parent / "fixtures" / "vaults" / "test-vault"
 
@@ -82,7 +94,7 @@ def test_mvp_e2e_completes_within_30_seconds(
     assert in_progress[0]["section"] == "engineering"
 
     # Step 3: in_progress → done (runner)
-    n_processed = runner_run_once(store, model_config, registry, "agent_docs", "http://localhost")
+    n_processed = runner_run_once(_runner_ctx(store, model_config, registry))
     assert n_processed == 1, "1 つのタスクが処理されるべき"
 
     elapsed = time.time() - start
@@ -135,7 +147,7 @@ def test_mvp_e2e_full_pipeline_with_fixture_vault(tmp_tasks_dir: Path, tmp_path:
 
     ingester_run_once(store, config)
     dispatch_once(store, dispatch_config)
-    n = runner_run_once(store, model_config, registry, "agent_docs", "http://localhost")
+    n = runner_run_once(_runner_ctx(store, model_config, registry))
     assert n >= 1
     assert store.list_by_status("done")
 
@@ -149,7 +161,7 @@ def test_mvp_e2e_inbox_empty_after_pipeline(tmp_tasks_dir: Path, ingester_config
 
     ingester_run_once(store, ingester_config)
     dispatch_once(store, dispatch_config)
-    runner_run_once(store, model_config, registry, "agent_docs", "http://localhost")
+    runner_run_once(_runner_ctx(store, model_config, registry))
 
     assert store.list_by_status("inbox") == []
     assert store.list_by_status("in_progress") == []

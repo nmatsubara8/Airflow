@@ -10,6 +10,7 @@ import pytest
 
 from airflow_mcp.orchestrator.recommender import simple_rule_select
 from airflow_mcp.runner.main import (
+    ExecutionContext,
     _build_handoff_note,
     _build_messages,
     _call_ollama,
@@ -22,6 +23,16 @@ from airflow_mcp.runner.main import (
     run_once,
 )
 from airflow_mcp.taskboard.store import TaskStore
+
+
+def _ctx(store, model_config=None, registry=None, agent_id="agent_docs", ollama_url="http://localhost"):
+    return ExecutionContext(
+        store=store,
+        model_config=model_config or {},
+        registry=registry or {},
+        agent_id=agent_id,
+        ollama_url=ollama_url,
+    )
 
 FIXTURES_DIR = Path(__file__).parent.parent.parent / "fixtures"
 
@@ -122,7 +133,7 @@ def test_process_task_stub_transitions_to_done(task_store: TaskStore, sample_tas
     task_store.claim(task["id"], "agent_docs")
     task_in_progress = task_store.get(task["id"])
 
-    result = process_task(task_in_progress, task_store, {}, {}, "agent_docs", "http://localhost")
+    result = process_task(task_in_progress, _ctx(task_store))
     assert result is True
     done = task_store.get(task["id"])
     assert done["status"] == "done"
@@ -134,7 +145,7 @@ def test_process_task_stub_adds_handoff_note(task_store: TaskStore, sample_task_
     task_store.claim(task["id"], "agent_docs")
     task_in_progress = task_store.get(task["id"])
 
-    process_task(task_in_progress, task_store, {}, {}, "agent_docs", "http://localhost")
+    process_task(task_in_progress, _ctx(task_store))
     done = task_store.get(task["id"])
     assert len(done["handoff_notes"]) >= 1
     assert "要約" in done["handoff_notes"][-1]["body"]
@@ -155,7 +166,7 @@ def test_process_task_invalid_schema_transitions_to_needs_human(
         return invalid_json, {"wrong_field": "invalid"}, False
 
     with patch("airflow_mcp.runner.main._call_ollama", side_effect=fake_call_ollama):
-        result = process_task(task_in_progress, task_store, {}, {}, "agent_docs", "http://localhost")
+        result = process_task(task_in_progress, _ctx(task_store))
 
     assert result is False
     failed_task = task_store.get(task["id"])
@@ -173,7 +184,7 @@ def test_run_once_processes_only_owned_tasks(task_store: TaskStore, sample_task_
     t2 = task_store.create({**sample_task_fields, "title": "他エージェントのタスク"})
     task_store.claim(t2["id"], "agent_other")
 
-    n = run_once(task_store, {}, {}, "agent_docs", "http://localhost")
+    n = run_once(_ctx(task_store))
     assert n == 1
 
     # agent_other のタスクは untouched
@@ -183,7 +194,7 @@ def test_run_once_processes_only_owned_tasks(task_store: TaskStore, sample_task_
 def test_run_once_returns_zero_when_no_owned_tasks(task_store: TaskStore, sample_task_fields: dict):
     task = task_store.create(sample_task_fields)
     task_store.claim(task["id"], "agent_other")
-    n = run_once(task_store, {}, {}, "agent_docs", "http://localhost")
+    n = run_once(_ctx(task_store))
     assert n == 0
 
 
@@ -268,9 +279,7 @@ def test_process_task_reroute_succeeds_with_fallback(
     with patch("airflow_mcp.runner.main._select_model",
                return_value=("model_qwen25_14b_q4", None)), \
          patch("airflow_mcp.runner.main._call_ollama", side_effect=fake_call):
-        result = process_task(
-            task_in_progress, task_store, model_config, registry, "agent_docs", "http://localhost"
-        )
+        result = process_task(task_in_progress, _ctx(task_store, model_config, registry))
 
     assert result is True
     done = task_store.get(task["id"])
@@ -305,9 +314,7 @@ def test_process_task_reroute_also_fails_transitions_to_needs_human(
     with patch("airflow_mcp.runner.main._select_model",
                return_value=("model_qwen25_14b_q4", None)), \
          patch("airflow_mcp.runner.main._call_ollama", side_effect=always_fail):
-        result = process_task(
-            task_in_progress, task_store, model_config, registry, "agent_docs", "http://localhost"
-        )
+        result = process_task(task_in_progress, _ctx(task_store, model_config, registry))
 
     assert result is False
     assert task_store.get(task["id"])["status"] == "needs_human"
@@ -342,9 +349,7 @@ def test_process_task_no_reroute_when_max_attempts_zero(
     with patch("airflow_mcp.runner.main._select_model",
                return_value=("model_qwen25_14b_q4", None)), \
          patch("airflow_mcp.runner.main._call_ollama", side_effect=fake_call):
-        process_task(
-            task_in_progress, task_store, model_config, registry, "agent_docs", "http://localhost"
-        )
+        process_task(task_in_progress, _ctx(task_store, model_config, registry))
 
     # fallback モデルの tag が呼ばれていないこと
     assert not any("32b" in c for c in calls), f"fallback が呼ばれた: {calls}"
@@ -443,7 +448,7 @@ def test_run_once_processes_owned_in_progress_tasks(task_store, sample_task_fiel
     os.environ["OLLAMA_STUB"] = "true"
     task = task_store.create(sample_task_fields)
     task_store.claim(task["id"], "agent_docs")
-    n = run_once(task_store, {}, {}, "agent_docs", "http://localhost:11434")
+    n = run_once(_ctx(task_store, ollama_url="http://localhost:11434"))
     assert n >= 1
 
 
@@ -452,12 +457,12 @@ def test_run_once_skips_tasks_owned_by_other_agent(task_store, sample_task_field
     os.environ["OLLAMA_STUB"] = "true"
     task = task_store.create(sample_task_fields)
     task_store.claim(task["id"], "agent_other")
-    n = run_once(task_store, {}, {}, "agent_docs", "http://localhost:11434")
+    n = run_once(_ctx(task_store, ollama_url="http://localhost:11434"))
     assert n == 0
 
 
 def test_run_once_returns_zero_with_empty_store(task_store):
-    n = run_once(task_store, {}, {}, "agent_docs", "http://localhost:11434")
+    n = run_once(_ctx(task_store, ollama_url="http://localhost:11434"))
     assert n == 0
 
 
@@ -505,7 +510,7 @@ def test_process_task_execution_log_failure_still_completes(
 
     with patch("airflow_mcp.runner.main.append_execution_log",
                side_effect=IOError("disk full")):
-        result = process_task(task_in_progress, task_store, {}, {}, "agent_docs", "http://localhost")
+        result = process_task(task_in_progress, _ctx(task_store))
 
     assert result is True
     assert task_store.get(task["id"])["status"] == "done"
@@ -583,9 +588,7 @@ def test_process_task_reroute_execution_log_failure_still_completes(
                return_value=("model_qwen25_14b_q4", None)), \
          patch("airflow_mcp.runner.main._call_ollama", side_effect=fake_call), \
          patch("airflow_mcp.runner.main.append_execution_log", side_effect=fake_log):
-        result = process_task(
-            task_in_progress, task_store, model_config, registry, "agent_docs", "http://localhost"
-        )
+        result = process_task(task_in_progress, _ctx(task_store, model_config, registry))
 
     assert result is True
     assert task_store.get(task["id"])["status"] == "done"
@@ -602,7 +605,7 @@ def test_run_once_catches_process_task_exception(task_store, sample_task_fields)
 
     with patch("airflow_mcp.runner.main.process_task",
                side_effect=RuntimeError("unexpected crash")):
-        n = run_once(task_store, {}, {}, "agent_docs", "http://localhost")
+        n = run_once(_ctx(task_store))
 
     assert n == 0  # 例外は catch されカウントされない
 
@@ -624,7 +627,7 @@ def test_run_loop_runs_and_handles_results(task_store, monkeypatch):
 
     from airflow_mcp.runner.main import run_loop
     with pytest.raises(SystemExit):
-        run_loop(task_store, {}, {}, "agent_docs", "http://localhost:11434", poll_interval_s=0.001)
+        run_loop(_ctx(task_store, ollama_url="http://localhost:11434"), poll_interval_s=0.001)
 
     assert call_count["n"] == 2
 
@@ -644,7 +647,7 @@ def test_run_loop_catches_run_once_exception(task_store, monkeypatch):
 
     from airflow_mcp.runner.main import run_loop
     with pytest.raises(SystemExit):
-        run_loop(task_store, {}, {}, "agent_docs", "http://localhost:11434", poll_interval_s=0.001)
+        run_loop(_ctx(task_store, ollama_url="http://localhost:11434"), poll_interval_s=0.001)
 
     assert call_count["n"] == 2
 
@@ -663,9 +666,6 @@ def test_process_task_reroute_skips_for_interactive_latency(
     task = task_store.create(fields)
     task_store.claim(task["id"], "agent_docs")
     task_in_progress = task_store.get(task["id"])
-
-    def always_fail(*args, **kwargs):
-        return '{"bad":"x"}', {"bad": "x"}, False
 
     model_config = {
         "reroute": {
@@ -688,9 +688,7 @@ def test_process_task_reroute_skips_for_interactive_latency(
     with patch("airflow_mcp.runner.main._select_model",
                return_value=("model_qwen25_14b_q4", None)), \
          patch("airflow_mcp.runner.main._call_ollama", side_effect=fake_call):
-        result = process_task(
-            task_in_progress, task_store, model_config, registry, "agent_docs", "http://localhost"
-        )
+        result = process_task(task_in_progress, _ctx(task_store, model_config, registry))
 
     assert result is False
     assert task_store.get(task["id"])["status"] == "needs_human"
@@ -736,9 +734,7 @@ def test_process_task_reroute_on_low_auto_score(
     with patch("airflow_mcp.runner.main._select_model",
                return_value=("model_qwen25_14b_q4", None)), \
          patch("airflow_mcp.runner.main._call_ollama", side_effect=fake_call):
-        result = process_task(
-            task_in_progress, task_store, model_config, registry, "agent_docs", "http://localhost"
-        )
+        result = process_task(task_in_progress, _ctx(task_store, model_config, registry))
 
     assert result is True
     done = task_store.get(task["id"])
@@ -750,13 +746,11 @@ def test_process_task_reroute_on_low_auto_score(
 # ── _cli (lines 361-368) ─────────────────────────────
 
 def test_cli_entry_point(monkeypatch, tmp_path):
-    """_cli が TaskStore, load_model_config, _load_registry を呼んで run_loop に渡すこと。"""
+    """_cli が ExecutionContext を組み立てて run_loop に渡すこと。"""
     call_args = {}
 
-    def fake_run_loop(store, model_config, registry, *args, **kwargs):
-        call_args["store"] = store
-        call_args["model_config"] = model_config
-        call_args["registry"] = registry
+    def fake_run_loop(ctx, *args, **kwargs):
+        call_args["ctx"] = ctx
         raise SystemExit(0)
 
     monkeypatch.setattr("airflow_mcp.runner.main.run_loop", fake_run_loop)
@@ -766,7 +760,8 @@ def test_cli_entry_point(monkeypatch, tmp_path):
     with pytest.raises(SystemExit):
         _cli()
 
-    assert "store" in call_args
+    assert "ctx" in call_args
+    assert call_args["ctx"].agent_id == "agent_docs"
 
 
 # ── _build_handoff_note ───────────────────────────────
@@ -827,8 +822,9 @@ def test_execute_with_reroute_stub_returns_exec_result(task_store, sample_task_f
     messages = [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}]
     from airflow_mcp.common.audit import new_audit_id
     r = _execute_with_reroute(
-        task, "model_qwen25_14b_q4", None, {}, {}, "agent_docs",
-        "http://localhost:11434", messages, schema, new_audit_id(),
+        task, "model_qwen25_14b_q4", None,
+        _ctx(task_store, ollama_url="http://localhost:11434"),
+        messages, schema, new_audit_id(),
     )
     assert r.schema_valid is True
     assert r.rerouted_from is None
@@ -863,8 +859,9 @@ def test_execute_with_reroute_uses_fallback_on_primary_failure(
     from airflow_mcp.common.audit import new_audit_id
     with patch("airflow_mcp.runner.main._call_ollama", side_effect=fake_call):
         r = _execute_with_reroute(
-            task, "model_qwen25_14b_q4", None, model_config, registry,
-            "agent_docs", "http://localhost", messages, schema, new_audit_id(),
+            task, "model_qwen25_14b_q4", None,
+            _ctx(task_store, model_config, registry),
+            messages, schema, new_audit_id(),
         )
     assert r.schema_valid is True
     assert r.rerouted_from == "model_qwen25_14b_q4"
@@ -966,7 +963,7 @@ def test_process_task_uses_fallback_prompt_when_file_missing(
         return original_build(task, system_prompt)
 
     with patch("airflow_mcp.runner.main._build_messages", side_effect=capturing_build):
-        result = process_task(task_in_progress, task_store, {}, {}, "agent_docs", "http://localhost")
+        result = process_task(task_in_progress, _ctx(task_store))
 
     assert result is True
     # デフォルトプロンプトが使われていること
@@ -997,8 +994,9 @@ def test_execute_with_reroute_skips_when_fallback_not_in_registry(
     from airflow_mcp.common.audit import new_audit_id
     with patch("airflow_mcp.runner.main._call_ollama", side_effect=always_fail):
         r = _execute_with_reroute(
-            task, "model_qwen25_14b_q4", None, model_config, registry,
-            "agent_docs", "http://localhost", messages, schema, new_audit_id(),
+            task, "model_qwen25_14b_q4", None,
+            _ctx(task_store, model_config, registry),
+            messages, schema, new_audit_id(),
         )
     # reroute されずプライマリ結果のまま
     assert r.rerouted_from is None
@@ -1051,7 +1049,7 @@ def test_process_task_output_schema_oserror_uses_fallback(task_store, sample_tas
     task_store.claim(task["id"], "agent_docs")
     task_in_progress = task_store.get(task["id"])
 
-    result = process_task(task_in_progress, task_store, {}, {}, "agent_docs", "http://localhost")
+    result = process_task(task_in_progress, _ctx(task_store))
     # fallback schema が使われて正常終了すること
     assert result is not None
 
@@ -1066,6 +1064,6 @@ def test_process_task_logs_when_handoff_spawned(task_store, sample_task_fields, 
     task_in_progress = task_store.get(task["id"])
 
     with patch("airflow_mcp.runner.main.spawn_handoff_tasks", return_value=["child_task_1"]):
-        result = process_task(task_in_progress, task_store, {}, {}, "agent_docs", "http://localhost")
+        result = process_task(task_in_progress, _ctx(task_store))
 
     assert result is True
