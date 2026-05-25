@@ -97,6 +97,7 @@ def test_collect_execution_metrics_parses_log(tmp_path, monkeypatch):
         json.dumps({"model_id": "qwen14b", "duration_s": 2.5}) + "\n"
         + json.dumps({"model_id": "qwen14b", "duration_s": 4.0}) + "\n"
         + json.dumps({"model_id": "bge", "duration_s": 0.5}) + "\n"
+        + "\n"
         + "bad-line\n"
         + json.dumps({"model_id": "missing_dur"}) + "\n"
     )
@@ -189,3 +190,38 @@ def _find_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
+
+
+def test_collect_task_metrics_exception_branch(monkeypatch):
+    """list_by_status が例外を投げても空リストを返してクラッシュしないこと（line 31-32）。"""
+    from unittest.mock import MagicMock
+    store = MagicMock()
+    store.list_by_status.side_effect = RuntimeError("db down")
+    result = collect_task_metrics(store)
+    assert result == {"task_counts": {}}
+
+
+def test_collect_execution_metrics_oserror(tmp_path, monkeypatch):
+    """OSError が発生した場合に空 dict を返すこと（line 69）。"""
+    from unittest.mock import patch
+    log = tmp_path / "exec.jsonl"
+    log.write_text('{"model_id": "x", "duration_s": 1.0}\n')
+    monkeypatch.setenv("AIRFLOW_EXECUTION_LOG", str(log))
+    with patch("pathlib.Path.read_text", side_effect=OSError("unreadable")):
+        result = collect_execution_metrics()
+    assert result == {}
+
+
+def test_collect_execution_metrics_result_stats(tmp_path, monkeypatch):
+    """duration 統計の count/sum/p50/p95 が正しく計算されること（line 78-80）。"""
+    import json
+    log = tmp_path / "exec.jsonl"
+    lines = [json.dumps({"model_id": "m", "duration_s": float(i)}) for i in range(1, 11)]
+    log.write_text("\n".join(lines) + "\n")
+    monkeypatch.setenv("AIRFLOW_EXECUTION_LOG", str(log))
+    result = collect_execution_metrics()
+    stats = result["execution_durations"]["m"]
+    assert stats["count"] == 10
+    assert stats["sum"] == 55.0
+    assert stats["p50"] == 6.0   # vals_sorted[10//2] = vals_sorted[5] = 6.0
+    assert stats["p95"] == 10.0  # vals_sorted[9] = 10.0

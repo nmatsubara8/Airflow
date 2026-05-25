@@ -241,3 +241,44 @@ def test_dashboard_no_store_returns_200():
             assert resp.status == 200
     finally:
         httpd.shutdown()
+
+
+def test_render_home_exception_branch(monkeypatch):
+    """list_by_status が例外を投げても count=0 でクラッシュしないこと（line 75-76）。"""
+    from unittest.mock import MagicMock
+    bad_store = MagicMock()
+    bad_store.list_by_status.side_effect = RuntimeError("db down")
+    html = render_home(bad_store)
+    assert "0" in html  # count falls back to 0
+    assert "Dashboard" in html
+
+
+def test_render_tasks_exception_branch(monkeypatch):
+    """list_by_status が例外を投げても空リストで継続すること（line 93-94）。"""
+    from unittest.mock import MagicMock
+    bad_store = MagicMock()
+    bad_store.list_by_status.side_effect = RuntimeError("db down")
+    html = render_tasks(bad_store)
+    assert "0 tasks" in html
+
+
+def test_dashboard_no_store_tasks_returns_200():
+    """store=None のとき /tasks も 200 を返すこと（line 220）。"""
+    port = _free_port()
+    httpd = start_dashboard(store=None, port=port)
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/tasks", timeout=5) as resp:
+            assert resp.status == 200
+    finally:
+        httpd.shutdown()
+
+
+def test_dashboard_no_store_task_detail_returns_200():
+    """store=None のとき /tasks/<id> も 200 を返すこと（line 230）。"""
+    port = _free_port()
+    httpd = start_dashboard(store=None, port=port)
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/tasks/some_id", timeout=5) as resp:
+            assert resp.status == 200
+    finally:
+        httpd.shutdown()

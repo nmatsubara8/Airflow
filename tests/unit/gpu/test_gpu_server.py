@@ -364,3 +364,20 @@ def test_load_registry_cache_non_dict_returns_empty(tmp_path, monkeypatch):
     monkeypatch.setenv("AIRFLOW_REGISTRY", str(reg))
     result = gpu_mod._load_registry_cache()
     assert result == {}
+
+
+def test_save_degradation_override_unlink_oserror(tmp_path, monkeypatch):
+    """auto モードで unlink が失敗してもクラッシュしないこと（line 69）。"""
+    from unittest.mock import patch
+    gpu_mod._OVERRIDE_FILE = tmp_path / "override.json"
+    gpu_mod._OVERRIDE_FILE.write_text('{"mode": "on"}')
+    with patch.object(type(gpu_mod._OVERRIDE_FILE), "unlink", side_effect=OSError("perm")):
+        gpu_mod._save_degradation_override("auto")  # should not raise
+
+
+def test_save_degradation_override_write_oserror(tmp_path, monkeypatch):
+    """write_text が失敗してもクラッシュしないこと（line 75）。"""
+    from unittest.mock import patch
+    gpu_mod._OVERRIDE_FILE = tmp_path / "override.json"
+    with patch.object(type(gpu_mod._OVERRIDE_FILE), "write_text", side_effect=OSError("perm")):
+        gpu_mod._save_degradation_override("on")  # should not raise
