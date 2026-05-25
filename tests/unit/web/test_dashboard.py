@@ -151,6 +151,7 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
+@pytest.mark.slow
 def test_dashboard_home_returns_200(populated_store):
     port = _free_port()
     httpd = start_dashboard(store=populated_store, port=port)
@@ -162,6 +163,7 @@ def test_dashboard_home_returns_200(populated_store):
         httpd.shutdown()
 
 
+@pytest.mark.slow
 def test_dashboard_tasks_returns_200(populated_store):
     port = _free_port()
     httpd = start_dashboard(store=populated_store, port=port)
@@ -172,6 +174,7 @@ def test_dashboard_tasks_returns_200(populated_store):
         httpd.shutdown()
 
 
+@pytest.mark.slow
 def test_dashboard_task_detail_returns_200(populated_store):
     tasks = populated_store.list_by_status("inbox")
     tid = tasks[0]["id"]
@@ -184,6 +187,7 @@ def test_dashboard_task_detail_returns_200(populated_store):
         httpd.shutdown()
 
 
+@pytest.mark.slow
 def test_dashboard_task_not_found_returns_404(populated_store):
     port = _free_port()
     httpd = start_dashboard(store=populated_store, port=port)
@@ -197,6 +201,7 @@ def test_dashboard_task_not_found_returns_404(populated_store):
         httpd.shutdown()
 
 
+@pytest.mark.slow
 def test_dashboard_unknown_path_returns_404(populated_store):
     port = _free_port()
     httpd = start_dashboard(store=populated_store, port=port)
@@ -210,6 +215,7 @@ def test_dashboard_unknown_path_returns_404(populated_store):
         httpd.shutdown()
 
 
+@pytest.mark.slow
 def test_dashboard_scheduler_returns_200(populated_store):
     port = _free_port()
     httpd = start_dashboard(store=populated_store, port=port)
@@ -220,6 +226,7 @@ def test_dashboard_scheduler_returns_200(populated_store):
         httpd.shutdown()
 
 
+@pytest.mark.slow
 def test_dashboard_tasks_filter_querystring(populated_store):
     port = _free_port()
     httpd = start_dashboard(store=populated_store, port=port)
@@ -233,6 +240,7 @@ def test_dashboard_tasks_filter_querystring(populated_store):
         httpd.shutdown()
 
 
+@pytest.mark.slow
 def test_dashboard_no_store_returns_200():
     port = _free_port()
     httpd = start_dashboard(store=None, port=port)
@@ -262,6 +270,7 @@ def test_render_tasks_exception_branch(monkeypatch):
     assert "0 tasks" in html
 
 
+@pytest.mark.slow
 def test_dashboard_no_store_tasks_returns_200():
     """store=None のとき /tasks も 200 を返すこと（line 220）。"""
     port = _free_port()
@@ -273,6 +282,7 @@ def test_dashboard_no_store_tasks_returns_200():
         httpd.shutdown()
 
 
+@pytest.mark.slow
 def test_dashboard_no_store_task_detail_returns_200():
     """store=None のとき /tasks/<id> も 200 を返すこと（line 230）。"""
     port = _free_port()

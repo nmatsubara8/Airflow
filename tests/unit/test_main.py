@@ -211,3 +211,39 @@ def test_print_usage_includes_auth_command(capsys):
     mod._print_usage()
     err = capsys.readouterr().err
     assert "auth" in err
+
+
+# ── config validate ────────────────────────────────────
+
+def test_main_config_validate_all_ok(capsys):
+    """config validate が全設定 OK のとき 0 で終了すること。"""
+    from unittest.mock import patch
+    with patch("airflow_mcp.common.config_validator.validate_config", return_value=[]), \
+         patch("airflow_mcp.common.io.safe_yaml_load", return_value={}), \
+         patch("pathlib.Path.exists", return_value=True):
+        _main(["config"])
+    out = capsys.readouterr().out
+    assert "valid" in out.lower()
+
+
+def test_main_config_validate_errors_exits_1(capsys):
+    """validate_config がエラーを返すとき exit(1) すること。"""
+    from unittest.mock import patch
+    with patch("airflow_mcp.common.config_validator.validate_config",
+               return_value=["[auth] field 'auth' missing"]), \
+         patch("airflow_mcp.common.io.safe_yaml_load", return_value={}), \
+         patch("pathlib.Path.exists", return_value=True):
+        with pytest.raises(SystemExit) as exc:
+            _main(["config"])
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "missing" in err
+
+
+def test_main_config_validate_skips_missing_file(capsys):
+    """設定ファイルが存在しないとき SKIP と表示してクラッシュしないこと。"""
+    from unittest.mock import patch
+    with patch("pathlib.Path.exists", return_value=False):
+        _main(["config"])
+    out = capsys.readouterr().out
+    assert "SKIP" in out

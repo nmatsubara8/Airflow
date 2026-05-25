@@ -6,6 +6,7 @@ import socket
 import urllib.request
 import pytest
 
+
 from airflow_mcp.ops.metrics import (
     collect_chain_metrics,
     collect_execution_metrics,
@@ -162,6 +163,7 @@ def test_get_metrics_text_without_store():
 
 # ── start_metrics_server ──────────────────────────────
 
+@pytest.mark.slow
 def test_start_metrics_server_responds_to_get(tmp_path):
     """HTTP サーバーが /metrics に 200 を返すこと。"""
     store = None
@@ -176,6 +178,7 @@ def test_start_metrics_server_responds_to_get(tmp_path):
         httpd.shutdown()
 
 
+@pytest.mark.slow
 def test_start_metrics_server_returns_404_for_other_paths(tmp_path):
     port = _find_free_port()
     httpd = start_metrics_server(store=None, port=port)
@@ -283,6 +286,7 @@ def test_render_no_chain_metrics_omits_section():
 
 # ── _MetricsHandler /health ───────────────────────────────
 
+@pytest.mark.slow
 def test_metrics_server_responds_to_health():
     """/health エンドポイントが 200 + JSON を返すこと。"""
     import json as _json

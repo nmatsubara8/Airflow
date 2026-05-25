@@ -1,0 +1,120 @@
+services:
+  # ── Ollama LLM backend ───────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    # GPU: uncomment if nvidia-container-toolkit is installed
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # ── MCP servers ──────────────────────────────────────────────────────────
+  taskboard:
+    build: .
+    command: ["python", "-m", "airflow_mcp", "taskboard"]
+    volumes:
+      - airflow_data:/data
+      - ./.airflow:/app/.airflow:ro
+    env_file: .env
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  models:
+    build: .
+    command: ["python", "-m", "airflow_mcp", "models"]
+    volumes:
+      - airflow_data:/data
+      - ./.airflow:/app/.airflow:ro
+    env_file: .env
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  gpu:
+    build: .
+    command: ["python", "-m", "airflow_mcp", "gpu"]
+    volumes:
+      - airflow_data:/data
+      - ./.airflow:/app/.airflow:ro
+    env_file: .env
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  # ── Dispatcher + Runner ──────────────────────────────────────────────────
+  dispatcher:
+    build: .
+    command: ["python", "-m", "airflow_mcp.dispatcher.main"]
+    volumes:
+      - airflow_data:/data
+      - ./.airflow:/app/.airflow:ro
+    env_file: .env
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+    depends_on:
+      - taskboard
+    restart: unless-stopped
+
+  runner:
+    build: .
+    command: ["python", "-m", "airflow_mcp.runner.main"]
+    volumes:
+      - airflow_data:/data
+      - ./.airflow:/app/.airflow:ro
+    env_file: .env
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+    depends_on:
+      - taskboard
+      - models
+      - gpu
+    restart: unless-stopped
+
+  # ── Dashboard ────────────────────────────────────────────────────────────
+  dashboard:
+    build: .
+    command: ["python", "-m", "airflow_mcp", "status"]
+    volumes:
+      - airflow_data:/data
+      - ./.airflow:/app/.airflow:ro
+    env_file: .env
+    ports:
+      - "8080:8080"
+    depends_on:
+      - taskboard
+    restart: unless-stopped
+
+  # ── Metrics (Prometheus exporter) ────────────────────────────────────────
+  metrics:
+    build: .
+    command: >
+      python -c "
+      from airflow_mcp.ops.metrics import start_metrics_server
+      import time
+      httpd = start_metrics_server(store=None, port=9090)
+      while True: time.sleep(60)
+      "
+    volumes:
+      - airflow_data:/data
+    env_file: .env
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
+  airflow_data:

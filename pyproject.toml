@@ -39,6 +39,10 @@ packages = ["src/airflow_mcp"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "integration: integration tests — require running services or heavy fixtures (deselect with -m 'not integration')",
+    "slow: slow unit tests that start real HTTP servers (deselect with -m 'not slow')",
+]
 
 [tool.ruff]
 line-length = 100

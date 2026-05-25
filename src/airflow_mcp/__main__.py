@@ -72,6 +72,10 @@ def main() -> None:
         _run_auth_command()
         return
 
+    if cmd == "config":
+        _run_config_command()
+        return
+
     print(f"Unknown command: {cmd}", file=sys.stderr)
     _print_usage()
     sys.exit(1)
@@ -136,10 +140,40 @@ def _run_auth_command() -> None:
         sys.exit(1)
 
 
+def _run_config_command() -> None:
+    from pathlib import Path
+    from .common.config_validator import validate_config
+    from .common.io import safe_yaml_load
+
+    config_dir = Path(".airflow/config")
+    names = ["auth", "chains", "cleaner", "dispatch", "ingester",
+             "model-config", "notifications", "parallel", "schedules"]
+    total_errors = 0
+    for name in names:
+        path = config_dir / f"{name}.yaml"
+        if not path.exists():
+            print(f"  SKIP  {name}.yaml (not found)")
+            continue
+        data = safe_yaml_load(path)
+        errs = validate_config(name, data)
+        if errs:
+            total_errors += len(errs)
+            for e in errs:
+                print(f"  ERROR {e}", file=sys.stderr)
+        else:
+            print(f"  OK    {name}.yaml")
+    if total_errors:
+        print(f"\n{total_errors} validation error(s) found.", file=sys.stderr)
+        sys.exit(1)
+    else:
+        print("\nAll configs valid.")
+
+
 def _print_usage() -> None:
     print("Usage: airflow-mcp <command>", file=sys.stderr)
     print("  MCP servers : taskboard | notes | models | gpu | agents", file=sys.stderr)
     print("  Ops CLI     : status | batch [--loop] | audit <verify|hash>", file=sys.stderr)
+    print("  Config CLI  : config validate", file=sys.stderr)
     print("  Auth CLI    : auth keygen [--dir DIR] | auth issue --agent <id> --scopes ...", file=sys.stderr)
 
 

@@ -5,7 +5,11 @@ import socket
 import urllib.error
 import urllib.request
 
+import pytest
+
 from airflow_mcp.common.http_server import _BaseHandler, start_server
+
+pytestmark = pytest.mark.slow
 
 
 def _free_port() -> int:

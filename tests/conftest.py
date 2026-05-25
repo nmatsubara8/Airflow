@@ -15,6 +15,14 @@ VAULT_DIR = FIXTURES_DIR / "vaults" / "test-vault"
 PROJECT_ROOT = Path(__file__).parent.parent
 
 
+def pytest_collection_modifyitems(items: list) -> None:
+    """tests/integration/ 配下のテストに integration マーカーを自動付与する。"""
+    integration_mark = pytest.mark.integration
+    for item in items:
+        if Path(str(item.fspath)).is_relative_to(Path(__file__).parent / "integration"):
+            item.add_marker(integration_mark)
+
+
 @pytest.fixture
 def tmp_tasks_dir(tmp_path: Path) -> Path:
     """テスト専用のタスクストアディレクトリを返す。"""
