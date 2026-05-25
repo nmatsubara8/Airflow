@@ -31,7 +31,22 @@ def main() -> None:
     # 運用 CLI
     if cmd == "status":
         from .ops.monitor import print_status
-        print_status()
+        if "--watch" in sys.argv[2:]:
+            interval = 5
+            args = sys.argv[2:]
+            for i, a in enumerate(args):
+                if a == "--interval" and i + 1 < len(args):
+                    try:
+                        interval = int(args[i + 1])
+                    except ValueError:
+                        pass
+            import time
+            while True:
+                print("\033[2J\033[H", end="", flush=True)
+                print_status()
+                time.sleep(interval)
+        else:
+            print_status()
         return
 
     if cmd == "batch":
@@ -133,10 +148,61 @@ def _run_auth_command() -> None:
         from .common.auth import issue_jwt
         token = issue_jwt(sub=agent_id, scopes=scopes, ttl_sec=ttl)
         print(f"[auth] JWT issued for {agent_id} (ttl={ttl}s): {token}")
+    elif sub == "list":
+        from .common.auth import list_tokens
+        tokens = list_tokens()
+        if not tokens:
+            print("[auth] no tokens registered")
+        else:
+            for t in tokens:
+                print(f"[auth] {t['agent_id']:20s}  scopes={','.join(t['scopes'])}  created={t['created_at']}")
+    elif sub == "revoke":
+        agent_id = None
+        args = sys.argv[3:]
+        for i, a in enumerate(args):
+            if a == "--agent" and i + 1 < len(args):
+                agent_id = args[i + 1]
+        if not agent_id:
+            print("[auth] --agent <id> is required", file=sys.stderr)
+            sys.exit(1)
+        from .common.auth import revoke_token
+        ok = revoke_token(agent_id)
+        if ok:
+            print(f"[auth] revoked token for {agent_id}")
+        else:
+            print(f"[auth] no token found for {agent_id}", file=sys.stderr)
+            sys.exit(1)
+    elif sub == "rotate":
+        agent_id = None
+        scopes: list[str] = []
+        ttl = 3600
+        args = sys.argv[3:]
+        i = 0
+        while i < len(args):
+            if args[i] == "--agent" and i + 1 < len(args):
+                agent_id = args[i + 1]
+                i += 2
+            elif args[i] == "--scopes" and i + 1 < len(args):
+                scopes = [s.strip() for s in args[i + 1].split(",")]
+                i += 2
+            elif args[i] == "--ttl" and i + 1 < len(args):
+                ttl = int(args[i + 1])
+                i += 2
+            else:
+                i += 1
+        if not agent_id:
+            print("[auth] --agent <id> is required", file=sys.stderr)
+            sys.exit(1)
+        from .common.auth import rotate_token
+        token = rotate_token(agent_id, scopes=scopes, ttl_sec=ttl)
+        print(f"[auth] rotated token for {agent_id} (ttl={ttl}s): {token}")
     else:
         print(f"[auth] unknown sub-command: {sub!r}", file=sys.stderr)
         print("  auth keygen [--dir DIR]", file=sys.stderr)
         print("  auth issue --agent <id> --scopes <s1,s2> [--ttl 3600]", file=sys.stderr)
+        print("  auth list", file=sys.stderr)
+        print("  auth revoke --agent <id>", file=sys.stderr)
+        print("  auth rotate --agent <id> --scopes <s1,s2> [--ttl 3600]", file=sys.stderr)
         sys.exit(1)
 
 
@@ -172,9 +238,11 @@ def _run_config_command() -> None:
 def _print_usage() -> None:
     print("Usage: airflow-mcp <command>", file=sys.stderr)
     print("  MCP servers : taskboard | notes | models | gpu | agents", file=sys.stderr)
-    print("  Ops CLI     : status | batch [--loop] | audit <verify|hash>", file=sys.stderr)
+    print("  Ops CLI     : status [--watch [--interval N]] | batch [--loop]", file=sys.stderr)
+    print("              : audit <verify|hash>", file=sys.stderr)
     print("  Config CLI  : config validate", file=sys.stderr)
-    print("  Auth CLI    : auth keygen [--dir DIR] | auth issue --agent <id> --scopes ...", file=sys.stderr)
+    print("  Auth CLI    : auth keygen | auth issue | auth list", file=sys.stderr)
+    print("              : auth revoke --agent <id> | auth rotate --agent <id>", file=sys.stderr)
 
 
 if __name__ == "__main__":

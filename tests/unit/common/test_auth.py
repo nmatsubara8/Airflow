@@ -365,3 +365,94 @@ def test_get_tokens_handles_stat_oserror(monkeypatch):
         result = auth_mod._get_tokens()
     # クラッシュせずに dict を返すこと（ファイルがないので空 dict）
     assert isinstance(result, dict)
+
+
+# ── list_tokens / revoke_token / rotate_token (TF-2) ──────────────────────────
+
+def test_list_tokens_returns_empty_when_no_file(tmp_path, monkeypatch):
+    """tokens.json が存在しないとき空リストを返すこと。"""
+    import airflow_mcp.common.auth as auth_mod
+    monkeypatch.setattr(auth_mod, "_TOKENS_FILE", tmp_path / "none.json")
+    from airflow_mcp.common.auth import list_tokens
+    assert list_tokens() == []
+
+
+def test_list_tokens_returns_agent_info(tmp_path, monkeypatch):
+    """tokens.json から agent_id・scopes・created_at を返すこと。"""
+    import json
+    import airflow_mcp.common.auth as auth_mod
+    tokens_file = tmp_path / "tokens.json"
+    tokens_file.write_text(json.dumps({"tokens": [
+        {"token": "tok1", "agent_id": "agent_docs",
+         "scopes": ["tasks:read"], "created_at": "2026-01-01T00:00:00Z"},
+    ]}))
+    monkeypatch.setattr(auth_mod, "_TOKENS_FILE", tokens_file)
+    from airflow_mcp.common.auth import list_tokens
+    result = list_tokens()
+    assert len(result) == 1
+    assert result[0]["agent_id"] == "agent_docs"
+    assert "tasks:read" in result[0]["scopes"]
+    assert "token" not in result[0]  # トークン値は返さない
+
+
+def test_revoke_token_removes_matching_agent(tmp_path, monkeypatch):
+    """revoke_token が指定 agent_id のエントリを削除すること。"""
+    import json
+    import airflow_mcp.common.auth as auth_mod
+    tokens_file = tmp_path / "tokens.json"
+    tokens_file.write_text(json.dumps({"tokens": [
+        {"token": "t1", "agent_id": "agent_docs", "scopes": []},
+        {"token": "t2", "agent_id": "agent_qa",   "scopes": []},
+    ]}))
+    monkeypatch.setattr(auth_mod, "_TOKENS_FILE", tokens_file)
+    auth_mod._token_cache = None
+    from airflow_mcp.common.auth import revoke_token
+    ok = revoke_token("agent_docs")
+    assert ok is True
+    remaining = json.loads(tokens_file.read_text())["tokens"]
+    assert all(t["agent_id"] != "agent_docs" for t in remaining)
+    assert len(remaining) == 1
+
+
+def test_revoke_token_returns_false_when_not_found(tmp_path, monkeypatch):
+    """対象 agent_id が存在しないとき False を返すこと。"""
+    import json
+    import airflow_mcp.common.auth as auth_mod
+    tokens_file = tmp_path / "tokens.json"
+    tokens_file.write_text(json.dumps({"tokens": []}))
+    monkeypatch.setattr(auth_mod, "_TOKENS_FILE", tokens_file)
+    from airflow_mcp.common.auth import revoke_token
+    assert revoke_token("nonexistent") is False
+
+
+def test_rotate_token_issues_new_jwt(tmp_path, monkeypatch):
+    """rotate_token が旧トークンを削除して JWT を返すこと。"""
+    import json
+    import airflow_mcp.common.auth as auth_mod
+    tokens_file = tmp_path / "tokens.json"
+    tokens_file.write_text(json.dumps({"tokens": [
+        {"token": "old_tok", "agent_id": "agent_docs", "scopes": ["tasks:read"]},
+    ]}))
+    monkeypatch.setattr(auth_mod, "_TOKENS_FILE", tokens_file)
+    auth_mod._token_cache = None
+    # JWT 発行には秘密鍵が必要なので issue_jwt をモック
+    from unittest.mock import patch
+    with patch("airflow_mcp.common.auth.issue_jwt", return_value="jwt_new_token") as mock_issue:
+        from airflow_mcp.common.auth import rotate_token
+        token = rotate_token("agent_docs", scopes=["tasks:read", "tasks:write"])
+    assert token == "jwt_new_token"
+    mock_issue.assert_called_once()
+    # 旧トークンが削除されていること
+    remaining = json.loads(tokens_file.read_text())["tokens"]
+    assert all(t["agent_id"] != "agent_docs" for t in remaining)
+
+
+def test_read_tokens_file_returns_empty_on_parse_error(tmp_path, monkeypatch):
+    """tokens.json が壊れているとき空の dict を返すこと (lines 274-276)。"""
+    import airflow_mcp.common.auth as auth_mod
+    tokens_file = tmp_path / "tokens.json"
+    tokens_file.write_text("not valid json {{{{")
+    monkeypatch.setattr(auth_mod, "_TOKENS_FILE", tokens_file)
+    from airflow_mcp.common.auth import _read_tokens_file
+    result = _read_tokens_file()
+    assert result == {"tokens": []}

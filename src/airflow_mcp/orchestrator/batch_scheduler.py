@@ -159,7 +159,13 @@ def run_schedule(schedule: dict[str, Any]) -> dict[str, Any]:
                 _run_audit_action()
                 success += 1
             elif "cleaner" in action:
-                logger.info("batch.cleaner schedule=%s (stub)", name)
+                from ..cleaner.main import load_config as _load_cleaner_cfg, run_once as _cleaner_run
+                cleaner_cfg = _load_cleaner_cfg()
+                result = _cleaner_run(config=cleaner_cfg)
+                logger.info(
+                    "batch.cleaner schedule=%s archived=%d purged=%d freed_bytes=%d",
+                    name, result["archived"], result["purged"], result["log_bytes_freed"],
+                )
                 success += 1
         except Exception as exc:
             logger.error("batch.action_failed schedule=%s action=%s: %s", name, action, exc)

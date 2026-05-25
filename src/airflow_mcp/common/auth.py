@@ -260,3 +260,82 @@ def require_scope(token_env: str | None, scope: str) -> None:
 def get_token_from_env() -> str | None:
     """AIRFLOW_MCP_TOKEN 環境変数からトークンを取得。"""
     return os.environ.get("AIRFLOW_MCP_TOKEN")
+
+
+# ── トークン管理 CLI 向け操作（TF-2）────────────────────────────────────────
+
+
+def _read_tokens_file() -> dict:
+    """tokens.json を読んで {"tokens": [...]} dict を返す。ファイル不在時は空。"""
+    if not _TOKENS_FILE.exists():
+        return {"tokens": []}
+    try:
+        return json.loads(_TOKENS_FILE.read_text())
+    except Exception as exc:
+        logger.error("tokens.json 読み込み失敗: %s", exc)
+        return {"tokens": []}
+
+
+def _write_tokens_file(data: dict) -> None:
+    """tokens.json にアトミック書き込みしてキャッシュを無効化する。"""
+    _TOKENS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _TOKENS_FILE.with_suffix(".json.new")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+    tmp.replace(_TOKENS_FILE)
+    # キャッシュを強制無効化
+    global _token_cache, _token_cache_mtime
+    with _cache_lock:
+        _token_cache = None
+        _token_cache_mtime = 0.0
+
+
+def list_tokens() -> list[dict]:
+    """登録済みトークンの一覧を返す（トークン値は伏せる）。
+
+    Returns:
+        [{"agent_id": str, "scopes": list, "created_at": str}, ...]
+    """
+    data = _read_tokens_file()
+    result = []
+    for entry in data.get("tokens", []):
+        result.append({
+            "agent_id": entry.get("agent_id", "<unknown>"),
+            "scopes": entry.get("scopes", []),
+            "created_at": entry.get("created_at", ""),
+        })
+    return result
+
+
+def revoke_token(agent_id: str) -> bool:
+    """指定 agent_id のトークンを失効させる。
+
+    Returns:
+        True = 削除成功、False = 対象トークンが存在しなかった
+    """
+    data = _read_tokens_file()
+    original = data.get("tokens", [])
+    updated = [t for t in original if t.get("agent_id") != agent_id]
+    if len(updated) == len(original):
+        return False
+    data["tokens"] = updated
+    _write_tokens_file(data)
+    logger.info("auth.revoke agent_id=%s (removed %d token(s))", agent_id,
+                len(original) - len(updated))
+    return True
+
+
+def rotate_token(agent_id: str, scopes: list[str], ttl_sec: int = 3600) -> str:
+    """旧トークンを失効させて新しい JWT トークンを発行する。
+
+    Args:
+        agent_id: 対象エージェント ID
+        scopes: 新トークンに付与するスコープリスト
+        ttl_sec: 有効期間（秒）
+
+    Returns:
+        新しく発行した JWT 文字列
+    """
+    revoke_token(agent_id)  # 旧トークンを削除（存在しなくても OK）
+    new_token = issue_jwt(sub=agent_id, scopes=scopes, ttl_sec=ttl_sec)
+    logger.info("auth.rotate agent_id=%s scopes=%s", agent_id, scopes)
+    return new_token

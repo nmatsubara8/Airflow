@@ -68,7 +68,13 @@ _SCHEMAS: dict[str, dict[str, tuple[type | tuple[type, ...], bool]]] = {
         "schedules":                             ((dict, list), False),
         "timezone":                              (str,  False),
     },
-    "cleaner": {},  # 構造自由
+    "cleaner": {
+        "cleaner":                               (dict,  False),
+        "cleaner.tasks":                         (dict,  False),
+        "cleaner.execution_logs":                (dict,  False),
+        "cleaner.dry_run":                       (bool,  False),
+        "cleaner.notify_on_error":               (bool,  False),
+    },
 }
 
 

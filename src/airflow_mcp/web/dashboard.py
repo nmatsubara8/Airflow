@@ -230,6 +230,7 @@ def render_api_status(store: TaskStore | None) -> str:
 
 class _DashboardHandler(_BaseHandler):
     _server_name = "dashboard"
+    _cors_enabled = True
     store: TaskStore | None = None
 
     def handle_get(self, path: str, qs: dict[str, list[str]]) -> tuple[int, str, str]:

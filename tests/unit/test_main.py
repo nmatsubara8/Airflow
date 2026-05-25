@@ -247,3 +247,140 @@ def test_main_config_validate_skips_missing_file(capsys):
         _main(["config"])
     out = capsys.readouterr().out
     assert "SKIP" in out
+
+
+# ── auth list / revoke / rotate (TF-2) ────────────────────────
+
+def test_main_auth_list_no_tokens(capsys):
+    """auth list でトークンなしのとき 'no tokens' を表示すること。"""
+    from unittest.mock import patch
+    with patch("airflow_mcp.common.auth.list_tokens", return_value=[]):
+        _main(["auth", "list"])
+    assert "no tokens" in capsys.readouterr().out
+
+
+def test_main_auth_list_shows_tokens(capsys):
+    """auth list でトークン一覧を表示すること。"""
+    from unittest.mock import patch
+    tokens = [{"agent_id": "agent_docs", "scopes": ["tasks:read"], "created_at": "2026-01-01"}]
+    with patch("airflow_mcp.common.auth.list_tokens", return_value=tokens):
+        _main(["auth", "list"])
+    out = capsys.readouterr().out
+    assert "agent_docs" in out
+
+
+def test_main_auth_revoke_success(capsys):
+    """auth revoke --agent <id> が成功したとき revoked を表示すること。"""
+    from unittest.mock import patch
+    with patch("airflow_mcp.common.auth.revoke_token", return_value=True):
+        _main(["auth", "revoke", "--agent", "agent_docs"])
+    assert "revoked" in capsys.readouterr().out
+
+
+def test_main_auth_revoke_not_found_exits_1(capsys):
+    from unittest.mock import patch
+    with patch("airflow_mcp.common.auth.revoke_token", return_value=False):
+        with pytest.raises(SystemExit) as exc:
+            _main(["auth", "revoke", "--agent", "agent_docs"])
+    assert exc.value.code == 1
+
+
+def test_main_auth_revoke_missing_agent_exits_1(capsys):
+    with pytest.raises(SystemExit) as exc:
+        _main(["auth", "revoke"])
+    assert exc.value.code == 1
+
+
+def test_main_auth_rotate_success(capsys):
+    """auth rotate が JWT を表示すること。"""
+    from unittest.mock import patch
+    with patch("airflow_mcp.common.auth.rotate_token", return_value="new.jwt.token"):
+        _main(["auth", "rotate", "--agent", "agent_docs", "--scopes", "tasks:read"])
+    out = capsys.readouterr().out
+    assert "rotated" in out
+    assert "new.jwt.token" in out
+
+
+def test_main_auth_rotate_missing_agent_exits_1():
+    with pytest.raises(SystemExit) as exc:
+        _main(["auth", "rotate"])
+    assert exc.value.code == 1
+
+
+# ── status --watch (TF-3) ─────────────────────────────────────
+
+def test_main_status_watch_calls_print_status_repeatedly(capsys):
+    """--watch フラグで print_status が複数回呼ばれること（KeyboardInterrupt で停止）。"""
+    from unittest.mock import patch
+    call_count = {"n": 0}
+
+    def fake_print_status():
+        call_count["n"] += 1
+        if call_count["n"] >= 2:
+            raise KeyboardInterrupt
+
+    with patch("airflow_mcp.ops.monitor.print_status", side_effect=fake_print_status), \
+         patch("time.sleep"):
+        try:
+            _main(["status", "--watch"])
+        except KeyboardInterrupt:
+            pass
+    assert call_count["n"] >= 2
+
+
+def test_main_status_watch_uses_custom_interval(capsys):
+    """--interval N が時間指定として渡されること。"""
+    from unittest.mock import patch
+    sleep_calls = []
+
+    def fake_print_status():
+        if len(sleep_calls) >= 1:
+            raise KeyboardInterrupt
+
+    with patch("airflow_mcp.ops.monitor.print_status", side_effect=fake_print_status), \
+         patch("time.sleep", side_effect=lambda n: sleep_calls.append(n)):
+        try:
+            _main(["status", "--watch", "--interval", "10"])
+        except KeyboardInterrupt:
+            pass
+    assert any(n == 10 for n in sleep_calls)
+
+
+# ── status --watch --interval invalid value ───────────────────
+
+def test_main_status_watch_invalid_interval_uses_default(capsys):
+    """--interval に非整数を渡したとき ValueError を無視してデフォルト5sを使うこと (line 41-42)。"""
+    from unittest.mock import patch
+    call_count = {"n": 0}
+
+    def fake_ps():
+        call_count["n"] += 1
+        if call_count["n"] >= 1:
+            raise KeyboardInterrupt
+
+    with patch("airflow_mcp.ops.monitor.print_status", side_effect=fake_ps), \
+         patch("time.sleep"):
+        try:
+            _main(["status", "--watch", "--interval", "notanint"])
+        except KeyboardInterrupt:
+            pass
+    assert call_count["n"] >= 1
+
+
+# ── auth rotate --ttl ─────────────────────────────────────────
+
+def test_main_auth_rotate_with_ttl(capsys):
+    """auth rotate --ttl N が ttl_sec に渡されること (lines 188-192)。"""
+    from unittest.mock import patch
+    with patch("airflow_mcp.common.auth.rotate_token", return_value="rotated.tok") as mock_rot:
+        _main(["auth", "rotate", "--agent", "agent_x", "--scopes", "tasks:read", "--ttl", "7200"])
+    mock_rot.assert_called_once_with("agent_x", scopes=["tasks:read"], ttl_sec=7200)
+
+
+def test_main_auth_rotate_unknown_flag_skipped(capsys):
+    """auth rotate に未知フラグがあっても --agent が設定されれば正常動作すること (line 192)。"""
+    from unittest.mock import patch
+    with patch("airflow_mcp.common.auth.rotate_token", return_value="tok.x.y"):
+        _main(["auth", "rotate", "--agent", "agent_x", "--scopes", "tasks:read", "--unknown"])
+    out = capsys.readouterr().out
+    assert "rotated" in out

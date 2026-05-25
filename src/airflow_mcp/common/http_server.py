@@ -32,6 +32,7 @@ class _BaseHandler(BaseHTTPRequestHandler):
     """
 
     _server_name: str = "http"
+    _cors_enabled: bool = False  # サブクラスで True にすると CORS ヘッダーを追加
 
     def do_GET(self) -> None:  # noqa: N802
         import hmac
@@ -55,6 +56,10 @@ class _BaseHandler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        if self._cors_enabled:
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
         self.end_headers()
         self.wfile.write(body)
 
