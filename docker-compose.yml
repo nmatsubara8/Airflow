@@ -21,79 +21,7 @@ services:
     #           count: 1
     #           capabilities: [gpu]
 
-  # ── MCP servers ──────────────────────────────────────────────────────────
-  taskboard:
-    build: .
-    command: ["python", "-m", "airflow_mcp", "taskboard"]
-    volumes:
-      - airflow_tasks:/data/tasks
-      - ./.airflow/config:/app/.airflow/config:ro
-    env_file: .env
-    environment:
-      OLLAMA_BASE_URL: http://ollama:11434
-      AIRFLOW_TASKBOARD_DIR: /data/tasks
-    depends_on:
-      ollama:
-        condition: service_healthy
-    restart: unless-stopped
-
-  models:
-    build: .
-    command: ["python", "-m", "airflow_mcp", "models"]
-    volumes:
-      - airflow_tasks:/data/tasks
-      - ./.airflow/config:/app/.airflow/config:ro
-    env_file: .env
-    environment:
-      OLLAMA_BASE_URL: http://ollama:11434
-      AIRFLOW_TASKBOARD_DIR: /data/tasks
-    depends_on:
-      ollama:
-        condition: service_healthy
-    restart: unless-stopped
-
-  gpu:
-    build: .
-    command: ["python", "-m", "airflow_mcp", "gpu"]
-    volumes:
-      - airflow_tasks:/data/tasks
-      - ./.airflow/config:/app/.airflow/config:ro
-    env_file: .env
-    environment:
-      OLLAMA_BASE_URL: http://ollama:11434
-      AIRFLOW_TASKBOARD_DIR: /data/tasks
-    depends_on:
-      ollama:
-        condition: service_healthy
-    restart: unless-stopped
-
-  notes:
-    build: .
-    command: ["python", "-m", "airflow_mcp", "notes"]
-    volumes:
-      - airflow_tasks:/data/tasks
-      - ./.airflow/config:/app/.airflow/config:ro
-    env_file: .env
-    environment:
-      OLLAMA_BASE_URL: http://ollama:11434
-      AIRFLOW_TASKBOARD_DIR: /data/tasks
-    depends_on:
-      ollama:
-        condition: service_healthy
-    restart: unless-stopped
-
-  agents:
-    build: .
-    command: ["python", "-m", "airflow_mcp", "agents"]
-    volumes:
-      - airflow_tasks:/data/tasks
-      - ./.airflow/config:/app/.airflow/config:ro
-    env_file: .env
-    environment:
-      AIRFLOW_TASKBOARD_DIR: /data/tasks
-    restart: unless-stopped
-
-  # ── Dispatcher + Runner ──────────────────────────────────────────────────
+  # ── Dispatcher (inbox polling loop) ──────────────────────────────────────
   dispatcher:
     build: .
     command: ["python", "-m", "airflow_mcp.dispatcher.main"]
@@ -109,22 +37,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  runner:
-    build: .
-    command: ["python", "-m", "airflow_mcp.runner.main"]
-    volumes:
-      - airflow_tasks:/data/tasks
-      - ./.airflow/config:/app/.airflow/config:ro
-    env_file: .env
-    environment:
-      OLLAMA_BASE_URL: http://ollama:11434
-      AIRFLOW_TASKBOARD_DIR: /data/tasks
-    depends_on:
-      ollama:
-        condition: service_healthy
-    restart: unless-stopped
-
-  # ── Dashboard ────────────────────────────────────────────────────────────
+  # ── Dashboard (status display loop) ──────────────────────────────────────
   dashboard:
     build: .
     command: ["python", "deploy/systemd/airflow-dashboard.sh"]
@@ -154,6 +67,10 @@ services:
     ports:
       - "9090:9090"
     restart: unless-stopped
+
+  # NOTE: MCP servers (taskboard, notes, models, gpu, agents) are stdio-based
+  # and must be launched by Claude Desktop, not as persistent Docker services.
+  # Configure them in Claude Desktop's MCP settings instead.
 
 volumes:
   ollama_data:
