@@ -82,18 +82,30 @@ def test_require_scope_raises_insufficient_when_scope_missing(tmp_path, auth_iso
 
 # ── キャッシュ挙動 ────────────────────────────────────
 
-def test_tokens_cached_after_first_load(tmp_path, auth_isolated, monkeypatch):
-    """2 回目以降は _load_tokens_from_disk を呼ばずキャッシュを返すこと。"""
+def test_tokens_cached_when_file_unchanged(tmp_path, auth_isolated, monkeypatch):
+    """tokens.json が変更されていない間はキャッシュを返すこと（同一オブジェクト）。"""
     tokens_file = tmp_path / "tokens.json"
     tokens_file.write_text(json.dumps({
         "tokens": [{"token": "cached_tok", "scopes": ["tasks:read"]}]
     }))
     monkeypatch.setattr(auth_isolated, "_TOKENS_FILE", tokens_file)
     result1 = auth_isolated._get_tokens()
-    tokens_file.unlink()        # ファイルを削除してもキャッシュから返る
-    result2 = auth_isolated._get_tokens()
-    assert result1 is result2   # 同一オブジェクト
+    result2 = auth_isolated._get_tokens()   # mtime 不変 → 同一オブジェクト
+    assert result1 is result2
     assert "cached_tok" in result2
+
+
+def test_tokens_reloaded_when_file_deleted(tmp_path, auth_isolated, monkeypatch):
+    """tokens.json が削除されたとき _get_tokens() が空辞書を返すこと。"""
+    tokens_file = tmp_path / "tokens.json"
+    tokens_file.write_text(json.dumps({
+        "tokens": [{"token": "cached_tok", "scopes": ["tasks:read"]}]
+    }))
+    monkeypatch.setattr(auth_isolated, "_TOKENS_FILE", tokens_file)
+    auth_isolated._get_tokens()  # 初回ロード
+    tokens_file.unlink()         # ファイル削除 → mtime 変化 → キャッシュ無効化
+    result = auth_isolated._get_tokens()
+    assert result == {}
 
 
 def test_reload_tokens_picks_up_changes(tmp_path, auth_isolated, monkeypatch):

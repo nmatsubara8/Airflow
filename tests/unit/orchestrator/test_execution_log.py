@@ -307,3 +307,30 @@ def test_update_feedback_preserves_other_task_records(log_dir: Path):
     # task_b のレコードも残っている
     history = load_history(log_dir=log_dir)
     assert any(r["task_id"] == "task_b" for r in history)
+
+
+def test_load_history_skips_oversized_file(tmp_path: Path, caplog, monkeypatch):
+    """_MAX_LOG_FILE_BYTES を超えるファイルは load_history() でスキップされること。"""
+    import logging
+    import airflow_mcp.orchestrator.execution_log as mod
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    big = log_dir / "2026-05.jsonl"
+    big.write_text('{"task_id": "task_big"}\n')
+
+    # 閾値を実ファイルサイズより小さくする（実ファイルを肥大化させない）
+    monkeypatch.setattr(mod, "_MAX_LOG_FILE_BYTES", 1)
+    with caplog.at_level(logging.WARNING, logger="airflow_mcp.orchestrator.execution_log"):
+        history = load_history(log_dir=log_dir)
+    assert history == []
+    assert "skipping oversized" in caplog.text
+
+
+def test_load_history_reads_normal_sized_file(tmp_path: Path):
+    """50MB 以下のファイルは通常通り読み込まれること。"""
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    normal = log_dir / "2026-05.jsonl"
+    normal.write_text('{"task_id": "task_ok", "id": "log_abc123"}\n')
+    history = load_history(log_dir=log_dir)
+    assert any(r.get("task_id") == "task_ok" for r in history)

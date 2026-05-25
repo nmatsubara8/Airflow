@@ -23,6 +23,7 @@ import json
 import logging
 import os
 import re
+import shutil
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -278,6 +279,12 @@ class TaskStore:
     def quarantine(self, task_id: str, reason: str) -> None:
         """破損タスクを _corrupt/ に隔離（DDD-04 §10）。"""
         path = self._find_task_path(task_id)
-        if path:
-            dest = self.base / "_corrupt" / path.name
-            path.rename(dest)
+        if not path:
+            logger.warning("quarantine: task %s not found, skipping", task_id)
+            return
+        logger.warning("quarantine task=%s reason=%s src=%s", task_id, reason, path)
+        dest = self.base / "_corrupt" / path.name
+        try:
+            shutil.move(str(path), str(dest))
+        except OSError as exc:
+            logger.error("quarantine: failed to move %s → %s: %s", path, dest, exc)

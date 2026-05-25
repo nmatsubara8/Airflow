@@ -25,6 +25,7 @@ from ..common.thresholds import (
 logger = logging.getLogger(__name__)
 
 _DEFAULT_LOG_DIR = Path(".airflow/execution_logs")
+_MAX_LOG_FILE_BYTES = 50 * 1024 * 1024  # 50 MB (consistent with update_feedback)
 
 
 def _log_id() -> str:
@@ -192,6 +193,9 @@ def load_history(
         if len(records) >= window:
             break
         try:
+            if jsonl_path.stat().st_size > _MAX_LOG_FILE_BYTES:
+                logger.warning("execution_log: skipping oversized file %s", jsonl_path.name)
+                continue
             lines = jsonl_path.read_text(encoding="utf-8").splitlines()
             for line in reversed(lines):
                 if not line.strip():

@@ -378,3 +378,30 @@ def test_list_all_excludes_corrupt_directory(task_store, sample_task_fields):
 
     all_tasks = task_store.list_all()
     assert all(t.get("id") != "task_fake" for t in all_tasks)
+
+
+def test_quarantine_logs_reason(task_store: TaskStore, sample_task_fields: dict, caplog):
+    """quarantine() が reason を logger.warning で出力すること。"""
+    import logging
+    task = task_store.create(sample_task_fields)
+    with caplog.at_level(logging.WARNING, logger="airflow_mcp.taskboard.store"):
+        task_store.quarantine(task["id"], reason="スキーマ不正")
+    assert "スキーマ不正" in caplog.text
+
+
+def test_quarantine_nonexistent_task_logs_warning(task_store: TaskStore, caplog):
+    """存在しない task_id を quarantine しても例外が出ず warning が記録されること。"""
+    import logging
+    with caplog.at_level(logging.WARNING, logger="airflow_mcp.taskboard.store"):
+        task_store.quarantine("task_zzzzzzzzzzzzzzzz", reason="テスト")
+    assert "not found" in caplog.text
+
+
+def test_quarantine_moves_file_with_shutil(task_store: TaskStore, sample_task_fields: dict):
+    """quarantine() 後にファイルが _corrupt/ に移動していること。"""
+    task = task_store.create(sample_task_fields)
+    task_id = task["id"]
+    task_store.quarantine(task_id, reason="テスト移動")
+    corrupt_dir = task_store.base / "_corrupt"
+    moved_files = list(corrupt_dir.glob(f"{task_id}.json"))
+    assert len(moved_files) == 1

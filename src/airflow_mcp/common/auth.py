@@ -42,6 +42,7 @@ _JWT_ALGORITHM = "EdDSA"
 
 # キャッシュ（None = 未ロード）と保護ロック
 _token_cache: dict[str, dict] | None = None
+_token_cache_mtime: float = 0.0  # tokens.json の最終更新時刻
 _cache_lock = threading.RLock()
 
 
@@ -57,11 +58,16 @@ def _load_tokens_from_disk() -> dict[str, dict]:
 
 
 def _get_tokens() -> dict[str, dict]:
-    """キャッシュからトークンを返す。未ロードなら初回ロードする（遅延初期化）。"""
-    global _token_cache
+    """キャッシュからトークンを返す。tokens.json が更新されていれば自動再ロード。"""
+    global _token_cache, _token_cache_mtime
     with _cache_lock:
-        if _token_cache is None:
+        try:
+            current_mtime = _TOKENS_FILE.stat().st_mtime if _TOKENS_FILE.exists() else 0.0
+        except OSError:
+            current_mtime = 0.0
+        if _token_cache is None or current_mtime != _token_cache_mtime:
             _token_cache = _load_tokens_from_disk()
+            _token_cache_mtime = current_mtime
             logger.debug("tokens.json キャッシュロード: %d 件", len(_token_cache))
         return _token_cache
 
