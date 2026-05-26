@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "taskboard": {
+      "command": "python",
+      "args": ["-m", "airflow_mcp", "taskboard"],
+      "cwd": "/home/user/Airflow",
+      "env": {
+        "AIRFLOW_MCP_TOKEN": "airflow_local_da8efba5d37a4938cf224248eef1d10b",
+        "AIRFLOW_TASKBOARD_DIR": ".airflow/tasks",
+        "OLLAMA_STUB": "true"
+      }
+    }
+  }
+}
