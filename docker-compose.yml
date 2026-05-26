@@ -25,7 +25,7 @@ services:
   dispatcher:
     build: .
     command: ["python", "-m", "airflow_mcp.dispatcher.main"]
-    user: "${UID:-1000}:${GID:-1000}"
+    user: "1000:1000"
     volumes:
       - ./.airflow/tasks:/data/tasks
       - ./.airflow/config:/app/.airflow/config:ro
@@ -42,7 +42,7 @@ services:
   runner:
     build: .
     command: ["python", "-m", "airflow_mcp.runner.main"]
-    user: "${UID:-1000}:${GID:-1000}"
+    user: "1000:1000"
     volumes:
       - ./.airflow/tasks:/data/tasks
       - ./.airflow/config:/app/.airflow/config:ro
