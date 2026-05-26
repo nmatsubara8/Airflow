@@ -471,3 +471,7 @@ def _cli() -> None:
         ollama_url=ollama_url,
     )
     run_loop(ctx)
+
+
+if __name__ == "__main__":  # pragma: no cover
+    _cli()

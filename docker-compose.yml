@@ -37,6 +37,24 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # ── Runner (agent_docs execution loop) ──────────────────────────────────
+  runner:
+    build: .
+    command: ["python", "-m", "airflow_mcp.runner.main"]
+    volumes:
+      - ./.airflow/tasks:/data/tasks
+      - ./.airflow/config:/app/.airflow/config:ro
+    env_file: .env
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      AIRFLOW_TASKBOARD_DIR: /data/tasks
+    depends_on:
+      ollama:
+        condition: service_healthy
+      dispatcher:
+        condition: service_started
+    restart: unless-stopped
+
   # ── Dashboard (status display loop) ──────────────────────────────────────
   dashboard:
     build: .
