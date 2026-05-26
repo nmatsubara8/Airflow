@@ -25,6 +25,18 @@ chains:
       - id: agent_qa          # step 1: QA
       - id: agent_pm          # step 2: PM 承認
 
+  # 要件定義 → レビュー → 承認チェーン
+  # タスクの section: backlog かつ tags に requirements が含まれる場合に発火
+  - name: requirements_chain
+    mode: sequential
+    trigger:
+      section: backlog
+      tags: [requirements]
+    agents:
+      - id: agent_docs        # step 0: 要件定義・初稿作成
+      - id: agent_pm          # step 1: PM レビュー（整合性・優先度確認）
+      - id: agent_reviewer    # step 2: 品質チェック・最終承認
+
   # ──────────────────────────────────────────────────────────────────────────
   # ファンアウトチェーン（mode: fan_out、または mode キー省略時のデフォルト）
   #   完了タスクを起点に新しいタスクを生成する（DDD-08 §3.2）。
@@ -54,3 +66,20 @@ chains:
         section: qa
         owner: agent_qa
         priority: 5
+
+  # 要件定義完了後ファンアウト
+  # section: backlog + tags: requirements_done のタスクが完了したら
+  # 詳細設計タスクとリスク分析タスクを自動生成する
+  - name: requirements_to_design
+    trigger:
+      section: backlog
+      tags: [requirements_done]
+    steps:
+      - title_prefix: "[詳細設計] "
+        section: design
+        owner: agent_docs
+        priority: 4
+      - title_prefix: "[リスク分析] "
+        section: business
+        owner: agent_pm
+        priority: 4
