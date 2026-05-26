@@ -29,7 +29,10 @@ dual_execution:
 reroute:
   max_reroute_attempts: 1
   fallback_chain:
+    model_qwen3_14b:
+      - model_qwen25_32b_q3
     model_qwen25_14b_q4:
+      - model_qwen3_14b
       - model_qwen25_32b_q3
     model_qwen25_32b_q3: []      # no fallback from 32b (already highest)
     model_bge_m3: []             # embedding — no reroute

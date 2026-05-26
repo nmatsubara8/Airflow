@@ -15,7 +15,8 @@ starvation_prevention:
 
 fair_share:
   model_qwen25_32b_q3: 0.30      # 32B gets at least 30% of slots
-  model_qwen25_14b_q4: 0.50      # 14B gets at least 50%
+  model_qwen3_14b: 0.50          # Qwen3 14B primary
+  model_qwen25_14b_q4: 0.20      # Qwen2.5 14B fallback
   model_llama31_8b_q4: 0.20      # 8B (Phase 3+)
 
 profiles:
@@ -26,12 +27,19 @@ profiles:
     vram_required_gb: 15
     description: "High-accuracy single model + embedding"
 
+  - name: single-qwen3-14b
+    models:
+      - model_qwen3_14b
+      - model_bge_m3
+    vram_required_gb: 10
+    description: "Primary: Qwen3 14B + embedding. Better reasoning/coding than Qwen2.5 14B."
+
   - name: single-14b
     models:
       - model_qwen25_14b_q4
       - model_bge_m3
     vram_required_gb: 10
-    description: "MVP default: balanced speed/accuracy + embedding"
+    description: "Fallback: Qwen2.5 14B + embedding"
 
   - name: 14b-plus-8b
     models:
@@ -56,4 +64,4 @@ profiles:
     vram_required_gb: 15
     description: "Phase 3+: code-specialized single model"
 
-mvp_profile: single-14b          # active profile for Phase 2
+mvp_profile: single-qwen3-14b     # active profile — Qwen3 14B primary
