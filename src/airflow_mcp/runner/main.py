@@ -98,13 +98,17 @@ def _build_messages(
 ) -> list[dict[str, Any]]:
     """DDD-05 §9 の prompt 構築。context が与えられた場合はユーザーメッセージに付加する。"""
     context_block = f"\n\n{context}" if context else ""
+    tags_str = ", ".join(task.get("tags", [])) or "（なし）"
     user_content = (
-        f"## タスク: {task['title']}\n\n"
-        f"{task.get('description', '')}\n\n"
+        f"## 分析対象タスク\n\n"
+        f"**タイトル**: {task['title']}\n\n"
+        f"**説明**: {task.get('description', '（説明なし）')}\n\n"
+        f"**タグ**: {tags_str}\n"
+        f"**セクション**: {task.get('section', 'engineering')}"
+        f"{context_block}\n\n"
         f"---\n"
-        f"タグ: {', '.join(task.get('tags', []))}\n"
-        f"セクション: {task.get('section', 'engineering')}"
-        f"{context_block}"
+        f"上記のタスクを分析し、具体的な洞察・実装方針・注意点を含む JSON を出力してください。"
+        f" key_points には必ず3点以上の具体的な指摘を記載してください。"
     )
     return [
         {"role": "system", "content": system_prompt},

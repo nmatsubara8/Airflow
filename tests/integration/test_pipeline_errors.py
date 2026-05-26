@@ -156,8 +156,8 @@ def test_run_once_skips_other_agents_tasks(tmp_tasks_dir: Path):
 def test_reroute_to_fallback_on_primary_failure(tmp_tasks_dir: Path):
     """プライマリ失敗時に fallback_chain のモデルで再試行し、成功すること。
 
-    simple_rule_select は medium accuracy タスクで model_qwen25_14b_q4 を選択するため、
-    fallback_chain のキーも model_qwen25_14b_q4 にする。
+    simple_rule_select は medium accuracy タスクで model_qwen3_14b を選択するため、
+    fallback_chain のキーも model_qwen3_14b にする。
     """
     store = TaskStore(base_dir=tmp_tasks_dir)
     task = _create_in_progress(store)
@@ -166,12 +166,12 @@ def test_reroute_to_fallback_on_primary_failure(tmp_tasks_dir: Path):
         "reroute": {
             "max_reroute_attempts": 1,
             "fallback_chain": {
-                "model_qwen25_14b_q4": ["model_qwen25_32b_q3"],
+                "model_qwen3_14b": ["model_qwen25_32b_q3"],
             },
         },
     }
     registry = {
-        "model_qwen25_14b_q4": {"id": "model_qwen25_14b_q4", "ollama_tag": "qwen2.5:14b-q4", "vram_gb": 8.5},
+        "model_qwen3_14b": {"id": "model_qwen3_14b", "ollama_tag": "qwen3:14b", "vram_gb": 9.0},
         "model_qwen25_32b_q3": {"id": "model_qwen25_32b_q3", "ollama_tag": "qwen2.5:32b-q3", "vram_gb": 14.0},
     }
     stub_success = json.dumps({
