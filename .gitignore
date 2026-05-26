@@ -12,3 +12,6 @@ __pycache__/
 .coverage
 coverage.json
 htmlcov/
+
+# 環境変数（機密情報を含むため除外）
+.env
