@@ -49,7 +49,7 @@ services:
     environment:
       AIRFLOW_TASKBOARD_DIR: /data/tasks
     ports:
-      - "7400:7400"
+      - "17400:7400"
     depends_on:
       - dispatcher
     restart: unless-stopped
