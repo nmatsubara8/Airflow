@@ -52,9 +52,11 @@ def select_best_profile(
     current_model_ids: list[str],
     available_vram_gb: float,
     registry: dict[str, dict],
+    available_ram_gb: float = 999.0,
 ) -> str | None:
     """最適プロファイル名を返す（DDD-07 §4.2）。
 
+    VRAM と RAM オフロード予算を両方チェックしてプロファイルの実行可否を判定する。
     切替コストが閾値を超える場合は現プロファイルを継続。
     Returns:
         プロファイル名。変更不要なら current_profile_name を返す。
@@ -62,6 +64,7 @@ def select_best_profile(
     viable = [
         p for p in profiles
         if p.get("vram_required_gb", 0) <= available_vram_gb
+        and p.get("ram_offload_gb", 0) <= available_ram_gb
     ]
     if not viable:
         return current_profile_name

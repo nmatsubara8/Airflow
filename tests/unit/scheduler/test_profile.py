@@ -214,3 +214,64 @@ def test_get_profile_models_all_without_name_returns_empty():
     ]
     result = get_profile_models(profiles, "target-profile")
     assert result == []
+
+
+# ── select_best_profile: MoE / RAM offload ───────────────────────
+
+_MOE_PROFILES = [
+    {"name": "moe-35b-q3", "models": ["model_moe"], "vram_required_gb": 14, "ram_offload_gb": 0},
+    {"name": "moe-35b-q4", "models": ["model_moe_q4"], "vram_required_gb": 16, "ram_offload_gb": 3},
+    {"name": "single-14b", "models": ["model_14b"], "vram_required_gb": 10, "ram_offload_gb": 0},
+]
+
+_MOE_REGISTRY = {
+    "model_moe":    {"vram_gb": 13, "avg_load_time_ms": 12_000, "architecture": "moe"},
+    "model_moe_q4": {"vram_gb": 15, "avg_load_time_ms": 20_000, "architecture": "moe"},
+    "model_14b":    {"vram_gb": 9,  "avg_load_time_ms": 8_000},
+}
+
+
+def test_moe_q3_selected_when_vram_sufficient():
+    """VRAM 15 GB あれば MoE Q3 (14 GB) が選ばれること。"""
+    queue_depths = {"model_moe": 5, "model_14b": 2}
+    best = select_best_profile(
+        _MOE_PROFILES, queue_depths,
+        current_profile_name=None, current_model_ids=[],
+        available_vram_gb=15.0, registry=_MOE_REGISTRY,
+    )
+    assert best == "moe-35b-q3"
+
+
+def test_moe_q4_excluded_when_ram_insufficient():
+    """RAM が 2 GB しかない場合、RAM 3 GB オフロード要求の Q4 は除外されること。"""
+    queue_depths = {"model_moe_q4": 100, "model_moe": 5}
+    best = select_best_profile(
+        _MOE_PROFILES, queue_depths,
+        current_profile_name=None, current_model_ids=[],
+        available_vram_gb=16.0, registry=_MOE_REGISTRY,
+        available_ram_gb=2.0,   # RAM 不足
+    )
+    assert best != "moe-35b-q4"
+
+
+def test_moe_q4_selected_when_vram_and_ram_sufficient():
+    """VRAM 16 GB + RAM 10 GB あれば MoE Q4 (15 VRAM + 3 RAM) が選べること。"""
+    queue_depths = {"model_moe_q4": 10, "model_moe": 0, "model_14b": 0}
+    best = select_best_profile(
+        _MOE_PROFILES, queue_depths,
+        current_profile_name=None, current_model_ids=[],
+        available_vram_gb=16.0, registry=_MOE_REGISTRY,
+        available_ram_gb=10.0,
+    )
+    assert best == "moe-35b-q4"
+
+
+def test_fallback_to_14b_when_vram_insufficient_for_moe():
+    """VRAM が 12 GB の場合、MoE 系は除外されて single-14b が選ばれること。"""
+    queue_depths = {"model_moe": 10, "model_14b": 1}
+    best = select_best_profile(
+        _MOE_PROFILES, queue_depths,
+        current_profile_name=None, current_model_ids=[],
+        available_vram_gb=12.0, registry=_MOE_REGISTRY,
+    )
+    assert best == "single-14b"

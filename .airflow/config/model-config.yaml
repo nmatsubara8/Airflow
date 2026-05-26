@@ -29,10 +29,17 @@ dual_execution:
 reroute:
   max_reroute_attempts: 1
   fallback_chain:
+    # MoE 35B: 高精度タスクのプライマリ。失敗時は 14B にダウングレード
+    model_qwen35_35b_a3b_q3:
+      - model_qwen3_14b
+    model_qwen35_35b_a3b_q4:
+      - model_qwen35_35b_a3b_q3   # Q4失敗 → Q3に切替
+      - model_qwen3_14b
+    # 14B: 軽量タスクのプライマリ。失敗時は MoE に昇格
     model_qwen3_14b:
-      - model_qwen25_32b_q3
+      - model_qwen35_35b_a3b_q3
     model_qwen25_14b_q4:
       - model_qwen3_14b
       - model_qwen25_32b_q3
-    model_qwen25_32b_q3: []      # no fallback from 32b (already highest)
+    model_qwen25_32b_q3: []      # no fallback from 32b
     model_bge_m3: []             # embedding — no reroute
