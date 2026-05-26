@@ -8,6 +8,7 @@ import pytest
 
 from airflow_mcp.runner.context_fetcher import (
     _build_query_words,
+    _is_github_note,
     _score_note,
     _should_fetch_context,
     _source_label,
@@ -22,12 +23,26 @@ from airflow_mcp.runner.context_fetcher import (
 @pytest.mark.parametrize("task,expected", [
     ({"tags": ["requirements"], "section": "engineering"}, True),
     ({"tags": [],               "section": "backlog"},     True),
+    ({"tags": [],               "section": "design"},      True),
+    ({"tags": [],               "section": "engineering"}, True),
+    ({"tags": [],               "section": "qa"},          True),
     ({"tags": ["requirements"], "section": "backlog"},     True),
-    ({"tags": ["bug"],          "section": "engineering"}, False),
+    ({"tags": ["needs_review"], "section": "other"},       True),
     ({"tags": [],               "section": "done"},        False),
+    ({"tags": [],               "section": "cancelled"},   False),
 ])
 def test_should_fetch_context(task, expected):
     assert _should_fetch_context(task) == expected
+
+
+# ── _is_github_note ────────────────────────────────────────────────
+
+def test_is_github_note_true():
+    assert _is_github_note({"frontmatter": {"type": "github_reference"}}) is True
+
+def test_is_github_note_false():
+    assert _is_github_note({"frontmatter": {}}) is False
+    assert _is_github_note({}) is False
 
 
 # ── _build_query_words ─────────────────────────────────────────────
@@ -155,6 +170,20 @@ def test_format_context_includes_title_and_label():
     assert "Horse Guide" in result
     assert "GitHub:" in result
     assert "content here" in result
+
+
+def test_format_context_separates_vault_and_github():
+    notes = [
+        {"note_id": "v1", "title": "Vault Note", "body": "vault body",
+         "frontmatter": {}, "source_path": "vault/note.md"},
+        {"note_id": "g1", "title": "GitHub File", "body": "github body",
+         "frontmatter": {"type": "github_reference", "repo": "o/r", "branch": "main", "path": "f.py"},
+         "source_path": "github:o/r/main/f.py"},
+    ]
+    result = format_context(notes)
+    assert "Vault ノート" in result
+    assert "GitHub ファイル" in result
+    assert result.index("Vault ノート") < result.index("GitHub ファイル")
 
 
 def test_format_context_truncates_long_body():

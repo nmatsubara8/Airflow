@@ -19,16 +19,18 @@ _DEFAULT_TOP_K = 5
 _DEFAULT_MAX_CHARS_PER_NOTE = 600
 _DEFAULT_MAX_TOTAL_CHARS = 3000
 
-# 要件定義タスクとみなす条件
-_REQUIREMENTS_TAGS = {"requirements"}
-_REQUIREMENTS_SECTIONS = {"backlog"}
+# コンテキスト参照を行うセクション（全フェーズ対象）
+_CONTEXT_SECTIONS = {"backlog", "design", "engineering", "qa", "content", "business", "orchestration"}
+# タグに含まれていれば常に参照する
+_CONTEXT_TAGS = {"requirements", "needs_review", "design", "implementation"}
 
 
 def _should_fetch_context(task: dict[str, Any]) -> bool:
-    """要件定義タスクかどうか判定する。"""
-    tags = set(task.get("tags", []))
+    """コンテキスト参照が必要なタスクか判定する（要件定義・詳細設計・実装・QA 全フェーズ対象）。"""
     section = task.get("section", "")
-    return bool(tags & _REQUIREMENTS_TAGS) or section in _REQUIREMENTS_SECTIONS
+    tags = set(task.get("tags", []))
+    # 明示タグまたは対象セクションに属するタスクは参照する
+    return section in _CONTEXT_SECTIONS or bool(tags & _CONTEXT_TAGS)
 
 
 def _score_note(note: dict[str, Any], words: list[str]) -> float:
@@ -90,26 +92,45 @@ def _source_label(note: dict[str, Any]) -> str:
     return f"Vault: {source}" if source else "Vault"
 
 
+def _is_github_note(note: dict[str, Any]) -> bool:
+    return note.get("frontmatter", {}).get("type") == "github_reference"
+
+
 def format_context(notes: list[dict[str, Any]], max_chars_per_note: int = _DEFAULT_MAX_CHARS_PER_NOTE) -> str:
-    """検索結果をプロンプト埋め込み用のテキストに整形する。"""
+    """検索結果を Vault / GitHub 別に分類して構造化テキストに整形する。"""
     if not notes:
         return ""
 
-    lines = ["## 参考情報（Vault / GitHub）\n"]
-    total = len(lines[0])
-    for i, note in enumerate(notes, 1):
-        title = note.get("title", "no title")
-        label = _source_label(note)
-        body_raw = note.get("body", "").strip()
-        body_snip = body_raw[:max_chars_per_note]
-        if len(body_raw) > max_chars_per_note:
-            body_snip += "…"
+    vault_notes = [n for n in notes if not _is_github_note(n)]
+    github_notes = [n for n in notes if _is_github_note(n)]
 
-        block = f"### [{i}] {title}\n出典: {label}\n\n{body_snip}\n\n"
-        if total + len(block) > _DEFAULT_MAX_TOTAL_CHARS:
-            break
-        lines.append(block)
-        total += len(block)
+    lines: list[str] = ["## 参考情報（Vault / GitHub）\n"]
+    total = len(lines[0])
+
+    def _append_group(header: str, group: list[dict[str, Any]], counter_start: int) -> int:
+        nonlocal total
+        if not group:
+            return counter_start
+        lines.append(f"\n{header}\n")
+        total += len(header) + 2
+        i = counter_start
+        for note in group:
+            title = note.get("title", "no title")
+            label = _source_label(note)
+            body_raw = note.get("body", "").strip()
+            body_snip = body_raw[:max_chars_per_note]
+            if len(body_raw) > max_chars_per_note:
+                body_snip += "…"
+            block = f"### [{i}] {title}\n出典: {label}\n\n{body_snip}\n\n"
+            if total + len(block) > _DEFAULT_MAX_TOTAL_CHARS:
+                break
+            lines.append(block)
+            total += len(block)
+            i += 1
+        return i
+
+    next_i = _append_group("### Vault ノート（ユーザー知識・設計メモ）", vault_notes, 1)
+    _append_group("### GitHub ファイル（コード・ドキュメント）", github_notes, next_i)
 
     return "".join(lines).rstrip()
 
