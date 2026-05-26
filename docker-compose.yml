@@ -48,6 +48,7 @@ services:
     env_file: .env
     environment:
       AIRFLOW_TASKBOARD_DIR: /data/tasks
+      AIRFLOW_HTTP_AUTH_TOKEN: ""
     ports:
       - "7400:7400"
     depends_on:
