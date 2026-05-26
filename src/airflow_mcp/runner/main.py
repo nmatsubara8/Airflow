@@ -147,6 +147,7 @@ def _call_ollama(
         "options": {
             "temperature": temperature + retry_attempt * 0.1,  # retry ごとに温度を上げる
             "num_predict": max_tokens,
+            "think": False,  # Qwen3 thinking mode conflicts with structured output (format:)
         },
     }
     content = call_chat(ollama_url, payload, _OLLAMA_TIMEOUT_S)
