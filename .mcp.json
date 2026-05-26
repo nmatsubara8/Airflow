@@ -1,0 +1,50 @@
+{
+  "mcpServers": {
+    "taskboard": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "airflow_mcp", "taskboard"],
+      "cwd": "/home/user/Airflow",
+      "env": {
+        "OLLAMA_STUB": "true",
+        "AIRFLOW_TASKBOARD_DIR": "/home/user/Airflow/.airflow/tasks"
+      }
+    },
+    "notes": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "airflow_mcp", "notes"],
+      "cwd": "/home/user/Airflow",
+      "env": {
+        "OLLAMA_STUB": "true"
+      }
+    },
+    "models": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "airflow_mcp", "models"],
+      "cwd": "/home/user/Airflow",
+      "env": {
+        "OLLAMA_STUB": "true"
+      }
+    },
+    "gpu": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "airflow_mcp", "gpu"],
+      "cwd": "/home/user/Airflow",
+      "env": {
+        "OLLAMA_STUB": "true"
+      }
+    },
+    "agents": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "airflow_mcp", "agents"],
+      "cwd": "/home/user/Airflow",
+      "env": {
+        "OLLAMA_STUB": "true"
+      }
+    }
+  }
+}

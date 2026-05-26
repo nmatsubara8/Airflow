@@ -18,4 +18,7 @@ python -m pytest --version
 python -c "import jwt; print('PyJWT OK:', jwt.__version__)"
 python -c "import cryptography; print('cryptography OK:', cryptography.__version__)"
 
+# MCP サーバーが必要とするディレクトリを事前作成
+mkdir -p /home/user/Airflow/.airflow/tasks
+
 echo "[session-start] Setup complete."
