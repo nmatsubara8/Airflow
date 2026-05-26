@@ -134,6 +134,7 @@ class TaskStore:
         task = {
             "schema_version": "1.0.0",
             "id": task_id,
+            "owner": None,
             **task,
             "status": "inbox",
             "created_at": ts,
@@ -227,7 +228,7 @@ class TaskStore:
             if path is None:
                 raise TaskNotFound(task_id)
             task = json.loads(path.read_text())
-            if task["owner"] not in (None, agent_id):
+            if task.get("owner") not in (None, agent_id):
                 raise TaskAlreadyClaimed(task_id, task["owner"])
             if task["status"] != "inbox":
                 raise TaskInvalidTransition(task["status"], "in_progress")
