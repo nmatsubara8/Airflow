@@ -40,11 +40,13 @@ from ..orchestrator.handoff_chain import (
 )
 from ..orchestrator.recommender import select_model, simple_rule_select
 from ..taskboard.store import TaskStore
+from .context_fetcher import fetch_relevant_context
 
 logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT_PATH = Path("prompts/system/document-summary.md")
 _OUTPUT_SCHEMA_PATH = Path("prompts/output-schemas/summary.json")
+_NOTES_INDEX_PATH = Path(os.environ.get("AIRFLOW_NOTES_INDEX", ".airflow/notes/index.json"))
 _MAX_RETRY = 3
 _OLLAMA_TIMEOUT_S = float(os.environ.get("AIRFLOW_OLLAMA_TIMEOUT_S", "180"))
 
@@ -89,16 +91,21 @@ def _model_id_to_ollama_tag(model_id: str, registry: dict[str, dict]) -> str:
     return model_id.replace("model_", "").replace("_", ":")
 
 
-def _build_messages(task: dict[str, Any], system_prompt: str) -> list[dict[str, Any]]:
-    """DDD-05 §9 の prompt 構築。"""
-    user_content = f"""## タスク: {task['title']}
-
-{task.get('description', '')}
-
----
-タグ: {', '.join(task.get('tags', []))}
-セクション: {task.get('section', 'engineering')}
-"""
+def _build_messages(
+    task: dict[str, Any],
+    system_prompt: str,
+    context: str = "",
+) -> list[dict[str, Any]]:
+    """DDD-05 §9 の prompt 構築。context が与えられた場合はユーザーメッセージに付加する。"""
+    context_block = f"\n\n{context}" if context else ""
+    user_content = (
+        f"## タスク: {task['title']}\n\n"
+        f"{task.get('description', '')}\n\n"
+        f"---\n"
+        f"タグ: {', '.join(task.get('tags', []))}\n"
+        f"セクション: {task.get('section', 'engineering')}"
+        f"{context_block}"
+    )
     return [
         {"role": "system", "content": system_prompt},
         {"role": "user",   "content": user_content},
@@ -362,7 +369,8 @@ def process_task(task: dict[str, Any], ctx: ExecutionContext) -> bool:
         "runner.model_selected task=%s model=%s exploration=%s",
         task_id, model_id, exploration_type,
     )
-    messages = _build_messages(task, system_prompt)
+    context = fetch_relevant_context(task, _NOTES_INDEX_PATH)
+    messages = _build_messages(task, system_prompt, context)
 
     r = _execute_with_reroute(task, model_id, exploration_type, ctx, messages, output_schema, aid)
 

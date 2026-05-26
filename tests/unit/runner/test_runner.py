@@ -956,9 +956,9 @@ def test_process_task_uses_fallback_prompt_when_file_missing(
         "airflow_mcp.runner.main", fromlist=["_build_messages"]
     )._build_messages
 
-    def capturing_build(task, system_prompt):
+    def capturing_build(task, system_prompt, context=""):
         built_messages.append(system_prompt)
-        return original_build(task, system_prompt)
+        return original_build(task, system_prompt, context)
 
     with patch("airflow_mcp.runner.main._build_messages", side_effect=capturing_build):
         result = process_task(task_in_progress, _ctx(task_store))
