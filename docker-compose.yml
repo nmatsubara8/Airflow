@@ -48,8 +48,9 @@ services:
     env_file: .env
     environment:
       AIRFLOW_TASKBOARD_DIR: /data/tasks
+      AIRFLOW_DASHBOARD_PORT: "17400"
     ports:
-      - "17400:7400"
+      - "17400:17400"
     depends_on:
       - dispatcher
     restart: unless-stopped
