@@ -17,35 +17,11 @@ starvation_prevention:
   force_run_s: 3600              # force-run regardless of VRAM after 1 hr
 
 fair_share:
-  model_qwen35_35b_a3b_q3: 0.60  # MoE 35B primary: 高精度タスク
-  model_qwen3_14b: 0.30           # 14B: 軽量・低レイテンシタスク
-  model_qwen25_32b_q3: 0.10       # 32B: フォールバック専用
+  model_qwen3_14b: 0.60           # Qwen3 14B primary
+  model_qwen25_32b_q3: 0.30       # 32B: フォールバック専用
   model_qwen25_14b_q4: 0.10       # Qwen2.5 14B: レガシーフォールバック
 
 profiles:
-  # ── MoE プロファイル ──────────────────────────────────────────────
-  - name: moe-35b-q3
-    models:
-      - model_qwen35_35b_a3b_q3
-      - model_bge_m3
-    vram_required_gb: 14
-    ram_offload_gb: 0
-    description: |
-      推奨: Qwen3.5 35B-A3B MoE Q3_K_M + embedding。
-      13 GB VRAM + 1 GB embedding = 14 GB。全重みがVRAMに収まりエキスパートスワップなし。
-      推論は3B相当の速度で高精度（35Bの知識）。
-
-  - name: moe-35b-q4-ram
-    models:
-      - model_qwen35_35b_a3b_q4
-    vram_required_gb: 16
-    ram_offload_gb: 3
-    description: |
-      最高品質: Qwen3.5 35B-A3B MoE Q4_K_M。
-      約15 GB VRAM + 約3 GB RAM offload。bge-m3 を同時ロード不可（VRAM不足）。
-      エキスパートスワップ時のPCIe転送オーバーヘッドあり。
-
-  # ── 既存プロファイル（フォールバック用）─────────────────────────
   - name: single-qwen3-14b
     models:
       - model_qwen3_14b
@@ -93,4 +69,4 @@ profiles:
     vram_required_gb: 15
     description: "Phase 3+: code-specialized single model"
 
-mvp_profile: moe-35b-q3            # active profile — Qwen3.5 35B-A3B MoE (全VRAM収容)
+mvp_profile: single-qwen3-14b      # active profile — Qwen3 14B
