@@ -48,21 +48,34 @@ print(sum(v for k,v in d.items() if k!='done_total'))
 
 echo "tasks: done=${DONE} needs_human=${NEEDS_HUMAN} in_progress=${IN_PROGRESS} total=${TOTAL}" | tee -a "$REPORT_LOG"
 
-# ── 2. critical ログ件数 ─────────────────────────────────────────
-CRITICAL=$(grep '"level":"critical"' "${LOG_DIR}/${DATE}.jsonl" 2>/dev/null | wc -l || echo 0)
+# ── 2. critical ログ件数（pipefail 対策: wc -l のみ使用）────────
+CRITICAL=0
+if [[ -f "${LOG_DIR}/${DATE}.jsonl" ]]; then
+    count=$(grep '"level":"critical"' "${LOG_DIR}/${DATE}.jsonl" 2>/dev/null | wc -l) || true
+    CRITICAL="${count//[[:space:]]/}"
+fi
 echo "critical_logs: ${CRITICAL}" | tee -a "$REPORT_LOG"
 
 # ── 3. 監査ハッシュ生成・検証 ────────────────────────────────────
 "$VENV" -m airflow_mcp audit hash 2>&1 | tee -a "$REPORT_LOG"
 AUDIT_RESULT=$("$VENV" -m airflow_mcp audit verify 2>&1)
 echo "$AUDIT_RESULT" | tee -a "$REPORT_LOG"
-AUDIT_OK=$(echo "$AUDIT_RESULT" | grep -c "chain ok" || true)
+AUDIT_OK=$(echo "$AUDIT_RESULT" | grep -c "chain ok") || true
 
 # ── 4. SLA 判定 ──────────────────────────────────────────────────
 SLA_PASS=true
-[[ "$CRITICAL" -eq 0 ]]      || { echo "SLA FAIL: critical_logs=${CRITICAL}"; SLA_PASS=false; }
-[[ "$NEEDS_HUMAN" -lt 10 ]]  || { echo "SLA FAIL: needs_human=${NEEDS_HUMAN} (>=10)"; SLA_PASS=false; }
-[[ "$AUDIT_OK" -ge 1 ]]      || { echo "SLA FAIL: audit chain broken"; SLA_PASS=false; }
+if [[ "${CRITICAL}" -ne 0 ]]; then
+    echo "SLA FAIL: critical_logs=${CRITICAL}" | tee -a "$REPORT_LOG"
+    SLA_PASS=false
+fi
+if [[ "${NEEDS_HUMAN}" -ge 10 ]]; then
+    echo "SLA FAIL: needs_human=${NEEDS_HUMAN} (>=10)" | tee -a "$REPORT_LOG"
+    SLA_PASS=false
+fi
+if [[ "${AUDIT_OK}" -lt 1 ]]; then
+    echo "SLA FAIL: audit chain broken" | tee -a "$REPORT_LOG"
+    SLA_PASS=false
+fi
 
 if [[ "$SLA_PASS" == "true" ]]; then
     echo "SLA: PASS [critical=0 needs_human=${NEEDS_HUMAN} audit=ok]" | tee -a "$REPORT_LOG"
