@@ -16,6 +16,7 @@ from ..taskboard.store import TaskStore
 from .notes_index import load_index, note_id_for_path, save_index, upsert_note
 from ..common.io import safe_yaml_load
 from .parser import frontmatter_to_task_fields, normalize_path, parse_markdown
+from .github import run_github_once
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +165,12 @@ def run_once(store: TaskStore, config: dict[str, Any]) -> int:
             created += 1
 
     save_index(notes_index, _notes_index_path)
+
+    # GitHub ソース（設定がある場合のみ）
+    github_configs: list[dict] = config.get("github_sources", [])
+    if github_configs:
+        created += run_github_once(store, github_configs)
+
     return created
 
 

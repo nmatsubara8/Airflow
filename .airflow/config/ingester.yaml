@@ -41,3 +41,19 @@ output:
     Inbox: null                      # dispatcher resolves category
     Projects: engineering
     Daily: null
+
+# GitHub ソース設定（任意）
+# GITHUB_TOKEN 環境変数を .env に設定してください
+# 未設定の場合は未認証（レート制限: 60 req/h）
+github_sources: []
+# github_sources:
+#   - repo: "owner/repo"           # 監視するリポジトリ（"owner/repo" 形式）
+#     types:                        # 取得対象: issues / pull_requests
+#       - issues
+#       - pull_requests
+#     state: open                  # open | closed | all
+#     labels: []                   # ラベルフィルター（空で全件）
+#     section: engineering         # section 固定指定（省略時はラベルから推定）
+#     track_updates: false         # true にするとイシュー更新時に再取り込み
+#     max_items: 100               # 1回のポーリングで取得する最大件数
+#     token_env: GITHUB_TOKEN      # 認証トークンを読む環境変数名
