@@ -3,9 +3,7 @@
 
 watch:
   paths:
-    - "${VAULT_ROOT}/Inbox"          # primary drop zone (MVP target)
-    - "${VAULT_ROOT}/Projects"       # project notes
-    - "${VAULT_ROOT}/Daily"          # daily notes
+    - "${VAULT_ROOT}/notes/Keiba"        # primary drop zone (MVP target)
   glob: "**/*.md"
   exclude:
     - "**/_archive/**"
@@ -60,7 +58,12 @@ github_sources: []
 
 # GitHub リポジトリのファイルを notes index に登録し、エージェントが
 # notes.search で参照できるようにする（タスクは生成しない）
-github_reference_sources: []
+github_reference_sources:
+  - repo: "nmatsubara8/keibam"
+    branch: main
+    paths: ["README.md", "docs/", "src/"]
+    file_types: [".md", ".py"]
+    token_env: GITHUB_TOKEN
 # github_reference_sources:
 #   - repo: "owner/repo"           # 参照するリポジトリ
 #     branch: main                 # 読み込むブランチ（デフォルト: main）
