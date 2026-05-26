@@ -57,3 +57,23 @@ github_sources: []
 #     track_updates: false         # true にするとイシュー更新時に再取り込み
 #     max_items: 100               # 1回のポーリングで取得する最大件数
 #     token_env: GITHUB_TOKEN      # 認証トークンを読む環境変数名
+
+# GitHub リポジトリのファイルを notes index に登録し、エージェントが
+# notes.search で参照できるようにする（タスクは生成しない）
+github_reference_sources: []
+# github_reference_sources:
+#   - repo: "owner/repo"           # 参照するリポジトリ
+#     branch: main                 # 読み込むブランチ（デフォルト: main）
+#     paths:                       # 対象パス（省略時はリポジトリ全体）
+#       - "README.md"
+#       - "docs/"
+#       - "src/"
+#     file_types:                  # 対象拡張子（省略時: .md .py .ts .js .go .yaml 等）
+#       - ".md"
+#       - ".py"
+#     exclude:                     # 除外パターン（fnmatch）
+#       - "**/__pycache__/**"
+#       - "**/test*"
+#       - "**/*.lock"
+#     token_env: GITHUB_TOKEN      # 認証トークンを読む環境変数名
+#     max_files: 200               # 1回のポーリングで索引化する最大ファイル数

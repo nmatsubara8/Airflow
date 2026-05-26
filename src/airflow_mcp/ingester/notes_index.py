@@ -61,6 +61,7 @@ def upsert_note(
     frontmatter: dict[str, Any],
     confidential: bool = False,
     internal_links: list[str] | None = None,
+    body: str = "",
 ) -> None:
     """インデックスに note レコードを登録 / 更新する。"""
     index.setdefault("notes", {})[note_id] = {
@@ -72,6 +73,7 @@ def upsert_note(
         "last_indexed": now_iso(),
         "internal_links": internal_links or [],
         "frontmatter": frontmatter,
+        "body": body,
     }
 
 
