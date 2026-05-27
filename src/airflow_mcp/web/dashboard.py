@@ -26,11 +26,27 @@ _AUTO_REFRESH_S = int(os.environ.get("AIRFLOW_DASHBOARD_REFRESH", "30"))
 
 
 def _page(title: str, body: str, refresh: bool = True) -> str:
-    refresh_tag = f"<meta http-equiv='refresh' content='{_AUTO_REFRESH_S}'>" if refresh and _AUTO_REFRESH_S > 0 else ""
+    refresh_js = ""
+    if refresh and _AUTO_REFRESH_S > 0:
+        ms = _AUTO_REFRESH_S * 1000
+        refresh_js = (
+            f"<script>"
+            f"(function(){{"
+            f"var ms={ms},tid=null,paused=false;"
+            f"function schedule(){{tid=setTimeout(function(){{if(!paused)location.reload();}},ms);}}"
+            f"function pause(){{paused=true;clearTimeout(tid);}}"
+            f"function resume(){{paused=false;schedule();}}"
+            f"document.addEventListener('focusin',function(e){{"
+            f"if(e.target.tagName==='TEXTAREA'||e.target.tagName==='INPUT')pause();}});"
+            f"document.addEventListener('focusout',function(e){{"
+            f"if(e.target.tagName==='TEXTAREA'||e.target.tagName==='INPUT')resume();}});"
+            f"schedule();"
+            f"}})();"
+            f"</script>"
+        )
     return (
         "<!DOCTYPE html><html lang='ja'><head>"
         "<meta charset='utf-8'>"
-        f"{refresh_tag}"
         f"<title>{html.escape(title)} – Airflow</title>"
         "<style>body{font-family:sans-serif;margin:2em;}"
         "table{border-collapse:collapse;width:100%}"
@@ -51,6 +67,7 @@ def _page(title: str, body: str, refresh: bool = True) -> str:
         "<a href='http://localhost:9090/metrics' target='_blank'>Metrics</a></nav><hr>"
         f"<h1>{html.escape(title)}</h1>"
         f"{body}"
+        f"{refresh_js}"
         "</body></html>"
     )
 
