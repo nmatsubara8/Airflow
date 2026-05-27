@@ -22,6 +22,22 @@ services:
               count: 1
               capabilities: [gpu]
 
+  # ── Ingester (Vault → inbox polling loop) ───────────────────────────────
+  ingester:
+    build: .
+    command: ["python", "-m", "airflow_mcp", "ingester"]
+    user: "1000:1000"
+    volumes:
+      - ./.airflow/tasks:/data/tasks
+      - ./.airflow/config:/app/.airflow/config:ro
+      - ./.airflow/notes:/app/.airflow/notes
+      - ${VAULT_ROOT:-/mnt/d/vaults}:/vault:ro
+    env_file: .env
+    environment:
+      AIRFLOW_TASKBOARD_DIR: /data/tasks
+      VAULT_ROOT: /vault
+    restart: unless-stopped
+
   # ── Dispatcher (inbox polling loop) ──────────────────────────────────────
   dispatcher:
     build: .
