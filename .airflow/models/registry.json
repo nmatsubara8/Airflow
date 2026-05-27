@@ -15,6 +15,7 @@
       "kv_cache_per_request_gb": 0.3,
       "avg_load_time_ms": 20000,
       "supports_structured_output": true,
+      "no_think_prefix": true,
       "preferred_tasks": ["summarize", "review", "plan", "code", "draft", "analyze"],
       "status": "available",
       "notes": "MoE: 26B total / 4B active. GGUF local file. Fallback tier. think=False for structured output."
@@ -33,6 +34,7 @@
       "kv_cache_per_request_gb": 0.3,
       "avg_load_time_ms": 25000,
       "supports_structured_output": true,
+      "no_think_prefix": false,
       "preferred_tasks": ["summarize", "review", "plan", "code", "draft", "analyze"],
       "status": "available",
       "notes": "MoE: 35B total / 3B active. GGUF local file. Highest accuracy in fleet. think=False for structured output."

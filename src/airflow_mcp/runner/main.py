@@ -95,11 +95,14 @@ def _build_messages(
     task: dict[str, Any],
     system_prompt: str,
     context: str = "",
+    no_think_prefix: bool = False,
 ) -> list[dict[str, Any]]:
     """DDD-05 §9 の prompt 構築。context が与えられた場合はユーザーメッセージに付加する。"""
     context_block = f"\n\n{context}" if context else ""
     tags_str = ", ".join(task.get("tags", [])) or "（なし）"
+    prefix = "/no-think\n\n" if no_think_prefix else ""
     user_content = (
+        f"{prefix}"
         f"## 分析対象タスク\n\n"
         f"**タイトル**: {task['title']}\n\n"
         f"**説明**: {task.get('description', '（説明なし）')}\n\n"
@@ -375,7 +378,8 @@ def process_task(task: dict[str, Any], ctx: ExecutionContext) -> bool:
         task_id, model_id, exploration_type,
     )
     context = fetch_relevant_context(task, _NOTES_INDEX_PATH)
-    messages = _build_messages(task, system_prompt, context)
+    no_think = ctx.registry.get(model_id, {}).get("no_think_prefix", False)
+    messages = _build_messages(task, system_prompt, context, no_think_prefix=no_think)
 
     r = _execute_with_reroute(task, model_id, exploration_type, ctx, messages, output_schema, aid)
 
