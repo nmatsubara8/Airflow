@@ -461,3 +461,199 @@ def test_write_processed_at_returns_false_when_no_closing_delimiter(tmp_path):
     md.write_text("---\ntitle: test\n", encoding="utf-8")
     result = _write_processed_at(md, "2026-05-25T00:00:00Z")
     assert result is False
+
+
+# ── require_human_review (F-06 / F-08) ───────────────
+
+def _make_config_with_watch_paths(path: str, require_human_review: bool = False, auto_dispatch: bool = True) -> dict:
+    return {
+        "watch_paths": [
+            {
+                "path": path,
+                "auto_dispatch": auto_dispatch,
+                "require_human_review": require_human_review,
+            }
+        ],
+        "stability": {"settle_ms": 0, "max_file_size_bytes": 524288},
+    }
+
+
+def test_require_human_review_creates_needs_human_task(tmp_path, task_store):
+    md = tmp_path / "keiba_note.md"
+    md.write_text("---\ntitle: 競馬分析ノート\nsection: engineering\n---\n本文データ")
+
+    import airflow_mcp.ingester.main as im
+    im._seen_hashes.clear()
+
+    config = _make_config_with_watch_paths(str(tmp_path), require_human_review=True, auto_dispatch=False)
+    n = run_once(task_store, config)
+
+    assert n == 1
+    needs_human = task_store.list_by_status("needs_human")
+    assert len(needs_human) == 1
+    t = needs_human[0]
+    assert t["title"] == "競馬分析ノート"
+    assert "ingester-review" in t.get("tags", [])
+    inbox = task_store.list_by_status("inbox")
+    assert len(inbox) == 0
+
+
+def test_require_human_review_not_duplicate_on_second_call(tmp_path, task_store):
+    md = tmp_path / "dup.md"
+    md.write_text("---\ntitle: 重複テスト\nsection: engineering\n---\n本文")
+
+    import airflow_mcp.ingester.main as im
+    im._seen_hashes.clear()
+
+    config = _make_config_with_watch_paths(str(tmp_path), require_human_review=True, auto_dispatch=False)
+    n1 = run_once(task_store, config)
+    im._seen_hashes.clear()
+    n2 = run_once(task_store, config)
+
+    assert n1 == 1
+    assert n2 == 0  # needs_human にすでにある → dedup
+
+
+def test_require_human_review_false_creates_inbox_task(tmp_path, task_store):
+    md = tmp_path / "auto.md"
+    md.write_text("---\ntitle: 自動ディスパッチ\nsection: engineering\n---\n本文")
+
+    import airflow_mcp.ingester.main as im
+    im._seen_hashes.clear()
+
+    config = _make_config_with_watch_paths(str(tmp_path), require_human_review=False, auto_dispatch=True)
+    n = run_once(task_store, config)
+
+    assert n == 1
+    inbox = task_store.list_by_status("inbox")
+    assert len(inbox) == 1
+    assert inbox[0]["title"] == "自動ディスパッチ"
+    assert "ingester-review" not in inbox[0].get("tags", [])
+
+
+def test_require_human_review_ingester_review_tag_merged_with_existing(tmp_path, task_store):
+    md = tmp_path / "tagged.md"
+    md.write_text("---\ntitle: タグ付きノート\nsection: engineering\ntags: [analysis, horse-racing]\n---\n内容")
+
+    import airflow_mcp.ingester.main as im
+    im._seen_hashes.clear()
+
+    config = _make_config_with_watch_paths(str(tmp_path), require_human_review=True, auto_dispatch=False)
+    run_once(task_store, config)
+
+    tasks = task_store.list_by_status("needs_human")
+    assert len(tasks) == 1
+    tags = tasks[0].get("tags", [])
+    assert "ingester-review" in tags
+
+
+def test_auto_dispatch_false_require_review_false_creates_no_task(tmp_path, task_store):
+    md = tmp_path / "skipped.md"
+    md.write_text("---\ntitle: スキップ\nsection: engineering\n---\n内容")
+
+    import airflow_mcp.ingester.main as im
+    im._seen_hashes.clear()
+
+    config = _make_config_with_watch_paths(str(tmp_path), require_human_review=False, auto_dispatch=False)
+    n = run_once(task_store, config)
+
+    assert n == 0
+    assert task_store.list_by_status("inbox") == []
+    assert task_store.list_by_status("needs_human") == []
+
+
+def test_confidential_always_skipped_regardless_of_require_review(tmp_path, task_store):
+    md = tmp_path / "secret.md"
+    md.write_text("---\ntitle: 機密\nsection: engineering\nconfidential: true\n---\n内容")
+
+    import airflow_mcp.ingester.main as im
+    im._seen_hashes.clear()
+
+    config = _make_config_with_watch_paths(str(tmp_path), require_human_review=True, auto_dispatch=False)
+    n = run_once(task_store, config)
+
+    assert n == 0
+    assert task_store.list_by_status("needs_human") == []
+
+
+# ── dashboard /review route ───────────────────────────
+
+def test_render_review_queue_empty(task_store):
+    from airflow_mcp.web.dashboard import render_review_queue
+    html = render_review_queue(task_store)
+    assert "レビュー待ちのタスクはありません" in html
+
+
+def _create_needs_human_task(task_store, title: str, tags: list[str], description: str = "") -> dict:
+    """テスト用: needs_human ステータスのタスクを作成する。"""
+    task = task_store.create({"title": title, "section": "engineering", "tags": tags,
+                              "description": description})
+    task_store.transition(task["id"], "needs_human", reason="test")
+    return task_store.get(task["id"])
+
+
+def test_render_review_queue_shows_ingester_review_tasks(task_store):
+    from airflow_mcp.web.dashboard import render_review_queue
+
+    _create_needs_human_task(task_store, "Vault ノートA", ["ingester-review", "analysis"],
+                             "競馬データ分析ノート")
+    html = render_review_queue(task_store)
+    assert "Vault ノートA" in html
+    assert "承認" in html
+    assert "却下" in html
+
+
+def test_render_review_queue_excludes_non_ingester_review(task_store):
+    from airflow_mcp.web.dashboard import render_review_queue
+
+    _create_needs_human_task(task_store, "通常の needs_human", ["some-other-tag"])
+    html = render_review_queue(task_store)
+    assert "レビュー待ちのタスクはありません" in html
+
+
+def test_render_review_queue_no_store():
+    from airflow_mcp.web.dashboard import render_review_queue
+    html = render_review_queue(None)
+    assert "Store unavailable" in html
+
+
+def test_dashboard_approve_action_transitions_to_inbox(tmp_path, task_store, monkeypatch):
+    from airflow_mcp.web.dashboard import _DashboardHandler
+
+    task = _create_needs_human_task(task_store, "レビュー待ちノート", ["ingester-review"])
+    task_id = task["id"]
+    _DashboardHandler.store = task_store
+
+    handler = _DashboardHandler.__new__(_DashboardHandler)
+    handler.__class__ = _DashboardHandler
+
+    sent_headers: list = []
+    handler.send_response = lambda code: sent_headers.append(code)
+    handler.send_header = lambda k, v: None
+    handler.end_headers = lambda: None
+
+    code, _, _ = handler.handle_post(f"/tasks/{task_id}/action", {"action": "approve"})
+    assert code == -1
+    updated = task_store.get(task_id)
+    assert updated["status"] == "inbox"
+
+
+def test_dashboard_reject_action_transitions_to_cancelled(tmp_path, task_store, monkeypatch):
+    from airflow_mcp.web.dashboard import _DashboardHandler
+
+    task = _create_needs_human_task(task_store, "却下ノート", ["ingester-review"])
+    task_id = task["id"]
+    _DashboardHandler.store = task_store
+
+    handler = _DashboardHandler.__new__(_DashboardHandler)
+    handler.__class__ = _DashboardHandler
+
+    sent_headers: list = []
+    handler.send_response = lambda code: sent_headers.append(code)
+    handler.send_header = lambda k, v: None
+    handler.end_headers = lambda: None
+
+    code, _, _ = handler.handle_post(f"/tasks/{task_id}/action", {"action": "reject"})
+    assert code == -1
+    updated = task_store.get(task_id)
+    assert updated["status"] == "cancelled"

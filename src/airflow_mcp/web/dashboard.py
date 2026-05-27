@@ -44,6 +44,7 @@ def _page(title: str, body: str, refresh: bool = True) -> str:
         "</head><body>"
         "<nav><a href='/'>Home</a> | "
         "<a href='/tasks'>Tasks</a> | "
+        "<a href='/review'>📋 レビューキュー</a> | "
         "<a href='/graph'>Graph</a> | "
         "<a href='/scheduler'>Scheduler</a> | "
         "<a href='/api/status'>API</a> | "
@@ -464,8 +465,26 @@ def render_task_detail(store: TaskStore, task_id: str) -> str | None:
         body += f"<p>Policy: {html.escape(join_info.get('policy', 'all'))} | Children: {child_links or '—'}</p>"
 
     # アクションフォーム
+    is_ingester_review = "ingester-review" in task.get("tags", [])
+    if is_ingester_review and task.get("status") == "needs_human":
+        body += f"""
+<h2>アクション（Vault ノート レビュー）</h2>
+<p>このタスクは Vault から取り込まれたノートです。承認するとエージェントへ割り振られます。</p>
+<form method='POST' action='/tasks/{html.escape(task_id)}/action' style='display:inline'>
+  <input type='hidden' name='action' value='approve'>
+  <button type='submit' style='background:#4a8;color:#fff;border:none;padding:.5em 1.5em;
+    border-radius:.3em;cursor:pointer;font-size:1.05em'>✅ 承認（inbox へ）</button>
+</form>
+&nbsp;
+<form method='POST' action='/tasks/{html.escape(task_id)}/action' style='display:inline'>
+  <input type='hidden' name='action' value='reject'>
+  <button type='submit' style='background:#c44;color:#fff;border:none;padding:.5em 1.5em;
+    border-radius:.3em;cursor:pointer;font-size:1.05em'>❌ 却下（cancelled）</button>
+</form>
+<hr style='margin:1.5em 0'>
+"""
     body += """
-<h2>アクション</h2>
+<h2>その他のアクション</h2>
 <form method='POST' action='""" + f"/tasks/{task_id}/action" + """'>
 <table style='width:auto;border:none'>
 <tr><td style='border:none;padding:.4em'><strong>操作</strong></td><td style='border:none'>
@@ -484,6 +503,63 @@ def render_task_detail(store: TaskStore, task_id: str) -> str | None:
 </form>
 """
     return _page(f"Task: {task_id[:16]}", body)
+
+
+def render_review_queue(store: "TaskStore | None") -> str:
+    """ingester-review タグの needs_human タスクを一覧表示するレビューキューページ。"""
+    if store is None:
+        return _page("レビューキュー", "<p>Store unavailable.</p>")
+
+    tasks = []
+    try:
+        for t in store.list_by_status("needs_human"):
+            if "ingester-review" in t.get("tags", []):
+                tasks.append(t)
+    except Exception as exc:
+        return _page("レビューキュー", f"<p>Error: {html.escape(str(exc))}</p>")
+
+    tasks.sort(key=lambda t: t.get("priority", 5))
+
+    if not tasks:
+        body = "<h2>📋 Vault ノート レビューキュー</h2><p>レビュー待ちのタスクはありません。</p>"
+        return _page("レビューキュー", body)
+
+    body = f"<h2>📋 Vault ノート レビューキュー（{len(tasks)} 件）</h2>"
+    body += "<p>Vault から取り込まれたノートを確認して承認または却下してください。</p>"
+
+    for t in tasks:
+        tid = t["id"]
+        title = html.escape(t.get("title", "(無題)"))
+        section = html.escape(t.get("section", "-"))
+        tags = ", ".join(html.escape(tag) for tag in t.get("tags", []) if tag != "ingester-review")
+        desc = html.escape((t.get("description") or "")[:400])
+        source = html.escape(t.get("source_note_id", "") or "")
+        created_at = html.escape(t.get("created_at", "")[:19])
+
+        body += f"""
+<div style='border:1px solid #ccc;border-radius:.4em;padding:1em;margin:1em 0;background:#fff9f9'>
+  <h3 style='margin:.2em 0'><a href='/tasks/{html.escape(tid)}'>{title}</a></h3>
+  <p style='margin:.3em 0;color:#666'>
+    section: <b>{section}</b> | tags: {tags or "—"} | 作成: {created_at}
+    {f"| source: <code>{source[:40]}</code>" if source else ""}
+  </p>
+  <pre style='background:#f8f8f8;padding:.6em;border-radius:.3em;max-height:200px;overflow:auto;white-space:pre-wrap'>{desc}</pre>
+  <form method='POST' action='/tasks/{html.escape(tid)}/action' style='display:inline'>
+    <input type='hidden' name='action' value='approve'>
+    <button type='submit' style='background:#4a8;color:#fff;border:none;padding:.4em 1.2em;
+      border-radius:.3em;cursor:pointer;font-size:1em'>✅ 承認（inbox へ）</button>
+  </form>
+  &nbsp;
+  <form method='POST' action='/tasks/{html.escape(tid)}/action' style='display:inline'>
+    <input type='hidden' name='action' value='reject'>
+    <button type='submit' style='background:#c44;color:#fff;border:none;padding:.4em 1.2em;
+      border-radius:.3em;cursor:pointer;font-size:1em'>❌ 却下</button>
+  </form>
+  &nbsp;
+  <a href='/tasks/{html.escape(tid)}' style='font-size:.9em'>詳細を見る →</a>
+</div>"""
+
+    return _page("レビューキュー", body)
 
 
 def render_scheduler() -> str:
@@ -559,6 +635,10 @@ class _DashboardHandler(_BaseHandler):
                 return 200, "text/html; charset=utf-8", content
             return 200, "text/html; charset=utf-8", _page("Tasks", "<p>No store configured.</p>")
 
+        if path == "/review":
+            content = render_review_queue(store)
+            return 200, "text/html; charset=utf-8", content
+
         if path == "/graph":
             content = render_graph(store) if store is not None else _page("Graph", "<p>No store configured.</p>")
             return 200, "text/html; charset=utf-8", content
@@ -602,6 +682,8 @@ class _DashboardHandler(_BaseHandler):
                 "reconsider": "🔍 [再検討指示]",
                 "deep_dive": "🔬 [深堀り要求]",
                 "continue": "▶️ [後続処理指示]",
+                "approve": "✅ [承認]",
+                "reject": "❌ [却下]",
             }.get(action, "📝 [手動指示]")
 
             note_body = f"{note_prefix} {instruction}" if instruction else note_prefix
@@ -609,7 +691,14 @@ class _DashboardHandler(_BaseHandler):
             try:
                 store.add_handoff_note(task_id, note_body, author="dashboard")
 
-                if action == "retry":
+                if action == "approve":
+                    # ingester-review タスクを inbox へ（F-08 人間承認フロー）
+                    store.transition(task_id, "inbox", reason="human:approved")
+
+                elif action == "reject":
+                    store.transition(task_id, "cancelled", reason="human:rejected")
+
+                elif action == "retry":
                     store.transition(task_id, "inbox", reason="manual:retry")
 
                 elif action in ("reconsider", "deep_dive"):

@@ -47,10 +47,10 @@ def _validate_task_id(task_id: str) -> None:
         raise TaskNotFound(task_id)  # 不正 ID は存在しないものとして扱う
 
 _TRANSITIONS: dict[str, set[str]] = {
-    "inbox":       {"in_progress", "cancelled"},
+    "inbox":       {"in_progress", "needs_human", "cancelled"},
     "in_progress": {"done", "needs_human", "blocked", "cancelled"},
-    "needs_human": {"in_progress", "cancelled"},
-    "blocked":     {"in_progress", "cancelled"},
+    "needs_human": {"in_progress", "inbox", "cancelled"},
+    "blocked":     {"in_progress", "inbox", "cancelled"},
     "done":        set(),
     "cancelled":   set(),
 }

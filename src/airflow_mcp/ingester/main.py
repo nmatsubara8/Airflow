@@ -69,16 +69,19 @@ def run_once(store: TaskStore, config: dict[str, Any]) -> int:
             watch_entries.append({
                 "path": normalize_path(raw_path),
                 "auto_dispatch": entry.get("auto_dispatch", True),
+                "require_human_review": entry.get("require_human_review", False),
             })
     else:
         for p in (config.get("watch", {}).get("paths") or []):
             raw = p.replace("${VAULT_ROOT}", os.environ.get("VAULT_ROOT", ""))
-            watch_entries.append({"path": normalize_path(raw), "auto_dispatch": True})
+            watch_entries.append({"path": normalize_path(raw), "auto_dispatch": True,
+                                  "require_human_review": False})
 
     if not watch_entries:
         vault_root = os.environ.get("VAULT_ROOT", "")
         if vault_root:
-            watch_entries = [{"path": vault_root, "auto_dispatch": True}]
+            watch_entries = [{"path": vault_root, "auto_dispatch": True,
+                              "require_human_review": False}]
 
     settle_ms: int = config.get("stability", {}).get("settle_ms", 500)
     max_bytes: int = config.get("stability", {}).get("max_file_size_bytes", 524288)
@@ -89,9 +92,9 @@ def run_once(store: TaskStore, config: dict[str, Any]) -> int:
     created = 0
 
     # content_hash の O(1) dedup セットをスキャン開始前に一度だけ構築。
-    # done は大量になり得るため inbox・in_progress のみを対象にする（_seen_hashes が補完）。
+    # done は大量になり得るため inbox・in_progress・needs_human のみを対象にする（_seen_hashes が補完）。
     _active_hashes: set[str] = set()
-    for status in ("inbox", "in_progress"):
+    for status in ("inbox", "in_progress", "needs_human"):
         for t in store.list_by_status(status):
             ch = t.get("content_hash")
             if ch:
@@ -100,6 +103,7 @@ def run_once(store: TaskStore, config: dict[str, Any]) -> int:
     for entry in watch_entries:
         watch_path = entry["path"]
         auto_dispatch: bool = entry["auto_dispatch"]
+        require_human_review: bool = entry.get("require_human_review", False)
         base = Path(watch_path)
         if not base.exists():
             continue
@@ -134,22 +138,39 @@ def run_once(store: TaskStore, config: dict[str, Any]) -> int:
                 confidential=confidential,
             )
 
-            # auto_dispatch=False または confidential=True のパスはタスク生成しない
-            if not auto_dispatch or confidential:
+            # confidential=True のパスはタスク生成しない（notes index のみ）
+            if confidential:
+                _seen_hashes.add(content_hash)
+                continue
+
+            # auto_dispatch=False かつ require_human_review=False → タスク生成しない
+            if not auto_dispatch and not require_human_review:
                 _seen_hashes.add(content_hash)
                 continue
 
             if content_hash in _seen_hashes:
                 continue
 
-            # dedup: アクティブタスク（inbox/in_progress）に同一 content_hash がないか確認
+            # dedup: アクティブタスク（inbox/in_progress/needs_human）に同一 content_hash がないか確認
             if content_hash in _active_hashes:
                 _seen_hashes.add(content_hash)
                 continue
 
             fields = frontmatter_to_task_fields(parsed)
             fields["source_note_id"] = note_id
-            task = store.create({**fields, "owner": None})
+
+            if require_human_review:
+                # 人間レビュー待ちタスクとして生成（F-06 / F-08）
+                existing_tags = fields.get("tags", [])
+                fields["tags"] = list({*existing_tags, "ingester-review"})
+                task = store.create({**fields, "owner": None})
+                store.transition(task["id"], "needs_human",
+                                 reason="ingester:human_review_required")
+                logger.info("ingested (needs_human): %s → %s", md_path.name, task["id"])
+            else:
+                task = store.create({**fields, "owner": None})
+                logger.info("ingested: %s → %s", md_path.name, task["id"])
+
             _active_hashes.add(content_hash)
 
             from ..common.audit import now_iso

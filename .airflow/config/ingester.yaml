@@ -1,9 +1,20 @@
 # Vault Ingestion Configuration (DDD-04)
 # Monitors Obsidian Vault directories and converts .md files into tasks
 
+# watch_paths: 新形式（F-06 + F-08 対応）
+# require_human_review: true → needs_human として生成、ダッシュボードで人間が承認
+# auto_dispatch: true       → inbox に直接投入（エージェントが自動処理）
+watch_paths:
+  - path: "${VAULT_ROOT}/notes/Keiba"
+    auto_dispatch: false
+    require_human_review: true    # 人間がダッシュボードで確認してから dispatch (F-08)
+  - path: "${VAULT_ROOT}/notes/Inbox"
+    auto_dispatch: true
+    require_human_review: false   # Inbox 直下は自動 dispatch
+
+# レガシー形式（watch_paths が未設定の場合のフォールバック）
 watch:
-  paths:
-    - "${VAULT_ROOT}/notes/Keiba"        # primary drop zone (MVP target)
+  paths: []
   glob: "**/*.md"
   exclude:
     - "**/_archive/**"
