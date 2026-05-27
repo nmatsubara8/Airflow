@@ -180,6 +180,27 @@ def render_task_detail(store: TaskStore, task_id: str) -> str | None:
         )
         body += f"<p>Policy: {html.escape(join_info.get('policy', 'all'))} | Children: {child_links or '—'}</p>"
 
+    # アクションフォーム
+    status = task.get("status", "")
+    body += """
+<h2>アクション</h2>
+<form method='POST' action='""" + f"/tasks/{task_id}/action" + """'>
+<table style='width:auto;border:none'>
+<tr><td style='border:none;padding:.4em'><strong>操作</strong></td><td style='border:none'>
+  <label><input type='radio' name='action' value='note' checked> 📝 メモ追加（指示・コメント）</label><br>
+  <label><input type='radio' name='action' value='retry'> 🔄 やり直し（inbox に戻す）</label><br>
+  <label><input type='radio' name='action' value='reconsider'> 🔍 再検討（同エージェントで再処理）</label><br>
+  <label><input type='radio' name='action' value='deep_dive'> 🔬 深堀り（詳細分析を要求）</label><br>
+  <label><input type='radio' name='action' value='continue'> ▶️ 後続処理（次ステップへ進める）</label>
+</td></tr>
+<tr><td style='border:none;padding:.4em'><strong>指示内容</strong></td>
+<td style='border:none'><textarea name='instruction' rows='3' cols='60' placeholder='追加の指示・コメントを入力（任意）'></textarea></td></tr>
+<tr><td style='border:none'></td><td style='border:none'>
+  <button type='submit' style='padding:.4em 1.2em;font-size:1em'>実行</button>
+</td></tr>
+</table>
+</form>
+"""
     return _page(f"Task: {task_id[:16]}", body)
 
 
@@ -263,6 +284,67 @@ class _DashboardHandler(_BaseHandler):
             return 200, "application/json; charset=utf-8", render_api_status(store)
 
         return 404, "text/html; charset=utf-8", _page("Not Found", "<p>Page not found.</p>")
+
+    def handle_post(self, path: str, form: dict[str, str]) -> tuple[int, str, str]:
+        store = self.__class__.store
+        if store is None:
+            return 503, "text/html; charset=utf-8", _page("Error", "<p>Store not available.</p>")
+
+        # POST /tasks/<id>/action
+        if path.startswith("/tasks/") and path.endswith("/action"):
+            task_id = path[len("/tasks/"):-len("/action")]
+            action = form.get("action", "note")
+            instruction = form.get("instruction", "").strip()
+
+            try:
+                task = store.get(task_id)
+            except Exception:
+                return 404, "text/html; charset=utf-8", _page("Not Found", f"<p>Task {html.escape(task_id)} not found.</p>")
+
+            current_status = task.get("status", "")
+            owner = task.get("owner")
+            if isinstance(owner, dict):
+                owner = owner.get("id", "")
+
+            note_prefix = {
+                "note": "📝 [手動指示]",
+                "retry": "🔄 [やり直し指示]",
+                "reconsider": "🔍 [再検討指示]",
+                "deep_dive": "🔬 [深堀り要求]",
+                "continue": "▶️ [後続処理指示]",
+            }.get(action, "📝 [手動指示]")
+
+            note_body = f"{note_prefix} {instruction}" if instruction else note_prefix
+
+            try:
+                store.add_handoff_note(task_id, note_body, author="dashboard")
+
+                if action == "retry":
+                    store.transition(task_id, "inbox", reason="manual:retry")
+
+                elif action in ("reconsider", "deep_dive"):
+                    # inbox に戻して dispatcher に再割り当てさせる
+                    if current_status != "inbox":
+                        store.transition(task_id, "inbox", reason=f"manual:{action}")
+
+                elif action == "continue":
+                    # needs_human / blocked → in_progress に戻す
+                    if current_status in ("needs_human", "blocked", "done"):
+                        store.transition(task_id, "inbox", reason="manual:continue")
+
+                # note のみの場合はステータス変更なし
+
+            except Exception as exc:
+                logger.error("dashboard action error task=%s: %s", task_id, exc)
+                return 500, "text/html; charset=utf-8", _page("Error", f"<p>Action failed: {html.escape(str(exc))}</p>")
+
+            # 処理後はタスク詳細ページにリダイレクト
+            self.send_response(303)
+            self.send_header("Location", f"/tasks/{task_id}")
+            self.end_headers()
+            return -1, "", ""  # _send は呼ばれない（既に send_response 済み）
+
+        return 405, "text/html; charset=utf-8", _page("Error", "<p>Method Not Allowed</p>")
 
 
 def start_dashboard(
