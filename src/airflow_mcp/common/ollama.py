@@ -38,20 +38,39 @@ def call_chat(base_url: str, payload: dict[str, Any], timeout_s: float) -> str:
     if content:
         return content
 
-    # content が空 → thinking モデルが format: と競合している可能性
+    # content が空 → thinking モデルが応答を message.thinking に書いている
+    thinking = data.get("message", {}).get("thinking", "")
+    if thinking:
+        extracted = _extract_json(thinking)
+        if extracted != thinking:  # JSON が見つかった
+            logger.info(
+                "Extracted JSON from message.thinking (%d chars) — thinking model without content",
+                len(thinking),
+            )
+            return extracted
+
     # format: を除いて再試行し、レスポンスから JSON を抽出する
-    thinking_len = len(data.get("message", {}).get("thinking", ""))
     logger.warning(
         "Ollama returned empty content (thinking_len=%d) — retrying without format: constraint",
-        thinking_len,
+        len(thinking),
     )
     payload_no_fmt = {k: v for k, v in payload.items() if k != "format"}
     resp2 = httpx.post(f"{base_url}/api/chat", json=payload_no_fmt, timeout=timeout_s)
     resp2.raise_for_status()
-    content2 = resp2.json().get("message", {}).get("content", "")
-    if not content2:
-        raise ValueError(
-            f"Ollama returned empty content even without format: constraint "
-            f"(response keys: {list(resp2.json().keys())})"
-        )
-    return _extract_json(content2)
+    data2 = resp2.json()
+    content2 = data2.get("message", {}).get("content", "")
+    if content2:
+        return _extract_json(content2)
+
+    # format: なしでも content が空 → thinking フィールドを確認
+    thinking2 = data2.get("message", {}).get("thinking", "")
+    if thinking2:
+        extracted2 = _extract_json(thinking2)
+        if extracted2 != thinking2:
+            logger.info("Extracted JSON from thinking (no-format retry), thinking_len=%d", len(thinking2))
+            return extracted2
+
+    raise ValueError(
+        f"Ollama returned empty content even without format: constraint "
+        f"(thinking_len={len(thinking2)}, response keys: {list(data2.keys())})"
+    )
