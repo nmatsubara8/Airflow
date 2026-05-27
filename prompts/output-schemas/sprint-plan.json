@@ -1,0 +1,56 @@
+{
+  "type": "object",
+  "required": ["week_goal", "summary", "top_priorities", "agent_actions", "blockers", "risks"],
+  "properties": {
+    "week_goal": {
+      "type": "string",
+      "description": "今週の主要ゴール（1〜2文）"
+    },
+    "summary": {
+      "type": "string",
+      "description": "タスクボード現状サマリー（3〜5文）"
+    },
+    "top_priorities": {
+      "type": "array",
+      "description": "今週優先すべきタスク上位5件",
+      "minItems": 1,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["task_id", "title", "reason"],
+        "properties": {
+          "task_id": { "type": "string" },
+          "title":   { "type": "string" },
+          "reason":  { "type": "string" }
+        }
+      }
+    },
+    "agent_actions": {
+      "type": "object",
+      "description": "エージェントIDをキー、今週のアクション指示を値とするマップ",
+      "additionalProperties": { "type": "string" }
+    },
+    "blockers": {
+      "type": "array",
+      "description": "解消が必要なブロッカーリスト",
+      "items": {
+        "type": "object",
+        "required": ["description", "action"],
+        "properties": {
+          "description": { "type": "string" },
+          "action":      { "type": "string" }
+        }
+      }
+    },
+    "done_count_last_week": {
+      "type": "integer",
+      "description": "先週完了タスク数（統計から算出）",
+      "minimum": 0
+    },
+    "risks": {
+      "type": "array",
+      "description": "今週のリスク事項",
+      "items": { "type": "string" }
+    }
+  }
+}

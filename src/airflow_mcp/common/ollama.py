@@ -1,7 +1,6 @@
 """Ollama HTTP 呼び出しプリミティブ（runner / models 共用）。"""
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re

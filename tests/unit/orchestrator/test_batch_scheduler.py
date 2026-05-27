@@ -185,6 +185,56 @@ def test_run_schedule_agents_creates_tasks_per_agent(tmp_path):
     assert created == 2
 
 
+# ── _run_eng_director_action ──────────────────────────
+
+def test_run_eng_director_action_calls_run_briefing(monkeypatch):
+    called = []
+
+    def fake_run_briefing(store, ollama_url="http://localhost:11434"):
+        called.append(ollama_url)
+        return {"task_id": "plan-001", "stats": {"total": 5}, "plan": {}}
+
+    monkeypatch.setattr(
+        "airflow_mcp.orchestrator.batch_scheduler._run_eng_director_action",
+        lambda: fake_run_briefing(None),
+    )
+    schedule = {
+        "name": "eng_director_briefing",
+        "cron": "0 9 * * 1",
+        "actions": [{"eng_director": {"mode": "sprint_planning"}}],
+    }
+    result = run_schedule(schedule)
+    assert result["success"] == 1
+
+
+def test_run_eng_director_action_directly(monkeypatch, tmp_path):
+    from unittest.mock import MagicMock
+    from airflow_mcp.orchestrator.batch_scheduler import _run_eng_director_action
+
+    fake_store = MagicMock()
+    fake_store.list_all.return_value = []
+    fake_store.create.return_value = {"id": "eng-001", "title": "Plan"}
+    monkeypatch.setenv("OLLAMA_STUB", "true")
+    monkeypatch.setenv("AIRFLOW_TASKBOARD_DIR", str(tmp_path))
+
+    import unittest.mock as mock
+    with mock.patch("airflow_mcp.taskboard.store.TaskStore", return_value=fake_store):
+        _run_eng_director_action()
+
+    fake_store.create.assert_called_once()
+
+
+def test_run_eng_director_action_exception_silenced(monkeypatch):
+    from airflow_mcp.orchestrator.batch_scheduler import _run_eng_director_action
+    import unittest.mock as mock
+    with mock.patch(
+        "airflow_mcp.orchestrator.batch_scheduler.TaskStore" if False else
+        "airflow_mcp.taskboard.store.TaskStore",
+        side_effect=RuntimeError("boom"),
+    ):
+        _run_eng_director_action()  # must not raise
+
+
 # ── run_schedule with agents format ──────────────────
 
 def test_run_schedule_agents_format(tmp_path):

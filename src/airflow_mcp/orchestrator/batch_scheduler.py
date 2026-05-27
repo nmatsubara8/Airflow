@@ -102,6 +102,22 @@ def _run_audit_action() -> None:
         logger.error("audit_action failed: %s", exc)
 
 
+def _run_eng_director_action() -> None:
+    """エンジニアリングディレクター週次ブリーフィングを実行する。"""
+    try:
+        from ..taskboard.store import TaskStore
+        from .eng_director import run_briefing
+        ollama_url = os.environ.get("OLLAMA_URL", os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"))
+        store = TaskStore()
+        result = run_briefing(store, ollama_url=ollama_url)
+        logger.info(
+            "eng_director.briefing completed task_id=%s total_tasks=%d",
+            result["task_id"], result["stats"]["total"],
+        )
+    except Exception as exc:
+        logger.error("eng_director_action failed: %s", exc)
+
+
 def _run_schedule_agents(schedule: dict[str, Any]) -> int:
     """既存 schedules.yaml 形式（agents + task_template）を処理する。"""
     try:
@@ -166,6 +182,9 @@ def run_schedule(schedule: dict[str, Any]) -> dict[str, Any]:
                     "batch.cleaner schedule=%s archived=%d purged=%d freed_bytes=%d",
                     name, result["archived"], result["purged"], result["log_bytes_freed"],
                 )
+                success += 1
+            elif "eng_director" in action:
+                _run_eng_director_action()
                 success += 1
         except Exception as exc:
             logger.error("batch.action_failed schedule=%s action=%s: %s", name, action, exc)

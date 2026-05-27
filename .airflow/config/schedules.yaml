@@ -27,13 +27,9 @@ schedules:
   # Engineering director weekly — Mon (DDD-08 §7.1)
   eng_director_briefing:
     cron: "0 9 * * 1"             # 09:00 every Monday
-    task_template: eng_director_briefing
-    category: engineering
-    priority: 4
-    agents:
-      - agent_eng_director
     description: "エンジニアリングディレクター週次ブリーフィング（月）"
-    executor: airflow-scheduler.service  # エージェント不要、直接実行
+    actions:
+      - eng_director: { mode: sprint_planning }
 
   # Content morning brainstorm — daily (DDD-08 §7.1)
   morning_brainstorm:
