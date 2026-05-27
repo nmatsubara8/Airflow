@@ -31,6 +31,7 @@ services:
       - ./.airflow/config:/app/.airflow/config:ro
       - ./.airflow/notes:/app/.airflow/notes
       - ./.airflow/models:/app/.airflow/models:ro
+      - ./prompts:/app/prompts:ro
     env_file: .env
     environment:
       OLLAMA_BASE_URL: http://ollama:11434
@@ -51,6 +52,7 @@ services:
       - ./.airflow/execution_logs:/app/.airflow/execution_logs
       - ./.airflow/notes:/app/.airflow/notes
       - ./.airflow/models:/app/.airflow/models:ro
+      - ./prompts:/app/prompts:ro
     env_file: .env
     environment:
       OLLAMA_URL: http://ollama:11434
