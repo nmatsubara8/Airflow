@@ -480,11 +480,12 @@ def _cli() -> None:
     ollama_url = validate_ollama_url(
         os.environ.get("OLLAMA_URL", "http://localhost:11434")
     )
+    agent_id = os.environ.get("AIRFLOW_AGENT_ID", "agent_docs")
     ctx = ExecutionContext(
         store=TaskStore(),
         model_config=load_model_config(),
         registry=_load_registry(),
-        agent_id="agent_docs",
+        agent_id=agent_id,
         ollama_url=ollama_url,
     )
     run_loop(ctx)

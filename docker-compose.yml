@@ -65,6 +65,30 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  # ── Runner-PM (agent_pm execution loop) ─────────────────────────────────
+  runner-pm:
+    build: .
+    command: ["python", "-m", "airflow_mcp.runner.main"]
+    user: "1000:1000"
+    volumes:
+      - ./.airflow/tasks:/data/tasks
+      - ./.airflow/config:/app/.airflow/config:ro
+      - ./.airflow/execution_logs:/app/.airflow/execution_logs
+      - ./.airflow/notes:/app/.airflow/notes
+      - ./.airflow/models:/app/.airflow/models:ro
+      - ./prompts:/app/prompts:ro
+    env_file: .env
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      AIRFLOW_TASKBOARD_DIR: /data/tasks
+      AIRFLOW_AGENT_ID: agent_pm
+    depends_on:
+      ollama:
+        condition: service_healthy
+      dispatcher:
+        condition: service_started
+    restart: unless-stopped
+
   # ── Dashboard (status display loop) ──────────────────────────────────────
   dashboard:
     build: .
