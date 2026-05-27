@@ -14,7 +14,7 @@ if [ -f "$ENV_FILE" ]; then
         line="${line%%#*}"
         line="${line%"${line##*[![:space:]]}"}"
         [ -z "$line" ] && continue
-        export "$line"
+        export "$line" 2>/dev/null || true
     done < "$ENV_FILE"
 fi
 
