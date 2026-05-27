@@ -722,6 +722,18 @@ def render_task_detail(store: TaskStore, task_id: str) -> str | None:
 </td></tr>
 </table>
 </form>
+
+<h2>Description 編集</h2>
+<form method='POST' action='/tasks/""" + task_id + """/action'>
+<input type='hidden' name='action' value='edit_description'>
+<textarea name='new_description' rows='12'
+  style='width:100%;max-width:860px;resize:vertical;font-family:monospace;font-size:.93em;padding:.5em'
+  >""" + html.escape(task.get("description", "")) + """</textarea><br>
+<button type='submit' style='margin-top:.5em;padding:.4em 1.2em;font-size:1em;
+  background:#4466cc;color:#fff;border:none;border-radius:.3em;cursor:pointer'>
+  💾 Description を更新
+</button>
+</form>
 """
     return _page(f"Task: {task_id[:16]}", body)
 
@@ -896,6 +908,26 @@ class _DashboardHandler(_BaseHandler):
             owner = task.get("owner")
             if isinstance(owner, dict):
                 owner = owner.get("id", "")
+
+            # description 直接編集
+            if action == "edit_description":
+                new_desc = form.get("new_description", "").strip()
+                try:
+                    current_version = task["lock"]["version"]
+                    store.update(task_id, current_version, {"description": new_desc})
+                    store.add_handoff_note(
+                        task_id,
+                        "✏️ [description 更新] 人間が直接編集",
+                        author="dashboard",
+                        description_snapshot=task.get("description", ""),
+                    )
+                except Exception as exc:
+                    logger.error("edit_description error task=%s: %s", task_id, exc)
+                    return 500, "text/html; charset=utf-8", _page("Error", f"<p>Update failed: {html.escape(str(exc))}</p>")
+                self.send_response(303)
+                self.send_header("Location", f"/tasks/{task_id}")
+                self.end_headers()
+                return -1, "", ""
 
             note_prefix = {
                 "note": "📝 [手動指示]",
