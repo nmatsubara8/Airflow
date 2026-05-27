@@ -109,207 +109,232 @@ def render_graph(store: "TaskStore") -> str:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
     body = f"""
-<p style="color:#666;font-size:.9em">Generated: {now} | {len(data['nodes'])} tasks | {len(data['edges'])} edges</p>
-<div id="tabs" style="margin-bottom:.5em">
-  <button onclick="showTab('graph')" id="tab-graph" class="tab-btn active">依存グラフ</button>
-  <button onclick="showTab('timeline')" id="tab-timeline" class="tab-btn">タイムライン</button>
-  <span style="margin-left:1em;font-size:.85em;color:#888">ノードをクリック→詳細 | ドラッグで移動</span>
+<p style="color:#666;font-size:.9em">Generated: {now} | {len(data['nodes'])} tasks | {len(data['edges'])} edges
+&nbsp;|&nbsp;<a href="/api/graph">JSON</a>
+&nbsp;<button onclick="location.reload()" style="font-size:.85em;padding:.1em .6em">↺ 更新</button>
+</p>
+<div id="tabs" style="margin-bottom:.8em">
+  <button onclick="showTab('timeline')" id="tab-timeline" class="tab-btn active">📅 タイムライン</button>
+  <button onclick="showTab('graph')" id="tab-graph" class="tab-btn">🔗 依存グラフ</button>
 </div>
-<div id="view-graph">
-  <svg id="graph-svg" style="width:100%;height:620px;border:1px solid #ddd;background:#fafafa;border-radius:4px"></svg>
-</div>
-<div id="view-timeline" style="display:none">
-  <div id="timeline-container" style="overflow-x:auto">
-    <svg id="timeline-svg" style="min-width:800px;border:1px solid #ddd;background:#fafafa;border-radius:4px"></svg>
+<div id="view-timeline">
+  <div id="timeline-wrap" style="overflow-x:auto;border:1px solid #ddd;border-radius:4px;background:#fafafa">
+    <svg id="timeline-svg"></svg>
   </div>
 </div>
-<div id="tt" style="position:fixed;display:none;background:rgba(0,0,0,.82);color:#fff;padding:.4em .7em;border-radius:4px;font-size:.85em;pointer-events:none;max-width:280px;z-index:999"></div>
+<div id="view-graph" style="display:none">
+  <p style="color:#888;font-size:.85em">※ tasks.join で親子関係が作られるとエッジが表示されます。ドラッグ可能。</p>
+  <svg id="graph-svg" style="width:100%;height:640px;border:1px solid #ddd;background:#fafafa;border-radius:4px"></svg>
+</div>
+<div id="tt" style="position:fixed;display:none;background:rgba(0,0,0,.85);color:#fff;padding:.5em .8em;border-radius:5px;font-size:.82em;pointer-events:none;max-width:320px;z-index:999;line-height:1.5"></div>
 
 <style>
-.tab-btn{{padding:.3em .9em;cursor:pointer;border:1px solid #ccc;background:#f0f0f0;border-radius:3px;margin-right:.3em}}
+.tab-btn{{padding:.35em 1em;cursor:pointer;border:1px solid #ccc;background:#f0f0f0;border-radius:3px;margin-right:.3em;font-size:.95em}}
 .tab-btn.active{{background:#0066cc;color:#fff;border-color:#0066cc}}
 </style>
-
 <script src="https://d3js.org/d3.v7.min.js"></script>
 <script>
 const DATA = {data_json};
-const STATUS_COLOR = {{
-  inbox:'#aaccff', in_progress:'#ffe88a', done:'#88dd88',
-  needs_human:'#ff9999', blocked:'#ffcc77', cancelled:'#cccccc'
+const SC = {{
+  inbox:'#aaccff', in_progress:'#ffe470', done:'#77cc77',
+  needs_human:'#ff8888', blocked:'#ffbb55', cancelled:'#cccccc'
 }};
-const SECTION_X = {{}};
 
 function showTab(t){{
-  document.getElementById('view-graph').style.display = t==='graph'?'':'none';
-  document.getElementById('view-timeline').style.display = t==='timeline'?'':'none';
+  ['graph','timeline'].forEach(v=>document.getElementById('view-'+v).style.display=v===t?'':'none');
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
   document.getElementById('tab-'+t).classList.add('active');
-  if(t==='timeline') drawTimeline();
 }}
 
-// ── 依存グラフ ──────────────────────────────────
-(function(){{
-  const svg = d3.select('#graph-svg');
-  const el = svg.node().getBoundingClientRect();
-  const W = el.width || 900, H = 620;
-  svg.attr('viewBox',`0 0 ${{W}} ${{H}}`);
-  const tt = document.getElementById('tt');
+const tt = document.getElementById('tt');
+function tip(html){{ tt.style.display='block'; tt.innerHTML=html; }}
+function tipMove(e){{ tt.style.left=(e.pageX+14)+'px'; tt.style.top=(e.pageY-34)+'px'; }}
+function tipHide(){{ tt.style.display='none'; }}
 
-  svg.append('defs').append('marker')
-    .attr('id','arr').attr('viewBox','0 -4 8 8').attr('refX',22)
-    .attr('markerWidth',5).attr('markerHeight',5).attr('orient','auto')
-    .append('path').attr('d','M0,-4L8,0L0,4').attr('fill','#888');
+// ════════════════════════════════════════
+//  タイムライン（デフォルト表示）
+// ════════════════════════════════════════
+(function drawTimeline(){{
+  if(!DATA.nodes.length){{ document.getElementById('timeline-wrap').innerHTML='<p style="padding:1em;color:#999">タスクがありません</p>'; return; }}
 
-  if(DATA.nodes.length===0){{
-    svg.append('text').attr('x',W/2).attr('y',H/2).attr('text-anchor','middle')
-      .style('fill','#999').text('タスクがありません');
-    return;
+  const sections = [...new Set(DATA.nodes.map(n=>n.section||'other'))].sort();
+  const ROW_H = 64, ML = 90, MT = 44, MR = 20, MB = 20;
+  const COL_W = Math.max(220, Math.floor((Math.max(900,sections.length*230)-ML-MR)/sections.length));
+  const W = ML + sections.length*COL_W + MR;
+
+  const sorted = [...DATA.nodes].sort((a,b)=>new Date(a.created_at||0)-new Date(b.created_at||0));
+  const H = MT + sorted.length*ROW_H + MB;
+
+  const svg = d3.select('#timeline-svg').attr('viewBox',`0 0 ${{W}} ${{H}}`).attr('width',W).attr('height',H);
+
+  // background stripes
+  sorted.forEach((_,i)=>{{
+    svg.append('rect').attr('x',0).attr('y',MT+i*ROW_H).attr('width',W).attr('height',ROW_H)
+      .attr('fill',i%2?'#f7f7f7':'#fff');
+  }});
+
+  // time axis
+  const tMin = new Date(sorted[0].created_at||Date.now());
+  const tMax = new Date(sorted[sorted.length-1].created_at||Date.now());
+  const tEq = tMin.getTime()===tMax.getTime();
+  const tScale = d3.scaleTime()
+    .domain(tEq?[new Date(tMin.getTime()-60000),new Date(tMin.getTime()+60000)]:[tMin,tMax])
+    .range([MT+ROW_H/2, H-MB-ROW_H/2]);
+  svg.append('g').attr('transform',`translate(${{ML}},0)`)
+    .call(d3.axisLeft(tScale).ticks(Math.min(8,sorted.length)).tickFormat(d3.timeFormat('%m/%d %H:%M')))
+    .style('font-size','10px');
+
+  // column headers
+  sections.forEach((sec,i)=>{{
+    const cx = ML + i*COL_W + COL_W/2;
+    svg.append('rect').attr('x',ML+i*COL_W).attr('y',0).attr('width',COL_W).attr('height',MT)
+      .attr('fill',i%2?'#e8eef8':'#dde4f0');
+    svg.append('text').attr('x',cx).attr('y',MT-8).attr('text-anchor','middle')
+      .style('font-size','12px').style('font-weight','bold').style('fill','#334').text(sec);
+    svg.append('line').attr('x1',cx).attr('x2',cx).attr('y1',MT).attr('y2',H)
+      .attr('stroke','#ddd').attr('stroke-width',1);
+  }});
+
+  // node positions
+  const secIdx = Object.fromEntries(sections.map((s,i)=>[s,i]));
+  const pos = {{}};
+  sorted.forEach(n=>{{
+    const si = secIdx[n.section||'other']??0;
+    pos[n.id] = {{ x: ML+si*COL_W+COL_W/2, y: tScale(new Date(n.created_at||tMin)) }};
+  }});
+
+  // edges
+  DATA.edges.forEach(e=>{{
+    const s=pos[typeof e.source==='object'?e.source.id:e.source];
+    const t=pos[typeof e.target==='object'?e.target.id:e.target];
+    if(!s||!t) return;
+    const mid=(s.y+t.y)/2;
+    svg.append('path')
+      .attr('d',`M${{s.x}},${{s.y}} C${{s.x}},${{mid}} ${{t.x}},${{mid}} ${{t.x}},${{t.y}}`)
+      .attr('fill','none').attr('stroke',e.type==='spawn'?'#d05000':'#7777bb')
+      .attr('stroke-width',2).attr('opacity',.7)
+      .attr('marker-end','url(#arr-tl)');
+  }});
+  if(DATA.edges.length){{
+    svg.append('defs').append('marker').attr('id','arr-tl')
+      .attr('viewBox','0 -4 8 8').attr('refX',14).attr('markerWidth',5).attr('markerHeight',5).attr('orient','auto')
+      .append('path').attr('d','M0,-4L8,0L0,4').attr('fill','#888');
   }}
 
-  const tMin = Math.min(...DATA.nodes.map(n=>new Date(n.created_at||0).getTime()));
-  const tMax = Math.max(...DATA.nodes.map(n=>new Date(n.created_at||0).getTime()));
-  const tRange = tMax - tMin || 1;
+  // nodes
+  sorted.forEach(n=>{{
+    const p=pos[n.id]; if(!p) return;
+    const g=svg.append('g').attr('transform',`translate(${{p.x}},${{p.y}})`)
+      .attr('cursor','pointer')
+      .on('click',()=>window.location.href='/tasks/'+n.id)
+      .on('mouseover',e=>{{
+        tip(`<b>${{n.title}}</b><br>🔵 状態: ${{n.status}}<br>👤 担当: ${{n.owner||'—'}}<br>📁 section: ${{n.section}}<br>${{n.agent_flow?'🔗 '+n.agent_flow:''}}${{n.created_at?'<br>🕐 '+n.created_at.substring(0,19).replace('T',' '):''}}`);
+        tipMove(e);
+      }})
+      .on('mousemove',tipMove).on('mouseout',tipHide);
 
-  const sim = d3.forceSimulation(DATA.nodes)
-    .force('link', d3.forceLink(DATA.edges).id(d=>d.id).distance(110).strength(0.8))
-    .force('charge', d3.forceManyBody().strength(-260))
-    .force('center', d3.forceCenter(W/2, H/2))
-    .force('y', d3.forceY(d=>{{
-      const t = new Date(d.created_at||0).getTime();
-      return 50 + (t-tMin)/tRange*(H-100);
-    }}).strength(0.25))
-    .force('collision', d3.forceCollide(24));
+    // card background
+    const CW=COL_W-20, CH=52;
+    g.append('rect').attr('x',-CW/2).attr('y',-CH/2).attr('width',CW).attr('height',CH)
+      .attr('rx',6).attr('fill',SC[n.status]||'#eee')
+      .attr('stroke',n.status==='needs_human'?'#c00':'#aaa').attr('stroke-width',1.2);
 
-  const link = svg.append('g').selectAll('line').data(DATA.edges).join('line')
-    .attr('stroke', d=>d.type==='spawn'?'#e06000':'#8888cc')
-    .attr('stroke-width',2).attr('stroke-dasharray', d=>d.type==='spawn'?'':'4 2')
-    .attr('marker-end','url(#arr)').attr('opacity',0.7);
+    // status dot
+    g.append('circle').attr('cx',-CW/2+12).attr('cy',0).attr('r',6)
+      .attr('fill',SC[n.status]||'#ccc').attr('stroke','#666').attr('stroke-width',1);
 
-  const node = svg.append('g').selectAll('g').data(DATA.nodes).join('g')
-    .attr('cursor','pointer')
+    // title
+    const maxT=Math.floor((CW-30)/7);
+    g.append('text').attr('x',-CW/2+24).attr('dy','-0.3em')
+      .style('font-size','11px').style('font-weight','bold').style('fill','#222')
+      .text(n.title.length>maxT?n.title.substring(0,maxT)+'…':n.title);
+
+    // agent chain
+    if(n.agent_flow){{
+      g.append('text').attr('x',-CW/2+24).attr('dy','1em')
+        .style('font-size','9px').style('fill','#556')
+        .text(n.agent_flow.length>38?n.agent_flow.substring(0,38)+'…':n.agent_flow);
+    }} else if(n.owner){{
+      g.append('text').attr('x',-CW/2+24).attr('dy','1em')
+        .style('font-size','9px').style('fill','#667').text('👤 '+n.owner);
+    }}
+  }});
+
+  // legend
+  const lg=svg.append('g').attr('transform',`translate(2,${{H-Object.keys(SC).length*16-4}})`);
+  Object.entries(SC).forEach(([s,c],i)=>{{
+    lg.append('rect').attr('x',0).attr('y',i*16).attr('width',11).attr('height',11).attr('fill',c).attr('stroke','#888').attr('rx',2);
+    lg.append('text').attr('x',14).attr('y',i*16+9).style('font-size','10px').style('fill','#444').text(s);
+  }});
+}})();
+
+// ════════════════════════════════════════
+//  依存グラフ（補助ビュー）
+// ════════════════════════════════════════
+(function drawGraph(){{
+  const svg=d3.select('#graph-svg');
+  const W=svg.node().getBoundingClientRect().width||900, H=640;
+  svg.attr('viewBox',`0 0 ${{W}} ${{H}}`);
+  if(!DATA.nodes.length){{ svg.append('text').attr('x',W/2).attr('y',H/2).attr('text-anchor','middle').style('fill','#bbb').text('タスクなし'); return; }}
+
+  svg.append('defs').append('marker').attr('id','arr-g')
+    .attr('viewBox','0 -4 8 8').attr('refX',22).attr('markerWidth',5).attr('markerHeight',5).attr('orient','auto')
+    .append('path').attr('d','M0,-4L8,0L0,4').attr('fill','#888');
+
+  const tMin=Math.min(...DATA.nodes.map(n=>+new Date(n.created_at||0)));
+  const tMax=Math.max(...DATA.nodes.map(n=>+new Date(n.created_at||0)));
+  const tR=tMax-tMin||1;
+
+  const sim=d3.forceSimulation(DATA.nodes)
+    .force('link',d3.forceLink(DATA.edges).id(d=>d.id).distance(150).strength(0.9))
+    .force('charge',d3.forceManyBody().strength(-320))
+    .force('center',d3.forceCenter(W/2,H/2))
+    .force('y',d3.forceY(d=>60+(+new Date(d.created_at||0)-tMin)/tR*(H-120)).strength(0.2))
+    .force('collision',d3.forceCollide(38));
+
+  const link=svg.append('g').selectAll('line').data(DATA.edges).join('line')
+    .attr('stroke',d=>d.type==='spawn'?'#d05000':'#8888cc').attr('stroke-width',2)
+    .attr('marker-end','url(#arr-g)').attr('opacity',.75);
+
+  // time axis
+  const tScale2=d3.scaleTime().domain([new Date(tMin),new Date(tMax)]).range([60,H-60]);
+  svg.append('g').attr('transform','translate(58,0)')
+    .call(d3.axisLeft(tScale2).ticks(5).tickFormat(d3.timeFormat('%m/%d %H:%M'))).style('font-size','9px');
+
+  const node=svg.append('g').selectAll('g').data(DATA.nodes).join('g').attr('cursor','pointer')
     .call(d3.drag()
-      .on('start',(e,d)=>{{if(!e.active)sim.alphaTarget(0.3).restart();d.fx=d.x;d.fy=d.y}})
+      .on('start',(e,d)=>{{if(!e.active)sim.alphaTarget(.3).restart();d.fx=d.x;d.fy=d.y}})
       .on('drag',(e,d)=>{{d.fx=e.x;d.fy=e.y}})
       .on('end',(e,d)=>{{if(!e.active)sim.alphaTarget(0);d.fx=null;d.fy=null}}))
     .on('click',(e,d)=>window.location.href='/tasks/'+d.id)
     .on('mouseover',(e,d)=>{{
-      tt.style.display='block';
-      tt.innerHTML=`<b>${{d.title}}</b><br>状態: ${{d.status}}<br>担当: ${{d.owner||'—'}}<br>セクション: ${{d.section}}<br>${{d.agent_flow?'chain: '+d.agent_flow:''}}`;
-    }})
-    .on('mousemove',e=>{{tt.style.left=(e.pageX+14)+'px';tt.style.top=(e.pageY-30)+'px'}})
-    .on('mouseout',()=>tt.style.display='none');
+      tip(`<b>${{d.title}}</b><br>🔵 ${{d.status}}<br>👤 ${{d.owner||'—'}}<br>📁 ${{d.section}}<br>${{d.agent_flow?'🔗 '+d.agent_flow:''}}`);
+      tipMove(e);
+    }}).on('mousemove',tipMove).on('mouseout',tipHide);
 
-  const r = d => Math.max(14, 22 - (d.priority||3)*1.5);
-  node.append('circle').attr('r',r)
-    .attr('fill',d=>STATUS_COLOR[d.status]||'#ddd')
-    .attr('stroke',d=>d.status==='needs_human'?'#c00':'#555').attr('stroke-width',1.5);
-  node.append('text').attr('text-anchor','middle').attr('dy','0.35em')
-    .style('font-size','8px').style('pointer-events','none')
-    .text(d=>d.title.substring(0,10)+(d.title.length>10?'…':''));
-
-  // Time axis
-  const timeScale = d3.scaleTime().domain([new Date(tMin),new Date(tMax)]).range([50,H-50]);
-  const axis = d3.axisLeft(timeScale).ticks(5).tickFormat(d3.timeFormat('%m/%d %H:%M'));
-  svg.append('g').attr('transform','translate(55,0)').call(axis)
-    .style('font-size','9px').select('.domain').attr('stroke','#ccc');
-
-  // Legend
-  const lg = svg.append('g').attr('transform',`translate(${{W-120}},10)`);
-  Object.entries(STATUS_COLOR).forEach(([s,c],i)=>{{
-    lg.append('rect').attr('x',0).attr('y',i*16).attr('width',11).attr('height',11).attr('fill',c).attr('stroke','#555');
-    lg.append('text').attr('x',14).attr('y',i*16+9).style('font-size','10px').text(s);
-  }});
-  // Edge legend
-  const el2 = svg.append('g').attr('transform',`translate(${{W-120}},${{Object.keys(STATUS_COLOR).length*16+14}})`);
-  el2.append('line').attr('x2',18).attr('stroke','#e06000').attr('stroke-width',2).attr('y1',5).attr('y2',5);
-  el2.append('text').attr('x',20).attr('y',9).style('font-size','9px').text('spawn/join');
-  el2.append('line').attr('x2',18).attr('stroke','#8888cc').attr('stroke-width',2).attr('y1',20).attr('y2',20).attr('stroke-dasharray','4 2');
-  el2.append('text').attr('x',20).attr('y',24).style('font-size','9px').text('chain');
+  const CW=160, CH=44;
+  node.append('rect').attr('x',-CW/2).attr('y',-CH/2).attr('width',CW).attr('height',CH)
+    .attr('rx',6).attr('fill',d=>SC[d.status]||'#eee')
+    .attr('stroke',d=>d.status==='needs_human'?'#c00':'#999').attr('stroke-width',1.3);
+  node.append('text').attr('text-anchor','middle').attr('dy','-0.2em')
+    .style('font-size','10px').style('font-weight','bold').style('pointer-events','none')
+    .text(d=>d.title.length>18?d.title.substring(0,18)+'…':d.title);
+  node.append('text').attr('text-anchor','middle').attr('dy','1em')
+    .style('font-size','8.5px').style('fill','#556').style('pointer-events','none')
+    .text(d=>d.status+(d.owner?' · '+d.owner:''));
 
   sim.on('tick',()=>{{
-    link.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y)
-        .attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
-    node.attr('transform',d=>`translate(${{Math.max(65,Math.min(W-20,d.x))}},${{Math.max(20,Math.min(H-20,d.y))}})`);
+    link.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y).attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
+    node.attr('transform',d=>`translate(${{Math.max(90,Math.min(W-90,d.x))}},${{Math.max(30,Math.min(H-30,d.y))}})`);
+  }});
+
+  // legend
+  const lg=svg.append('g').attr('transform',`translate(${{W-130}},10)`);
+  Object.entries(SC).forEach(([s,c],i)=>{{
+    lg.append('rect').attr('x',0).attr('y',i*17).attr('width',12).attr('height',12).attr('fill',c).attr('stroke','#888').attr('rx',2);
+    lg.append('text').attr('x',16).attr('y',i*17+10).style('font-size','10px').text(s);
   }});
 }})();
-
-// ── タイムライン ────────────────────────────────
-function drawTimeline(){{
-  const container = document.getElementById('timeline-svg');
-  if(container.dataset.drawn) return;
-  container.dataset.drawn = '1';
-
-  const sections = [...new Set(DATA.nodes.map(n=>n.section||'other'))].sort();
-  const W = Math.max(800, sections.length*180+120);
-  const MARGIN = {{top:40,left:80,right:20,bottom:20}};
-  const colW = (W-MARGIN.left-MARGIN.right)/Math.max(sections.length,1);
-
-  const sorted = [...DATA.nodes].sort((a,b)=>new Date(a.created_at||0)-new Date(b.created_at||0));
-  const tMin = new Date(sorted[0]?.created_at||Date.now());
-  const tMax = new Date(sorted[sorted.length-1]?.created_at||Date.now());
-  const H = Math.max(400, sorted.length*55+MARGIN.top+MARGIN.bottom);
-
-  const svg = d3.select('#timeline-svg').attr('viewBox',`0 0 ${{W}} ${{H}}`).attr('height',H);
-  const tt = document.getElementById('tt');
-
-  const tScale = d3.scaleTime().domain([tMin,tMax]).range([MARGIN.top, H-MARGIN.bottom]);
-  const timeAxis = d3.axisLeft(tScale).ticks(8).tickFormat(d3.timeFormat('%m/%d %H:%M'));
-  svg.append('g').attr('transform',`translate(${{MARGIN.left}},0)`).call(timeAxis).style('font-size','9px');
-
-  // Column headers
-  sections.forEach((sec,i)=>{{
-    const cx = MARGIN.left + i*colW + colW/2;
-    svg.append('line').attr('x1',cx).attr('x2',cx).attr('y1',MARGIN.top).attr('y2',H-MARGIN.bottom)
-      .attr('stroke','#e0e0e0').attr('stroke-width',1);
-    svg.append('text').attr('x',cx).attr('y',MARGIN.top-10).attr('text-anchor','middle')
-      .style('font-size','11px').style('font-weight','bold').style('fill','#555').text(sec);
-  }});
-
-  // Build section index for node position
-  const secIdx = {{}};
-  sections.forEach((s,i)=>secIdx[s]=i);
-
-  // Draw edges first (behind nodes)
-  const nodePos = {{}};
-  sorted.forEach(n=>{{
-    const si = secIdx[n.section||'other']??0;
-    nodePos[n.id] = {{x: MARGIN.left+si*colW+colW/2, y: tScale(new Date(n.created_at||tMin))}};
-  }});
-
-  DATA.edges.forEach(e=>{{
-    const s = nodePos[e.source?.id||e.source];
-    const t = nodePos[e.target?.id||e.target];
-    if(!s||!t) return;
-    svg.append('path')
-      .attr('d',`M${{s.x}},${{s.y}} C${{s.x}},${{(s.y+t.y)/2}} ${{t.x}},${{(s.y+t.y)/2}} ${{t.x}},${{t.y}}`)
-      .attr('fill','none').attr('stroke',e.type==='spawn'?'#e06000':'#8888cc')
-      .attr('stroke-width',1.5).attr('stroke-dasharray',e.type==='spawn'?'':'4 2').attr('opacity',0.6);
-  }});
-
-  // Draw nodes
-  sorted.forEach(n=>{{
-    const pos = nodePos[n.id];
-    if(!pos) return;
-    const g = svg.append('g').attr('transform',`translate(${{pos.x}},${{pos.y}})`)
-      .attr('cursor','pointer')
-      .on('click',()=>window.location.href='/tasks/'+n.id)
-      .on('mouseover',(e)=>{{
-        tt.style.display='block';
-        tt.innerHTML=`<b>${{n.title}}</b><br>状態: ${{n.status}}<br>担当: ${{n.owner||'—'}}<br>${{n.agent_flow?'chain: '+n.agent_flow:''}}`;
-      }})
-      .on('mousemove',e=>{{tt.style.left=(e.pageX+14)+'px';tt.style.top=(e.pageY-30)+'px'}})
-      .on('mouseout',()=>tt.style.display='none');
-
-    g.append('circle').attr('r',10).attr('fill',STATUS_COLOR[n.status]||'#ddd')
-      .attr('stroke','#555').attr('stroke-width',1.2);
-    g.append('text').attr('x',14).attr('dy','0.35em').style('font-size','9px')
-      .text(n.title.substring(0,20)+(n.title.length>20?'…':''));
-    if(n.agent_flow){{
-      g.append('text').attr('x',14).attr('y',12).style('font-size','8px').style('fill','#888')
-        .text(n.agent_flow.substring(0,30));
-    }}
-  }});
-}}
 </script>
 """
     return _page("Task Graph", body, refresh=False)
