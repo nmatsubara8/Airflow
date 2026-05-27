@@ -594,7 +594,7 @@ def render_task_detail(store: TaskStore, task_id: str) -> str | None:
     notes = task.get("handoff_notes", [])
     if notes:
         body += "<h2>Handoff Notes</h2><ol>"
-        for n in notes:
+        for idx, n in enumerate(notes):
             author_raw = n.get("author", "")
             if isinstance(author_raw, dict):
                 author_raw = author_raw.get("id", str(author_raw))
@@ -608,13 +608,43 @@ def render_task_detail(store: TaskStore, task_id: str) -> str | None:
                 diff_html = ""
                 if snapshot is not None:
                     diff_section = _render_diff(snapshot, current_desc)
+                    # 指示の直後に来たエージェントノートを収集
+                    agent_notes_after: list[str] = []
+                    for later in notes[idx + 1:]:
+                        later_author = later.get("author", "")
+                        if isinstance(later_author, dict):
+                            later_author = later_author.get("id", str(later_author))
+                        if str(later_author) == "dashboard":
+                            break  # 次の人間操作で終了
+                        body_text = html.escape(later.get("body", later.get("content", "")))
+                        later_ts = html.escape(later.get("timestamp", ""))
+                        later_agent = html.escape(str(later_author))
+                        agent_notes_after.append(
+                            f"<div style='margin-bottom:.6em'>"
+                            f"<span style='font-weight:bold;color:#333'>{later_agent}</span>"
+                            f" <span style='color:#888;font-size:.85em'>({later_ts})</span><br>"
+                            f"<pre style='margin:.3em 0;white-space:pre-wrap;word-break:break-word;"
+                            f"font-size:.85em;background:#f8f8f8;padding:.4em;border-radius:.2em'>"
+                            f"{body_text}</pre></div>"
+                        )
+                    agent_section = (
+                        "<div style='margin-bottom:.6em'>"
+                        + "".join(agent_notes_after)
+                        + "</div>"
+                        if agent_notes_after
+                        else "<p style='color:#888;font-size:.9em'>（まだエージェントの対応なし）</p>"
+                    )
                     diff_html = (
                         f"<details style='margin-top:.5em'>"
                         f"<summary style='cursor:pointer;color:#0066cc;font-size:.9em'>"
-                        f"📊 指示前との差分（現在の description）</summary>"
+                        f"🤖 エージェントの対応 ／ 📊 description 差分</summary>"
                         f"<div style='margin-top:.4em;border:1px solid #ddd;border-radius:.3em;"
-                        f"padding:.5em;background:#fefefe;overflow-x:auto'>"
-                        f"{diff_section}</div></details>"
+                        f"padding:.6em;background:#fefefe'>"
+                        f"<p style='font-weight:bold;font-size:.9em;margin:0 0 .3em'>エージェントの対応:</p>"
+                        f"{agent_section}"
+                        f"<p style='font-weight:bold;font-size:.9em;margin:.6em 0 .3em'>description の変化:</p>"
+                        f"<div style='overflow-x:auto'>{diff_section}</div>"
+                        f"</div></details>"
                     )
                 body += (
                     f"<li style='background:#fff8dc;border-left:4px solid #f0c040;"
