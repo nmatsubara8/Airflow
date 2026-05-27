@@ -4,11 +4,12 @@ Obsidian Vault の Markdown ファイルを inbox として読み込み、ロー
 
 ## 特徴
 
-- **26 AI エージェント** — Engineering / Content / Business / Orchestration の 4 セクション
+- **26 AI エージェント** — Engineering / Content / Business / Orchestration の 4 セクション（eng-director による週次スプリント計画含む）
 - **ローカル LLM 完結** — Ollama + Qwen2.5（VRAM 16GB、インターネット不要）
 - **5 つの MCP サーバー** — taskboard / notes / models / gpu / agents（Claude Desktop から直接呼び出し可）
 - **JWT EdDSA 認証 + per-action レート制限** — 本番グレードのセキュリティ
 - **Prometheus メトリクス + Web ダッシュボード** — リアルタイム監視（port 7400 / 9090）
+- **Vault ノート自動取り込み → 人間レビュー** — F-06/F-08: `require_human_review` で needs_human タスク生成
 - **systemd 管理** — 全サービスの自動起動・再起動
 - **監査ハッシュチェーン** — 日次 SHA256 チェーンによる改ざん検知
 
@@ -21,18 +22,17 @@ Obsidian Vault (.md)
        │ watch
        ▼
   Ingester ──────► TaskStore (JSON + 楽観的ロック)
-                        │
-              ┌─────────┼─────────┐
-              ▼         ▼         ▼
-         Dispatcher  Scheduler  Cleaner
-              │         │
-              ▼         ▼
-          Runner ──► Ollama (Qwen2.5)
-              │
-              ▼
-     26 AI Agents (MCP)
-              │
-     Claude Desktop (MCP クライアント)
+       │ require_human_review=true        │
+       ▼                       ┌─────────┼─────────┐
+  needs_human                  ▼         ▼         ▼
+  (レビューキュー)          Dispatcher  Scheduler  Cleaner
+       │ 承認                   │         │
+       ▼                       ▼         ▼
+      inbox           Runner ──► Ollama (Qwen2.5)
+                              │
+                     26 AI Agents (MCP)
+                              │
+                    Claude Desktop (MCP クライアント)
 ```
 
 ### エージェント構成（26体）
@@ -40,17 +40,18 @@ Obsidian Vault (.md)
 | セクション | 数 | 主な役割 |
 |-----------|---|---------|
 | Orchestration | 3 | dispatcher, cleaner, feature-extractor |
-| Engineering (§01) | 14 | tech-lead, qa, security, frontend, backend, devops 等 |
+| Engineering (§01) | 14 | tech-lead, qa, security, frontend, backend, devops, eng-director 等 |
 | Content (§02) | 5 | content-director, brand-voice, root-cause, anti-ai-slop, morning-brainstorm |
 | Business (§03) | 4 | marketing-director, business-strategy, partnership-manage, legal-review |
 
 ### タスクライフサイクル
 
 ```
-inbox → in_progress → done
-                  └→ needs_human  (人間エスカレーション)
-                  └→ blocked      (依存待ち)
-                  └→ cancelled
+inbox → in_progress → done ──► inbox (再オープン可)
+  ▲             └→ needs_human  (人間エスカレーション / Vault レビュー待ち)
+  │ 承認          └→ blocked      (依存待ち)
+  │               └→ cancelled
+needs_human ───────────────────────────────────┘
 ```
 
 ### ハンドオフパターン
@@ -58,6 +59,7 @@ inbox → in_progress → done
 - **シーケンシャル**: `agent_a → agent_b → agent_c`
 - **4段階コンテンツレビュー**: content-director → brand-voice → root-cause → anti-ai-slop
 - **並列集約 (fan-out/fan-in)**: `tasks.join` による PR レビュー並列化
+- **週次スプリント計画**: eng-director が月曜 09:00 に自動起動（batch scheduler）
 
 ---
 
@@ -68,6 +70,7 @@ inbox → in_progress → done
 | 要件 | バージョン |
 |-----|---------|
 | Python | 3.11 以上 |
+| pip | 最新版（`sudo apt install python3-pip`） |
 | Ollama | 最新版 |
 | GPU (推奨) | VRAM 16GB（RTX 4060 Ti 等） |
 | OS | Linux / WSL2（Ubuntu 22.04+）/ macOS |
@@ -88,6 +91,8 @@ ollama pull qwen2.5-coder:7b-instruct-q4_K_M
 ```bash
 git clone https://github.com/nmatsubara8/airflow
 cd airflow
+# pip がない場合
+sudo apt install python3-pip -y
 pip install -e ".[dev]"
 ```
 
@@ -137,6 +142,10 @@ python -m airflow_mcp auth keygen
 docker compose up -d ollama
 docker compose exec ollama ollama pull qwen2.5:14b-instruct-q4_K_M
 docker compose up -d
+
+# ダッシュボードを再ビルドする場合
+docker compose build --no-cache dashboard
+docker compose up -d dashboard
 ```
 
 > **注意**: `dispatcher` と `runner` は `user: "1000:1000"` で起動し、ホストユーザーと
@@ -165,8 +174,7 @@ MCP サーバーは Claude Desktop の stdio 経由で起動します。`deploy/
 ```
 
 > `<user>` を実際の WSL2 ユーザー名に置換してください。
-> 設定ファイルは Claude Desktop が上書きするため、BOM-free UTF-8 で保存し読み取り専用に
-> 設定することを推奨します。
+> MCP ツール名は `tasks.get` / `tasks.list` / `tasks.create` のようにドット区切りです（アンダースコアではありません）。
 
 ### ローカル（開発）
 
@@ -198,10 +206,31 @@ sudo systemctl enable --now \
 
 ### タスク投入
 
+#### 方法 1: Obsidian Vault 経由（自動）
+
 1. Obsidian Vault の `Inbox/` フォルダに `.md` ファイルを置く
 2. Ingester が自動検出してタスクボードに登録
 3. Dispatcher がエージェントへ割り当て（`inbox` → `in_progress`）
 4. Runner が Ollama で処理して `done` へ遷移
+
+#### 方法 2: ダッシュボードから手動作成
+
+`http://localhost:7400/tasks/new` を開き、フォームでタスクを作成（MCP 接続不要）。
+
+#### 方法 3: Vault ノート → 人間レビュー（F-06/F-08）
+
+`.airflow/config/ingester.yaml` の `watch_paths` に `require_human_review: true` を設定すると、
+ノートが `needs_human` タスクとして生成され、ダッシュボードのレビューキューで承認/却下できます。
+
+```yaml
+watch_paths:
+  - path: "${VAULT_ROOT}/notes/Keiba"
+    auto_dispatch: false
+    require_human_review: true   # ダッシュボードで確認してから dispatch
+  - path: "${VAULT_ROOT}/notes/Inbox"
+    auto_dispatch: true
+    require_human_review: false  # 自動 dispatch
+```
 
 ### 運用 CLI
 
@@ -239,8 +268,22 @@ python -m airflow_mcp auth rotate --agent agent_qa --scopes tasks:read
 |-----|------|
 | `/` | タスク件数サマリー・GPU 状態 |
 | `/tasks` | タスク一覧（ステータス・セクション絞り込み） |
-| `/tasks/<id>` | タスク詳細・ハンドオフ履歴 |
+| `/tasks/new` | **タスク手動作成フォーム**（MCP 不要） |
+| `/tasks/<id>` | タスク詳細・ハンドオフ履歴・推奨次タスク |
+| `/review` | **Vault レビューキュー**（ingester-review タグの needs_human タスク） |
+| `/graph` | タスク遷移グラフ |
+| `/scheduler` | バッチスケジューラ設定表示 |
 | `/api/status` | JSON API |
+
+#### ダッシュボード主要機能
+
+- **タスク手動作成**: `/tasks/new` で title / section / tags / priority / description を入力して inbox に直接作成
+- **Description 構造化表示**: Markdown（見出し・リスト・チェックボックス・ツリー・コードブロック）をレンダリング
+- **人間指示の差分確認**: アクション実行後、「🤖 エージェントの対応 ／ 📊 description 差分」で指示が反映されたか確認
+- **Description 直接編集**: エージェントの出力を踏まえて人間が description を直接書き換え可能
+- **自動更新一時停止**: テキストエリア入力中は自動リフレッシュが停止し、入力内容が消えない
+- **推奨次タスク**: 完了タスクの詳細ページで関連する inbox タスクを上位5件表示
+- **Vault レビューキュー**: `/review` で `ingester-review` タスクを一覧表示・承認/却下
 
 `AIRFLOW_HTTP_AUTH_TOKEN` 設定時は `Authorization: Bearer <token>` ヘッダーが必要。
 
@@ -256,15 +299,17 @@ python -m airflow_mcp auth rotate --agent agent_qa --scopes tasks:read
 
 ### エスカレーション対応（needs_human）
 
-`needs_human` に遷移したタスクは Slack 通知で到着。
+`needs_human` に遷移したタスクは Slack 通知で到着。ダッシュボードで対応後、適切なアクションを選択：
 
-```bash
-# ダッシュボードで内容確認
-open http://localhost:7400/tasks?status=needs_human
-
-# 対応後: handoff_note を追加して done に遷移
-# MCP ツール tasks.add_handoff_note + tasks.transition を使用
-```
+| アクション | 説明 |
+|-----------|------|
+| ✅ 承認（inbox へ） | ingester-review タスクをエージェントへ dispatch |
+| ❌ 却下（cancelled） | タスクを取り消し |
+| 🔄 やり直し | inbox に戻して再処理 |
+| 🔍 再検討 | 同エージェントで再処理 |
+| 🔬 深堀り | 詳細分析を要求 |
+| ▶️ 後続処理 | 次ステップへ進める |
+| 📝 メモ追加 | 指示・コメントのみ追加（ステータス変更なし） |
 
 ---
 
@@ -314,16 +359,6 @@ Register-ScheduledTask -TaskName "Airflow SLA Check" `
 ```bash
 # 7日間サマリー
 ~/Airflow/deploy/ops/sla_report.sh
-
-# 出力例（7日後）
-# ========================================
-#  §10 SLA レポート（直近 7 日間）
-# ========================================
-# SLA 合格: 7 / 7 日
-# critical ログ累計: 0 件（目標: 0）
-# needs_human 最大値: 2 件/日（目標: <10）
-# 監査チェーン破断: 0 回（目標: 0）
-# ✅ 本番運用基準（§10）達成
 ```
 
 ### SLA 目標値
@@ -358,7 +393,7 @@ ruff check src/ tests/
 
 | マーカー | 説明 |
 |---------|------|
-| *(なし)* | 全テスト（1,337件） |
+| *(なし)* | 全テスト（1,490件） |
 | `not integration and not slow` | 高速ユニットのみ |
 | `integration` | 統合テスト（モック使用） |
 | `slow` | HTTP サーバー起動テスト |
@@ -374,20 +409,23 @@ ruff check src/ tests/
 │   ├── taskboard/       # TaskStore + MCP サーバー
 │   ├── dispatcher/      # inbox タスク → エージェント割り当て
 │   ├── runner/          # Ollama 呼び出し・実行ログ
-│   ├── orchestrator/    # ハンドオフチェーン・バッチスケジューラ
+│   ├── orchestrator/    # ハンドオフチェーン・バッチスケジューラ・eng-director
 │   ├── cleaner/         # タスクアーカイブ・ログローテーション
 │   ├── models/          # モデル管理 MCP（KNN 推薦 + ε-greedy）
 │   ├── gpu/             # GPU 状態管理 MCP
 │   ├── scheduler/       # マルチキュースケジューラ（親和性・スターベーション防止）
-│   ├── ingester/        # Vault .md → タスク変換
+│   ├── ingester/        # Vault .md → タスク変換（F-06/F-08 人間レビューフロー）
 │   ├── notes/           # ノート検索 MCP
 │   ├── ops/             # メトリクス・通知・監査ログ
 │   └── web/             # ダッシュボード・Prometheus エンドポイント
 ├── agents/              # 26エージェントの skills.md
 │   ├── orchestration/
-│   ├── engineering/
+│   ├── engineering/     # eng-director（週次スプリント計画）含む
 │   ├── content/
 │   └── business/
+├── prompts/
+│   ├── system/          # エージェント別システムプロンプト
+│   └── output-schemas/  # 出力スキーマ（sprint-plan.json 等）
 ├── deploy/
 │   ├── mcp-start.sh     # Claude Desktop 用 MCP 起動スクリプト（.env 読み込み）
 │   ├── systemd/         # 本番用 systemd ユニットファイル
@@ -411,7 +449,7 @@ ruff check src/ tests/
 | DDD-01 | 共通データスキーマ（タスク・ログ・GPU 状態） |
 | DDD-02 | MCP インターフェース仕様（5サーバー・ツール定義） |
 | DDD-03 | エラー処理・ログ設計（リトライ・監査 ID） |
-| DDD-04 | タスクボード + Vault Ingestion |
+| DDD-04 | タスクボード + Vault Ingestion（F-06/F-08 人間レビューフロー） |
 | DDD-05 | ローカル LLM 実行基盤（Ollama 統合） |
 | DDD-06 | モデル動的選択・学習（KNN + ε-greedy） |
 | DDD-07 | 並列スケジューラ（GPU 管理・スターベーション防止） |
@@ -429,7 +467,7 @@ ruff check src/ tests/
 | Phase 4 | 並列実行・GPU スケジューラ | ✅ 完了 |
 | Phase 5 | チーム拡張・JWT・本番化・systemd | ✅ 完了 |
 
-**実装完了**: 1,337 テスト全パス・カバレッジ 100%・ruff clean
+**実装完了**: 1,490 テスト全パス・カバレッジ 100%・ruff clean
 
 ### 実機検証済み項目
 
@@ -440,6 +478,8 @@ ruff check src/ tests/
 | V-4 | 監査ハッシュチェーン改ざん検知 | ✅ |
 | TP-2 | Per-action レート制限（tasks_create/models_execute 等） | ✅ |
 | TP-3 | 本番認証ハードニング（localhost_bypass 警告） | ✅ |
+| F-06 | Vault ノート自動取り込み → needs_human 生成 | ✅ |
+| F-08 | ダッシュボードで承認/却下 → inbox dispatch | ✅ |
 
 残作業: §10 SLA の 7 日間継続確認（`deploy/ops/sla_report.sh` で追跡）。
 
