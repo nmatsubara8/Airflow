@@ -681,6 +681,52 @@ def render_task_detail(store: TaskStore, task_id: str) -> str | None:
             f"<a href='/tasks/{html.escape(cid)}'>{html.escape(cid[:16])}…</a>"
             for cid in join_info.get("child_ids", [])
         )
+
+    # ── 推奨次タスク ────────────────────────────────────────────
+    try:
+        inbox_tasks = store.list_by_status("inbox")
+        current_section = task.get("section", "")
+        current_tags: set[str] = set(task.get("tags") or [])
+        current_note_id = task.get("source_note_id")
+
+        def _relevance(t: dict) -> int:
+            score = 0
+            if t.get("section") == current_section and current_section:
+                score += 3
+            shared = current_tags & set(t.get("tags") or [])
+            score += len(shared) * 2
+            if current_note_id and t.get("source_note_id") == current_note_id:
+                score += 2
+            score += max(0, 3 - int(t.get("priority") or 3))
+            return score
+
+        candidates = sorted(
+            [t for t in inbox_tasks if t["id"] != task["id"]],
+            key=lambda t: (-_relevance(t), t.get("created_at", "")),
+        )[:5]
+
+        if candidates:
+            body += "<h2>次の推奨タスク</h2>"
+            rec_rows = []
+            for t in candidates:
+                tid = html.escape(t["id"])
+                title = html.escape(t.get("title", "（無題）")[:60])
+                sec = html.escape(t.get("section") or "—")
+                tags_str = html.escape(", ".join(t.get("tags") or []))
+                pri = html.escape(str(t.get("priority", "—")))
+                rec_rows.append([
+                    f"<a href='/tasks/{tid}'>{tid[:20]}…</a>",
+                    title,
+                    sec,
+                    tags_str,
+                    pri,
+                ])
+            body += _table(["ID", "タイトル", "Section", "Tags", "優先度"], rec_rows)
+        elif task.get("status") == "done":
+            body += "<h2>次の推奨タスク</h2><p style='color:#888'>inbox に関連タスクはありません。</p>"
+    except Exception as exc:
+        logger.debug("推奨タスク取得エラー: %s", exc)
+
         body += f"<p>Policy: {html.escape(join_info.get('policy', 'all'))} | Children: {child_links or '—'}</p>"
 
     # アクションフォーム
