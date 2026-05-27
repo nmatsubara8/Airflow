@@ -5,8 +5,6 @@ services:
     volumes:
       - ollama_data:/root/.ollama
       - ${MODELS_DIR:-/mnt/d/models}:/models:ro
-    ports:
-      - "127.0.0.1:11434:11434"
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 10s
