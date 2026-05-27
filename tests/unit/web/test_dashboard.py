@@ -353,3 +353,104 @@ def test_render_task_detail_shows_join_info(store):
     html = render_task_detail(store, t["id"])
     assert "Fan-in Join" in html
     assert child_id[:16] in html
+
+
+# ── _render_description ───────────────────────────────────
+
+def test_render_description_empty():
+    from airflow_mcp.web.dashboard import _render_description
+    assert _render_description("") == ""
+
+
+def test_render_description_plain_text():
+    from airflow_mcp.web.dashboard import _render_description
+    result = _render_description("Hello world")
+    assert "Hello world" in result
+
+
+def test_render_description_heading_h2():
+    from airflow_mcp.web.dashboard import _render_description
+    result = _render_description("## Section Title")
+    assert "<h3" in result
+    assert "Section Title" in result
+
+
+def test_render_description_heading_h3():
+    from airflow_mcp.web.dashboard import _render_description
+    result = _render_description("### Sub Section")
+    assert "<h4" in result
+    assert "Sub Section" in result
+
+
+def test_render_description_bullet():
+    from airflow_mcp.web.dashboard import _render_description
+    result = _render_description("- item one")
+    assert "•" in result
+    assert "item one" in result
+
+
+def test_render_description_checkbox_unchecked():
+    from airflow_mcp.web.dashboard import _render_description
+    result = _render_description("- [ ] todo item")
+    assert "☐" in result
+    assert "todo item" in result
+
+
+def test_render_description_checkbox_checked():
+    from airflow_mcp.web.dashboard import _render_description
+    result = _render_description("- [x] done item")
+    assert "✅" in result
+    assert "done item" in result
+
+
+def test_render_description_tree_structure():
+    from airflow_mcp.web.dashboard import _render_description
+    text = "src/\n├── main.py\n└── utils.py"
+    result = _render_description(text)
+    assert "<pre" in result
+    assert "border-left" in result
+    assert "main.py" in result
+    assert "utils.py" in result
+
+
+def test_render_description_consecutive_tree_lines_grouped():
+    from airflow_mcp.web.dashboard import _render_description
+    text = "├── a.py\n├── b.py\n└── c.py"
+    result = _render_description(text)
+    # 3行がひとつの<pre>にまとまること（<pre>が1つだけ）
+    assert result.count("<pre") == 1
+
+
+def test_render_description_code_block():
+    from airflow_mcp.web.dashboard import _render_description
+    text = "```python\nprint('hello')\n```"
+    result = _render_description(text)
+    assert "<pre" in result
+    assert "print" in result
+
+
+def test_render_description_separator():
+    from airflow_mcp.web.dashboard import _render_description
+    result = _render_description("---")
+    assert "<hr" in result
+
+
+def test_render_description_escapes_html():
+    from airflow_mcp.web.dashboard import _render_description
+    result = _render_description("<script>alert('xss')</script>")
+    assert "<script>" not in result
+    assert "&lt;script&gt;" in result
+
+
+def test_render_task_detail_description_rendered(store):
+    """description フィールドが _render_description で構造化表示されること。"""
+    t = store.create({
+        "title": "説明付きタスク",
+        "section": "engineering",
+        "description": "## ゴール\n- [ ] 実装する\n\n### ファイル構成\n├── main.py\n└── utils.py",
+    })
+    from airflow_mcp.web.dashboard import render_task_detail
+    result = render_task_detail(store, t["id"])
+    assert "ゴール" in result
+    assert "main.py" in result
+    assert "<pre" in result   # tree block rendered as pre

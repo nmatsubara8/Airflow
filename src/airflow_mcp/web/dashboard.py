@@ -355,6 +355,120 @@ def _table(headers: list[str], rows: list[list[str]]) -> str:
     return f"<table><thead><tr>{ths}</tr></thead><tbody>{trs}</tbody></table>"
 
 
+_TREE_CHARS = frozenset("├└│─")
+
+
+def _render_description(text: str) -> str:
+    """Markdown 風 description を構造化 HTML に変換する。
+
+    ## 見出し・箇条書き・ツリー行・コードブロックを視覚的に区別。
+    """
+    if not text:
+        return ""
+
+    lines = text.splitlines()
+    parts: list[str] = []
+    tree_buf: list[str] = []
+    code_buf: list[str] = []
+    in_code = False
+
+    def flush_tree() -> None:
+        if not tree_buf:
+            return
+        block = html.escape("\n".join(tree_buf))
+        parts.append(
+            f"<pre style='margin:.4em 0;padding:.5em .8em;background:#f0f4f8;"
+            f"border-left:3px solid #7090b0;border-radius:.3em;"
+            f"font-family:monospace;font-size:.88em;overflow-x:auto'>{block}</pre>"
+        )
+        tree_buf.clear()
+
+    def flush_code(lang: str = "") -> None:
+        if not code_buf:
+            return
+        block = html.escape("\n".join(code_buf))
+        label = html.escape(lang) if lang else "code"
+        parts.append(
+            f"<pre style='margin:.4em 0;padding:.5em .8em;background:#1e1e2e;color:#cdd6f4;"
+            f"border-radius:.3em;font-family:monospace;font-size:.85em;overflow-x:auto'>"
+            f"<span style='color:#6c7086;font-size:.8em'>{label}</span>\n{block}</pre>"
+        )
+        code_buf.clear()
+
+    code_lang = ""
+    for line in lines:
+        # ── コードブロック ──
+        if line.startswith("```"):
+            if in_code:
+                flush_code(code_lang)
+                in_code = False
+                code_lang = ""
+            else:
+                flush_tree()
+                in_code = True
+                code_lang = line[3:].strip()
+            continue
+        if in_code:
+            code_buf.append(line)
+            continue
+
+        # ── ツリー行（├ └ │ ─ を含む行）：連続行をひとつの <pre> にまとめる ──
+        if any(c in line for c in _TREE_CHARS):
+            tree_buf.append(line)
+            continue
+        flush_tree()  # 非ツリー行に切り替わったときだけフラッシュ
+
+        # ── 見出し ──
+        if line.startswith("### "):
+            h = html.escape(line[4:])
+            parts.append(f"<h4 style='margin:.7em 0 .2em;color:#334;font-size:1em'>{h}</h4>")
+        elif line.startswith("## "):
+            h = html.escape(line[3:])
+            parts.append(
+                f"<h3 style='margin:.9em 0 .3em;color:#223;font-size:1.05em;"
+                f"border-bottom:1px solid #ccd;padding-bottom:.2em'>{h}</h3>"
+            )
+        elif line.startswith("# "):
+            h = html.escape(line[2:])
+            parts.append(f"<h2 style='margin:1em 0 .3em;color:#112;font-size:1.1em'>{h}</h2>")
+
+        # ── チェックリスト ──
+        elif line.lstrip().startswith("- [ ] ") or line.lstrip().startswith("- [x] "):
+            stripped = line.lstrip()
+            checked = stripped[3] == 'x'
+            content = html.escape(stripped[6:])
+            box = "✅" if checked else "☐"
+            indent = (len(line) - len(stripped)) // 2
+            parts.append(
+                f"<div style='margin:.15em 0;padding-left:{1.0 + indent}em'>{box} {content}</div>"
+            )
+
+        # ── 箇条書き ──
+        elif line.lstrip().startswith("- "):
+            stripped = line.lstrip()
+            content = html.escape(stripped[2:])
+            indent = (len(line) - len(stripped)) // 2
+            parts.append(
+                f"<div style='margin:.15em 0;padding-left:{1.0 + indent}em'>• {content}</div>"
+            )
+
+        # ── 区切り線 ──
+        elif line.strip() in ("---", "===", "***"):
+            parts.append("<hr style='border:none;border-top:1px solid #dde;margin:.6em 0'>")
+
+        # ── 空行 ──
+        elif line.strip() == "":
+            parts.append("<div style='height:.4em'></div>")
+
+        # ── 通常テキスト ──
+        else:
+            parts.append(f"<div style='margin:.1em 0'>{html.escape(line)}</div>")
+
+    flush_tree()
+    flush_code(code_lang)
+    return "\n".join(parts)
+
+
 # ── ページレンダラー ────────────────────────────────────
 
 def render_home(store: TaskStore) -> str:
@@ -420,14 +534,22 @@ def render_task_detail(store: TaskStore, task_id: str) -> str | None:
         logger.debug("render_task_detail: task %s not found: %s", task_id, exc)
         return None
 
-    rows = [
-        [
-            html.escape(str(k)),
-            html.escape(json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else str(v)),
-        ]
-        for k, v in task.items()
-        if k not in ("handoff_notes", "chain")
-    ]
+    rows = []
+    for k, v in task.items():
+        if k in ("handoff_notes", "chain"):
+            continue
+        key_cell = html.escape(str(k))
+        if k == "description" and isinstance(v, str) and v:
+            rendered = _render_description(v)
+            val_cell = (
+                f"<div style='max-height:420px;overflow-y:auto;padding:.4em;"
+                f"background:#fafafa;border-radius:.2em;font-size:.93em'>{rendered}</div>"
+            )
+        elif isinstance(v, (dict, list)):
+            val_cell = html.escape(json.dumps(v, ensure_ascii=False))
+        else:
+            val_cell = html.escape(str(v))
+        rows.append([key_cell, val_cell])
 
     body = _table(["Field", "Value"], rows)
 
@@ -438,10 +560,25 @@ def render_task_detail(store: TaskStore, task_id: str) -> str | None:
             author_raw = n.get("author", "")
             if isinstance(author_raw, dict):
                 author_raw = author_raw.get("id", str(author_raw))
-            author = html.escape(str(author_raw))
+            author_str = str(author_raw)
+            author = html.escape(author_str)
             ts = html.escape(n.get("timestamp", n.get("created_at", "")))
             content = html.escape(n.get("body", n.get("content", "")))
-            body += f"<li><strong>{author}</strong> ({ts})<br><pre>{content}</pre></li>"
+            if author_str == "dashboard":
+                body += (
+                    f"<li style='background:#fff8dc;border-left:4px solid #f0c040;"
+                    f"padding:.5em .8em;margin:.4em 0;list-style:none'>"
+                    f"<strong>👤 人間操作</strong> <span style='color:#888;font-size:.85em'>({ts})</span><br>"
+                    f"<pre style='margin:.4em 0;white-space:pre-wrap;word-break:break-word'>{content}</pre>"
+                    f"</li>"
+                )
+            else:
+                body += (
+                    f"<li style='margin:.4em 0'>"
+                    f"<strong>{author}</strong> <span style='color:#888;font-size:.85em'>({ts})</span><br>"
+                    f"<pre style='white-space:pre-wrap;word-break:break-word'>{content}</pre>"
+                    f"</li>"
+                )
         body += "</ol>"
 
     chain = task.get("chain", [])
@@ -494,8 +631,10 @@ def render_task_detail(store: TaskStore, task_id: str) -> str | None:
   <label><input type='radio' name='action' value='deep_dive'> 🔬 深堀り（詳細分析を要求）</label><br>
   <label><input type='radio' name='action' value='continue'> ▶️ 後続処理（次ステップへ進める）</label>
 </td></tr>
-<tr><td style='border:none;padding:.4em'><strong>指示内容</strong></td>
-<td style='border:none'><textarea name='instruction' rows='3' cols='60' placeholder='追加の指示・コメントを入力（任意）'></textarea></td></tr>
+<tr><td style='border:none;padding:.4em;vertical-align:top'><strong>指示内容</strong></td>
+<td style='border:none'><textarea name='instruction' rows='6'
+  style='width:640px;max-width:100%;resize:vertical;font-family:sans-serif;font-size:.95em;padding:.4em'
+  placeholder='追加の指示・コメントを入力（任意）'></textarea></td></tr>
 <tr><td style='border:none'></td><td style='border:none'>
   <button type='submit' style='padding:.4em 1.2em;font-size:1em'>実行</button>
 </td></tr>
