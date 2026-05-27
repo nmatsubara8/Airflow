@@ -51,7 +51,7 @@ _TRANSITIONS: dict[str, set[str]] = {
     "in_progress": {"done", "needs_human", "blocked", "cancelled"},
     "needs_human": {"in_progress", "inbox", "cancelled"},
     "blocked":     {"in_progress", "inbox", "cancelled"},
-    "done":        set(),
+    "done":        {"inbox"},
     "cancelled":   set(),
 }
 

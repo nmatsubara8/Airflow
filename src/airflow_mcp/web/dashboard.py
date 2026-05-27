@@ -894,16 +894,17 @@ class _DashboardHandler(_BaseHandler):
                     store.transition(task_id, "cancelled", reason="human:rejected")
 
                 elif action == "retry":
-                    store.transition(task_id, "inbox", reason="manual:retry")
+                    if current_status not in ("cancelled",):
+                        store.transition(task_id, "inbox", reason="manual:retry")
 
                 elif action in ("reconsider", "deep_dive"):
                     # inbox に戻して dispatcher に再割り当てさせる
-                    if current_status != "inbox":
+                    if current_status not in ("inbox", "cancelled"):
                         store.transition(task_id, "inbox", reason=f"manual:{action}")
 
                 elif action == "continue":
-                    # needs_human / blocked → in_progress に戻す
-                    if current_status in ("needs_human", "blocked", "done"):
+                    # needs_human / blocked / done → inbox に戻す
+                    if current_status not in ("inbox", "cancelled"):
                         store.transition(task_id, "inbox", reason="manual:continue")
 
                 # note のみの場合はステータス変更なし
