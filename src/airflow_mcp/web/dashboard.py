@@ -6,6 +6,7 @@ stdlib の http.server のみ使用（FastAPI 不要）。
 """
 from __future__ import annotations
 
+import difflib
 import html
 import json
 import logging
@@ -375,6 +376,26 @@ def _table(headers: list[str], rows: list[list[str]]) -> str:
 _TREE_CHARS = frozenset("├└│─")
 
 
+def _render_diff(before: str, after: str) -> str:
+    """description の before/after を行単位で差分表示する HTML を返す。"""
+    before_lines = before.splitlines(keepends=True)
+    after_lines = after.splitlines(keepends=True)
+    diff = list(difflib.unified_diff(before_lines, after_lines, lineterm=""))
+    if not diff:
+        return "<p style='color:#888;font-size:.9em'>（変更なし）</p>"
+    parts = ["<pre style='font-size:.85em;line-height:1.5;margin:0;white-space:pre-wrap;word-break:break-word'>"]
+    for line in diff[2:]:  # skip --- +++ header lines
+        esc = html.escape(line.rstrip("\n"))
+        if line.startswith("+"):
+            parts.append(f"<span style='background:#d4edda;color:#155724;display:block'>{esc}</span>")
+        elif line.startswith("-"):
+            parts.append(f"<span style='background:#f8d7da;color:#721c24;display:block'>{esc}</span>")
+        else:
+            parts.append(f"<span style='color:#666;display:block'>{esc}</span>")
+    parts.append("</pre>")
+    return "".join(parts)
+
+
 def _render_description(text: str) -> str:
     """Markdown 風 description を構造化 HTML に変換する。
 
@@ -582,11 +603,25 @@ def render_task_detail(store: TaskStore, task_id: str) -> str | None:
             ts = html.escape(n.get("timestamp", n.get("created_at", "")))
             content = html.escape(n.get("body", n.get("content", "")))
             if author_str == "dashboard":
+                snapshot = n.get("description_snapshot")
+                current_desc = task.get("description", "")
+                diff_html = ""
+                if snapshot is not None:
+                    diff_section = _render_diff(snapshot, current_desc)
+                    diff_html = (
+                        f"<details style='margin-top:.5em'>"
+                        f"<summary style='cursor:pointer;color:#0066cc;font-size:.9em'>"
+                        f"📊 指示前との差分（現在の description）</summary>"
+                        f"<div style='margin-top:.4em;border:1px solid #ddd;border-radius:.3em;"
+                        f"padding:.5em;background:#fefefe;overflow-x:auto'>"
+                        f"{diff_section}</div></details>"
+                    )
                 body += (
                     f"<li style='background:#fff8dc;border-left:4px solid #f0c040;"
                     f"padding:.5em .8em;margin:.4em 0;list-style:none'>"
                     f"<strong>👤 人間操作</strong> <span style='color:#888;font-size:.85em'>({ts})</span><br>"
                     f"<pre style='margin:.4em 0;white-space:pre-wrap;word-break:break-word'>{content}</pre>"
+                    f"{diff_html}"
                     f"</li>"
                 )
             else:
@@ -843,9 +878,13 @@ class _DashboardHandler(_BaseHandler):
             }.get(action, "📝 [手動指示]")
 
             note_body = f"{note_prefix} {instruction}" if instruction else note_prefix
+            description_snapshot = task.get("description") or ""
 
             try:
-                store.add_handoff_note(task_id, note_body, author="dashboard")
+                store.add_handoff_note(
+                    task_id, note_body, author="dashboard",
+                    description_snapshot=description_snapshot,
+                )
 
                 if action == "approve":
                     # ingester-review タスクを inbox へ（F-08 人間承認フロー）

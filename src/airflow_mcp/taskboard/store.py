@@ -283,18 +283,23 @@ class TaskStore:
             self._write_atomic(path, task)
         return task
 
-    def add_handoff_note(self, task_id: str, content: str, author: str) -> dict[str, Any]:
+    def add_handoff_note(
+        self, task_id: str, content: str, author: str,
+        description_snapshot: str | None = None,
+    ) -> dict[str, Any]:
         with self._lock(task_id):
             path = self._find_task_path(task_id)
             if path is None:
                 raise TaskNotFound(task_id)
             task = json.loads(path.read_text())
-            note = {
+            note: dict[str, Any] = {
                 "id": "hn_" + new_audit_id()[:12].lower(),
                 "body": content,
                 "author": {"type": "agent", "id": author},
                 "timestamp": now_iso(),
             }
+            if description_snapshot is not None:
+                note["description_snapshot"] = description_snapshot
             task.setdefault("handoff_notes", []).append(note)
             task["updated_at"] = now_iso()
             task["lock"]["version"] += 1
