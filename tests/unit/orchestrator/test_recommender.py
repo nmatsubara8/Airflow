@@ -259,7 +259,7 @@ def test_select_model_auto_downgraded_when_insufficient_samples():
 
 def test_simple_rule_high_accuracy_batch_returns_32b():
     task = {"features": {"required_accuracy": "high", "latency_sensitivity": "batch"}}
-    assert simple_rule_select(task) == "model_qwen25_32b_q3"
+    assert simple_rule_select(task) == "model_qwen3_35b_a3b"
 
 
 def test_simple_rule_medium_accuracy_returns_14b():
