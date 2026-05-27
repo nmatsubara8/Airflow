@@ -41,7 +41,7 @@ FIXTURES_DIR = Path(__file__).parent.parent.parent / "fixtures"
 
 def test_select_model_high_accuracy_batch_returns_32b():
     task = {"features": {"required_accuracy": "high", "latency_sensitivity": "batch"}}
-    assert simple_rule_select(task) == "model_qwen25_32b_q3"
+    assert simple_rule_select(task) == "model_qwen3_35b_a3b"
 
 
 def test_select_model_medium_accuracy_returns_14b():
@@ -64,7 +64,7 @@ def test_select_model_empty_features_returns_14b():
 def test_runner_select_model_no_registry_falls_back_to_simple_rule():
     task = {"features": {"required_accuracy": "high", "latency_sensitivity": "batch"}}
     model_id, etype = _select_model(task, {}, registry=None)
-    assert model_id == "model_qwen25_32b_q3"
+    assert model_id == "model_qwen3_35b_a3b"
     assert etype is None
 
 

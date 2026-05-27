@@ -7,7 +7,7 @@ from __future__ import annotations
 
 # ── デフォルトモデル ID（DDD-06 §6）────────────────────────────────────
 DEFAULT_MODEL_ID = "model_qwen3_14b"
-DEFAULT_MODEL_32B_ID = "model_qwen25_32b_q3"
+DEFAULT_MODEL_32B_ID = "model_qwen3_35b_a3b"
 
 # ── auto_score 算出パラメータ（DDD-06 §5.2）──────────────────────────────
 # compute_auto_score() のベーススコアと補正値
