@@ -264,11 +264,11 @@ def test_simple_rule_high_accuracy_batch_returns_32b():
 
 def test_simple_rule_medium_accuracy_returns_default():
     task = {"features": {"required_accuracy": "medium"}}
-    assert simple_rule_select(task) == "model_gemma4_26b_a4b"
+    assert simple_rule_select(task) == "model_qwen3_14b"
 
 
-def test_simple_rule_empty_features_returns_default():
-    assert simple_rule_select({}) == "model_gemma4_26b_a4b"
+def test_simple_rule_empty_features_returns_14b():
+    assert simple_rule_select({}) == "model_qwen3_14b"
 
 
 # ── knn_recommend: empty features_snapshot (line 96) ─

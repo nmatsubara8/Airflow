@@ -29,14 +29,12 @@ dual_execution:
 reroute:
   max_reroute_attempts: 1
   fallback_chain:
+    model_qwen3_14b:
+      - model_qwen25_14b_q4       # 安定フォールバック
     model_qwen3_35b_a3b:
-      - model_gemma4_26b_a4b      # 2nd tier MoE
-      - model_qwen3_14b           # lightest reliable
+      - model_qwen3_14b           # MoE 失敗時は 14B へ
     model_gemma4_26b_a4b:
-      - model_qwen3_14b           # lightest reliable
-    model_qwen3_14b: []          # bottom of chain — no further fallback
-    model_qwen25_14b_q4:
-      - model_gemma4_26b_a4b
-      - model_qwen3_14b
+      - model_qwen3_14b           # Gemma4 失敗時は 14B へ
+    model_qwen25_14b_q4: []
     model_qwen25_32b_q3: []
     model_bge_m3: []             # embedding — no reroute
