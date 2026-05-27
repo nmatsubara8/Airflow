@@ -91,6 +91,23 @@ def _model_id_to_ollama_tag(model_id: str, registry: dict[str, dict]) -> str:
     return model_id.replace("model_", "").replace("_", ":")
 
 
+def _extract_human_instructions(task: dict[str, Any]) -> list[str]:
+    """handoff_notes から未処理の人間指示（dashboard author）を抽出する。"""
+    instructions = []
+    for hn in task.get("handoff_notes", []):
+        author = hn.get("author", "")
+        if isinstance(author, dict):
+            author = author.get("id", "")
+        if str(author) == "dashboard":
+            body = hn.get("body", "")
+            # description 更新系・システム操作系ノートは除外
+            if not any(body.startswith(p) for p in ("✏️", "📥", "📝 [手動指示]")):
+                instructions.append(body)
+            elif body.startswith("📝 [手動指示]"):
+                instructions.append(body)
+    return instructions
+
+
 def _build_messages(
     task: dict[str, Any],
     system_prompt: str,
@@ -101,6 +118,17 @@ def _build_messages(
     context_block = f"\n\n{context}" if context else ""
     tags_str = ", ".join(task.get("tags", [])) or "（なし）"
     prefix = "/no-think\n\n" if no_think_prefix else ""
+
+    # 人間からの追加指示をプロンプトに含める
+    human_instructions = _extract_human_instructions(task)
+    instructions_block = ""
+    if human_instructions:
+        instructions_text = "\n".join(f"- {i}" for i in human_instructions)
+        instructions_block = (
+            f"\n\n## 人間からの追加指示\n{instructions_text}\n\n"
+            f"上記の指示を反映した updated_description を必ず記述してください。"
+        )
+
     user_content = (
         f"{prefix}"
         f"## 分析対象タスク\n\n"
@@ -108,6 +136,7 @@ def _build_messages(
         f"**説明**: {task.get('description', '（説明なし）')}\n\n"
         f"**タグ**: {tags_str}\n"
         f"**セクション**: {task.get('section', 'engineering')}"
+        f"{instructions_block}"
         f"{context_block}\n\n"
         f"---\n"
         f"上記のタスクを分析し、具体的な洞察・実装方針・注意点を含む JSON を出力してください。"
@@ -416,6 +445,17 @@ def process_task(task: dict[str, Any], ctx: ExecutionContext) -> bool:
         r.parsed, r.content, r.model_id, r.latency_ms, r.retry_count, r.rerouted_from, r.log_id,
     )
     ctx.store.add_handoff_note(task_id, handoff_content, author=ctx.agent_id)
+
+    # 人間指示を反映した updated_description があれば description を自動更新する
+    updated_desc = (r.parsed or {}).get("updated_description")
+    if updated_desc and isinstance(updated_desc, str) and updated_desc.strip():
+        try:
+            fresh = ctx.store.get(task_id)
+            ctx.store.update(task_id, fresh["lock"]["version"],
+                             {"description": updated_desc.strip()})
+            logger.info("task %s: description auto-updated from agent output", task_id)
+        except Exception as exc:
+            logger.warning("description auto-update failed for %s: %s", task_id, exc)
 
     # handoff チェーン処理（DDD-06 §3 / DDD-08 §3.1）
     # record_chain_step を先に実行してから chain 深さを元にルーティングを決定する。

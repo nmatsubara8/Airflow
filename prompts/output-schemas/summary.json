@@ -28,6 +28,10 @@
       "minItems": 1,
       "maxItems": 4,
       "description": "推奨タグ（1〜4個）"
+    },
+    "updated_description": {
+      "type": ["string", "null"],
+      "description": "人間の追加指示を反映した新しい description（Markdown形式）。指示がない場合は null"
     }
   },
   "additionalProperties": false

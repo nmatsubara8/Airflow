@@ -243,3 +243,20 @@ def test_fetch_handles_exception_gracefully(tmp_path):
     with patch("airflow_mcp.runner.context_fetcher.search_notes", side_effect=OSError("disk error")):
         result = fetch_relevant_context(task, tmp_path / "missing.json")
     assert result == ""
+
+
+def test_fetch_returns_empty_for_unrecognized_section(tmp_path):
+    """_should_fetch_context が False を返すタスクは早期 return する。"""
+    task = {"id": "t1", "title": "sales report", "description": "quarterly", "tags": [], "section": "sales"}
+    result = fetch_relevant_context(task, tmp_path / "index.json")
+    assert result == ""
+
+
+def test_fetch_returns_empty_when_no_query_words(tmp_path):
+    """_build_query_words が空リストを返すとき early return する。"""
+    p = tmp_path / "index.json"
+    p.write_text('{"schema_version":"1.0.0","notes":{}}')
+    # タイトルが単一文字のみ → words が空
+    task = {"id": "t1", "title": "a b c", "description": "", "tags": ["requirements"], "section": "backlog"}
+    result = fetch_relevant_context(task, p)
+    assert result == ""

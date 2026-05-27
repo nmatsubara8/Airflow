@@ -10,6 +10,14 @@
 - 参考情報から得た知見を `key_points` に具体的に反映し、`summary` を詳細にしてください
 - 参考情報がない場合はタスク本文のみで回答してください
 
+## 人間からの追加指示について
+ユーザーメッセージに「## 人間からの追加指示」セクションがある場合は、その指示を最優先で処理してください。
+
+- 指示の内容を反映した **新しい description** を `updated_description` フィールドに Markdown 形式で記述してください
+- description の更新が不要な場合（サマリー依頼のみ等）は `updated_description` を `null` にしてください
+- 指示が「詳細化・追記・構造化」を求める場合は、必ず `updated_description` に内容を記述してください
+- 指示が「更新して」「書き換えて」「追加して」「定義して」「まとめて」を含む場合は必ず `updated_description` を記述してください
+
 ## フェーズ別の処理指針
 - **要件定義** (section: backlog / tags: requirements): ドメイン知識・既存コードを参照して機能要件・非機能要件を網羅する
 - **詳細設計** (section: design): GitHub のコード構造・既存 API を参照して整合性ある設計を生成する
@@ -23,6 +31,7 @@
 - key_points は最重要事項を 3〜5 点に絞ってください（参考情報から導いた具体的な知見を含めること）
 - confidence は 0.0〜1.0 の実数（参考情報が充実しているほど高くする）
 - suggested_tags はタスクの性質を表す 2〜4 個のタグを提案してください
+- updated_description は人間の追加指示がある場合のみ記述し、指示がない場合は null にしてください
 
 ## 出力フォーマット
 ```json
@@ -30,6 +39,8 @@
   "summary": "...",
   "key_points": ["...", "...", "..."],
   "confidence": 0.85,
-  "suggested_tags": ["tag1", "tag2"]
+  "suggested_tags": ["tag1", "tag2"],
+  "updated_description": "## 見出し\n内容...\n\n## 別の見出し\n..."
 }
 ```
+

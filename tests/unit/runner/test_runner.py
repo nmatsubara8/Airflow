@@ -16,6 +16,7 @@ from airflow_mcp.runner.main import (
     _call_ollama,
     _execute_with_retry,
     _execute_with_reroute,
+    _extract_human_instructions,
     _get_fallback_model,
     _model_id_to_ollama_tag,
     _select_model,
@@ -1112,3 +1113,137 @@ def test_process_task_sequential_handoff_returns_true(
     # done に遷移していないこと（オーナー変遷前の状態を確認）
     updated = task_store.get(task["id"])
     assert updated["status"] == "in_progress"
+
+
+# ── _extract_human_instructions ──────────────────────────────────────────────
+
+def test_extract_human_instructions_returns_dashboard_notes():
+    task = {
+        "handoff_notes": [
+            {"author": {"type": "agent", "id": "agent_docs"}, "body": "エージェントの要約"},
+            {"author": "dashboard", "body": "📝 [手動指示] 詳細化して"},
+            {"author": {"type": "agent", "id": "dashboard"}, "body": "🔍 [再検討指示] 再確認"},
+        ]
+    }
+    result = _extract_human_instructions(task)
+    assert "📝 [手動指示] 詳細化して" in result
+    assert "エージェントの要約" not in result
+
+
+def test_extract_human_instructions_excludes_system_notes():
+    task = {
+        "handoff_notes": [
+            {"author": "dashboard", "body": "✏️ [description 更新] 人間が直接編集"},
+            {"author": "dashboard", "body": "📥 [description 更新] エージェント回答を反映"},
+        ]
+    }
+    result = _extract_human_instructions(task)
+    assert result == []
+
+
+def test_extract_human_instructions_empty_task():
+    assert _extract_human_instructions({}) == []
+
+
+# ── _build_messages with human instructions ──────────────────────────────────
+
+def test_build_messages_includes_human_instructions():
+    task = {
+        "id": "task_test001",
+        "title": "テストタスク",
+        "description": "元の説明",
+        "tags": ["test"],
+        "section": "engineering",
+        "handoff_notes": [
+            {"author": "dashboard", "body": "🔍 [再検討指示] オッズ情報を追加して"},
+        ],
+    }
+    messages = _build_messages(task, "system prompt")
+    user_content = messages[1]["content"]
+    assert "人間からの追加指示" in user_content
+    assert "オッズ情報を追加して" in user_content
+    assert "updated_description" in user_content
+
+
+def test_build_messages_no_instructions_no_block():
+    task = {
+        "id": "task_test002",
+        "title": "テストタスク",
+        "description": "説明",
+        "tags": [],
+        "section": "engineering",
+        "handoff_notes": [],
+    }
+    messages = _build_messages(task, "system prompt")
+    user_content = messages[1]["content"]
+    assert "人間からの追加指示" not in user_content
+
+
+# ── process_task: updated_description auto-update ────────────────────────────
+
+def test_process_task_auto_updates_description_when_present(task_store, sample_task_fields):
+    """parsed に updated_description があれば description が自動更新されること。"""
+    os.environ["OLLAMA_STUB"] = "true"
+    task = task_store.create({**sample_task_fields, "description": "元の説明"})
+    task_store.claim(task["id"], "agent_docs")
+    task_in_progress = task_store.get(task["id"])
+
+    stub_parsed = {
+        "summary": "テスト要約テスト要約テスト要約テスト",
+        "key_points": ["ポイント1", "ポイント2", "ポイント3"],
+        "confidence": 0.9,
+        "suggested_tags": ["test"],
+        "updated_description": "## 更新済み説明\n新しい内容",
+    }
+    with patch("airflow_mcp.runner.main._execute_with_retry",
+               return_value=(json.dumps(stub_parsed), stub_parsed, True, 0)):
+        result = process_task(task_in_progress, _ctx(task_store))
+
+    assert result is True
+    updated = task_store.get(task["id"])
+    assert updated["description"] == "## 更新済み説明\n新しい内容"
+
+
+def test_process_task_skips_description_update_when_null(task_store, sample_task_fields):
+    """updated_description が null の場合は description を変更しないこと。"""
+    os.environ["OLLAMA_STUB"] = "true"
+    task = task_store.create({**sample_task_fields, "description": "元の説明"})
+    task_store.claim(task["id"], "agent_docs")
+    task_in_progress = task_store.get(task["id"])
+
+    stub_parsed = {
+        "summary": "テスト要約テスト要約テスト要約テスト",
+        "key_points": ["ポイント1", "ポイント2", "ポイント3"],
+        "confidence": 0.9,
+        "suggested_tags": ["test"],
+        "updated_description": None,
+    }
+    with patch("airflow_mcp.runner.main._execute_with_retry",
+               return_value=(json.dumps(stub_parsed), stub_parsed, True, 0)):
+        result = process_task(task_in_progress, _ctx(task_store))
+
+    assert result is True
+    updated = task_store.get(task["id"])
+    assert updated["description"] == "元の説明"
+
+
+def test_process_task_description_update_exception_is_swallowed(task_store, sample_task_fields):
+    """updated_description auto-update が例外でも process_task は成功すること。"""
+    os.environ["OLLAMA_STUB"] = "true"
+    task = task_store.create({**sample_task_fields, "description": "元の説明"})
+    task_store.claim(task["id"], "agent_docs")
+    task_in_progress = task_store.get(task["id"])
+
+    stub_parsed = {
+        "summary": "テスト要約テスト要約テスト要約テスト",
+        "key_points": ["ポイント1", "ポイント2", "ポイント3"],
+        "confidence": 0.9,
+        "suggested_tags": ["test"],
+        "updated_description": "## 新説明",
+    }
+    with patch("airflow_mcp.runner.main._execute_with_retry",
+               return_value=(json.dumps(stub_parsed), stub_parsed, True, 0)), \
+         patch.object(task_store, "update", side_effect=RuntimeError("lock conflict")):
+        result = process_task(task_in_progress, _ctx(task_store))
+
+    assert result is True

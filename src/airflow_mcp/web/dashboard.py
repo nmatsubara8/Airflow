@@ -694,6 +694,7 @@ def render_task_detail(store: TaskStore, task_id: str) -> str | None:
             f"<a href='/tasks/{html.escape(cid)}'>{html.escape(cid[:16])}…</a>"
             for cid in join_info.get("child_ids", [])
         )
+        body += f"<p>Policy: {html.escape(join_info.get('policy', 'all'))} | Children: {child_links or '—'}</p>"
 
     # ── 推奨次タスク ────────────────────────────────────────────
     try:
@@ -740,8 +741,6 @@ def render_task_detail(store: TaskStore, task_id: str) -> str | None:
     except Exception as exc:
         logger.debug("推奨タスク取得エラー: %s", exc)
 
-        body += f"<p>Policy: {html.escape(join_info.get('policy', 'all'))} | Children: {child_links or '—'}</p>"
-
     # アクションフォーム
     is_ingester_review = "ingester-review" in task.get("tags", [])
     if is_ingester_review and task.get("status") == "needs_human":
@@ -787,7 +786,7 @@ def render_task_detail(store: TaskStore, task_id: str) -> str | None:
 <input type='hidden' name='action' value='edit_description'>
 <textarea name='new_description' rows='12'
   style='width:100%;max-width:860px;resize:vertical;font-family:monospace;font-size:.93em;padding:.5em'
-  >""" + html.escape(task.get("description", "")) + """</textarea><br>
+  >""" + html.escape(task.get("description") or "") + """</textarea><br>
 <button type='submit' style='margin-top:.5em;padding:.4em 1.2em;font-size:1em;
   background:#4466cc;color:#fff;border:none;border-radius:.3em;cursor:pointer'>
   💾 Description を更新
@@ -1021,6 +1020,9 @@ class _DashboardHandler(_BaseHandler):
             content = render_tasks(store, status, section) if store is not None else _page("Tasks", "<p>No store configured.</p>")
             return 200, "text/html; charset=utf-8", content
 
+        if path == "/tasks/new":
+            return 200, "text/html; charset=utf-8", render_create_task()
+
         if path.startswith("/tasks/"):
             task_id = path[len("/tasks/"):]
             if store is not None:
@@ -1029,9 +1031,6 @@ class _DashboardHandler(_BaseHandler):
                     return 404, "text/html; charset=utf-8", _page("Not Found", f"<p>Task {html.escape(task_id)} not found.</p>")
                 return 200, "text/html; charset=utf-8", content
             return 200, "text/html; charset=utf-8", _page("Tasks", "<p>No store configured.</p>")
-
-        if path == "/tasks/new":
-            return 200, "text/html; charset=utf-8", render_create_task()
 
         if path == "/review":
             content = render_review_queue(store)

@@ -657,3 +657,25 @@ def test_dashboard_reject_action_transitions_to_cancelled(tmp_path, task_store, 
     assert code == -1
     updated = task_store.get(task_id)
     assert updated["status"] == "cancelled"
+
+
+# ── run_once: github_sources and github_reference_sources ──
+
+def test_run_once_with_github_sources_calls_run_github_once(task_store, monkeypatch, tmp_path):
+    """github_sources が設定されていると run_github_once が呼ばれること。"""
+    from unittest.mock import patch
+    with patch("airflow_mcp.ingester.main.run_github_once", return_value=2) as mock_gh:
+        config = {"github_sources": [{"repo": "owner/repo", "token": "tok"}]}
+        n = run_once(task_store, config)
+    mock_gh.assert_called_once()
+    assert n == 2
+
+
+def test_run_once_with_github_reference_sources_calls_run_github_reference_once(task_store, monkeypatch, tmp_path):
+    """github_reference_sources が設定されていると run_github_reference_once が呼ばれること。"""
+    from unittest.mock import patch
+    with patch("airflow_mcp.ingester.main.run_github_reference_once", return_value=None) as mock_ref:
+        config = {"github_reference_sources": [{"repo": "owner/repo", "token": "tok"}]}
+        n = run_once(task_store, config)
+    mock_ref.assert_called_once()
+    assert n == 0

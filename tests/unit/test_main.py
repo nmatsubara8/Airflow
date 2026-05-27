@@ -384,3 +384,14 @@ def test_main_auth_rotate_unknown_flag_skipped(capsys):
         _main(["auth", "rotate", "--agent", "agent_x", "--scopes", "tasks:read", "--unknown"])
     out = capsys.readouterr().out
     assert "rotated" in out
+
+
+# ── ingester command ───────────────────────────────────────────
+
+def test_main_ingester_calls_run_loop(tmp_path):
+    """ingester コマンドが run_loop を呼び出すこと。"""
+    from unittest.mock import patch
+    with patch("airflow_mcp.ingester.main.run_loop") as mock_loop, \
+         patch("airflow_mcp.ingester.main.load_config", return_value={}):
+        _main(["ingester"])
+    mock_loop.assert_called_once()

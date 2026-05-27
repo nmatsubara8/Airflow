@@ -163,3 +163,45 @@ def test_auth_token_empty_env_skips_auth(monkeypatch):
             assert resp.status == 200
     finally:
         httpd.shutdown()
+
+
+def test_base_post_auth_failure_returns_401(monkeypatch):
+    """POST で認証失敗すると 401 が返ること（base do_POST の auth check）。"""
+    monkeypatch.setenv("AIRFLOW_HTTP_AUTH_TOKEN", "secret123")
+    import airflow_mcp.common.http_server as hs
+    monkeypatch.setattr(hs, "_expected_token", lambda: "secret123")
+    port = _free_port()
+    httpd = start_server(_EchoHandler, port, "test-post-auth")
+    try:
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/action",
+            data=b"x=1",
+            method="POST",
+        )
+        try:
+            urllib.request.urlopen(req, timeout=5)
+            assert False, "Expected 401"
+        except urllib.error.HTTPError as e:
+            assert e.code == 401
+    finally:
+        httpd.shutdown()
+    monkeypatch.delenv("AIRFLOW_HTTP_AUTH_TOKEN", raising=False)
+
+
+def test_base_post_default_handle_post_returns_405():
+    """handle_post() をオーバーライドしないとき POST で 405 が返ること。"""
+    port = _free_port()
+    httpd = start_server(_BaseHandler, port, "test-post-default")
+    try:
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/action",
+            data=b"x=1",
+            method="POST",
+        )
+        try:
+            urllib.request.urlopen(req, timeout=5)
+            assert False, "Expected 405"
+        except urllib.error.HTTPError as e:
+            assert e.code == 405
+    finally:
+        httpd.shutdown()
