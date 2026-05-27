@@ -610,29 +610,41 @@ def render_task_detail(store: TaskStore, task_id: str) -> str | None:
                 if snapshot is not None:
                     diff_section = _render_diff(snapshot, current_desc)
                     # 指示の直後に来たエージェントノートを収集
-                    agent_notes_after: list[str] = []
+                    # エージェントノートごとに「description に反映」ボタンを追加
+                    agent_note_items: list[str] = []
                     for later in notes[idx + 1:]:
                         later_author = later.get("author", "")
                         if isinstance(later_author, dict):
                             later_author = later_author.get("id", str(later_author))
                         if str(later_author) == "dashboard":
-                            break  # 次の人間操作で終了
+                            break
                         body_text = html.escape(later.get("body", later.get("content", "")))
                         later_ts = html.escape(later.get("timestamp", ""))
                         later_agent = html.escape(str(later_author))
-                        agent_notes_after.append(
+                        later_note_id = html.escape(later.get("id", ""))
+                        reflect_btn = (
+                            f"<form method='POST' action='/tasks/{html.escape(task_id)}/action'"
+                            f" style='display:inline;margin-left:.5em'>"
+                            f"<input type='hidden' name='action' value='apply_agent_note'>"
+                            f"<input type='hidden' name='note_id' value='{later_note_id}'>"
+                            f"<button type='submit' style='font-size:.8em;padding:.2em .6em;"
+                            f"background:#4466cc;color:#fff;border:none;border-radius:.2em;"
+                            f"cursor:pointer'>📥 description に反映</button></form>"
+                        )
+                        agent_note_items.append(
                             f"<div style='margin-bottom:.6em'>"
                             f"<span style='font-weight:bold;color:#333'>{later_agent}</span>"
-                            f" <span style='color:#888;font-size:.85em'>({later_ts})</span><br>"
+                            f" <span style='color:#888;font-size:.85em'>({later_ts})</span>"
+                            f"{reflect_btn}<br>"
                             f"<pre style='margin:.3em 0;white-space:pre-wrap;word-break:break-word;"
                             f"font-size:.85em;background:#f8f8f8;padding:.4em;border-radius:.2em'>"
                             f"{body_text}</pre></div>"
                         )
                     agent_section = (
                         "<div style='margin-bottom:.6em'>"
-                        + "".join(agent_notes_after)
+                        + "".join(agent_note_items)
                         + "</div>"
-                        if agent_notes_after
+                        if agent_note_items
                         else "<p style='color:#888;font-size:.9em'>（まだエージェントの対応なし）</p>"
                     )
                     diff_html = (
@@ -1105,6 +1117,33 @@ class _DashboardHandler(_BaseHandler):
             owner = task.get("owner")
             if isinstance(owner, dict):
                 owner = owner.get("id", "")
+
+            # エージェントノートを description に反映
+            if action == "apply_agent_note":
+                note_id_target = form.get("note_id", "")
+                target_body = ""
+                for hn in task.get("handoff_notes", []):
+                    if hn.get("id") == note_id_target:
+                        target_body = hn.get("body", hn.get("content", ""))
+                        break
+                if not target_body:
+                    return 400, "text/html; charset=utf-8", _page("Error", "<p>Note not found.</p>")
+                try:
+                    old_desc = task.get("description", "")
+                    store.update(task_id, task["lock"]["version"], {"description": target_body})
+                    store.add_handoff_note(
+                        task_id,
+                        "📥 [description 更新] エージェント回答を反映",
+                        author="dashboard",
+                        description_snapshot=old_desc,
+                    )
+                except Exception as exc:
+                    logger.error("apply_agent_note error task=%s: %s", task_id, exc)
+                    return 500, "text/html; charset=utf-8", _page("Error", f"<p>Update failed: {html.escape(str(exc))}</p>")
+                self.send_response(303)
+                self.send_header("Location", f"/tasks/{task_id}")
+                self.end_headers()
+                return -1, "", ""
 
             # description 直接編集
             if action == "edit_description":
