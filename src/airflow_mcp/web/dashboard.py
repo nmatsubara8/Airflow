@@ -954,6 +954,47 @@ class _DashboardHandler(_BaseHandler):
     _cors_enabled = True
     store: TaskStore | None = None
 
+    def do_POST(self) -> None:  # noqa: N802
+        """JSON ボディの POST /api/tasks を処理する。他は基底クラスに委譲。"""
+        from urllib.parse import urlparse
+        if not self._check_auth():
+            self._send(401, "application/json", '{"error":"Unauthorized"}')
+            return
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/tasks":
+            length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                self._send(400, "application/json", '{"error":"Invalid JSON"}')
+                return
+            store = self.__class__.store
+            if store is None:
+                self._send(503, "application/json", '{"error":"Store not available"}')
+                return
+            title = str(data.get("title", "")).strip()
+            if not title:
+                self._send(400, "application/json", '{"error":"title is required"}')
+                return
+            try:
+                task = store.create({
+                    "title": title,
+                    "section": data.get("section") or None,
+                    "description": data.get("description") or None,
+                    "tags": data.get("tags") or [],
+                    "priority": int(data.get("priority", 3)),
+                    "owner": None,
+                })
+            except Exception as exc:
+                self._send(500, "application/json",
+                           json.dumps({"error": str(exc)}, ensure_ascii=False))
+                return
+            self._send(201, "application/json",
+                       json.dumps({"task": task}, ensure_ascii=False))
+            return
+        super().do_POST()
+
     def handle_get(self, path: str, qs: dict[str, list[str]]) -> tuple[int, str, str]:
         path = path.rstrip("/") or "/"
         store = self.__class__.store
@@ -997,6 +1038,19 @@ class _DashboardHandler(_BaseHandler):
 
         if path == "/api/status":
             return 200, "application/json; charset=utf-8", render_api_status(store)
+
+        if path == "/api/tasks":
+            status_filter = qs.get("status", [None])[0]
+            try:
+                if status_filter:
+                    tasks = store.list_by_status(status_filter) if store else []
+                else:
+                    tasks = store.list_all() if store else []
+                return 200, "application/json; charset=utf-8", json.dumps(
+                    {"tasks": tasks, "count": len(tasks)}, ensure_ascii=False
+                )
+            except Exception as exc:
+                return 500, "application/json; charset=utf-8", json.dumps({"error": str(exc)})
 
         return 404, "text/html; charset=utf-8", _page("Not Found", "<p>Page not found.</p>")
 
