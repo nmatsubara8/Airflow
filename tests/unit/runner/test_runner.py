@@ -44,19 +44,19 @@ def test_select_model_high_accuracy_batch_returns_32b():
     assert simple_rule_select(task) == "model_qwen3_35b_a3b"
 
 
-def test_select_model_medium_accuracy_returns_14b():
+def test_select_model_medium_accuracy_returns_default():
     task = {"features": {"required_accuracy": "medium", "latency_sensitivity": "batch"}}
-    assert simple_rule_select(task) == "model_qwen3_14b"
+    assert simple_rule_select(task) == "model_gemma4_26b_a4b"
 
 
-def test_select_model_high_accuracy_interactive_returns_14b():
-    # interactive は latency 優先なので 14B
+def test_select_model_high_accuracy_interactive_returns_default():
+    # interactive は latency 優先なのでデフォルトモデル
     task = {"features": {"required_accuracy": "high", "latency_sensitivity": "interactive"}}
-    assert simple_rule_select(task) == "model_qwen3_14b"
+    assert simple_rule_select(task) == "model_gemma4_26b_a4b"
 
 
-def test_select_model_empty_features_returns_14b():
-    assert simple_rule_select({}) == "model_qwen3_14b"
+def test_select_model_empty_features_returns_default():
+    assert simple_rule_select({}) == "model_gemma4_26b_a4b"
 
 
 # ── _select_model (registry なし → simple_rule フォールバック) ─
