@@ -91,6 +91,14 @@ def main() -> None:
         _run_config_command()
         return
 
+    if cmd == "ingester":
+        from .ingester.main import load_config, run_loop
+        from .taskboard.store import TaskStore
+        store = TaskStore()
+        config = load_config()
+        run_loop(store, config)
+        return
+
     print(f"Unknown command: {cmd}", file=sys.stderr)
     _print_usage()
     sys.exit(1)
@@ -238,6 +246,7 @@ def _run_config_command() -> None:
 def _print_usage() -> None:
     print("Usage: airflow-mcp <command>", file=sys.stderr)
     print("  MCP servers : taskboard | notes | models | gpu | agents", file=sys.stderr)
+    print("  Ingester    : ingester", file=sys.stderr)
     print("  Ops CLI     : status [--watch [--interval N]] | batch [--loop]", file=sys.stderr)
     print("              : audit <verify|hash>", file=sys.stderr)
     print("  Config CLI  : config validate", file=sys.stderr)
