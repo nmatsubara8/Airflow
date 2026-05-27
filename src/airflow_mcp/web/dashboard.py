@@ -61,6 +61,7 @@ def _page(title: str, body: str, refresh: bool = True) -> str:
         "</head><body>"
         "<nav><a href='/'>Home</a> | "
         "<a href='/tasks'>Tasks</a> | "
+        "<a href='/tasks/new'>➕ タスク作成</a> | "
         "<a href='/review'>📋 レビューキュー</a> | "
         "<a href='/graph'>Graph</a> | "
         "<a href='/scheduler'>Scheduler</a> | "
@@ -784,6 +785,68 @@ def render_task_detail(store: TaskStore, task_id: str) -> str | None:
     return _page(f"Task: {task_id[:16]}", body)
 
 
+def render_create_task() -> str:
+    """タスク手動作成フォームを返す。"""
+    body = """
+<form method='POST' action='/tasks/new'>
+<table style='width:auto;border:none'>
+<tr>
+  <td style='border:none;padding:.5em;vertical-align:top'><strong>タイトル *</strong></td>
+  <td style='border:none;padding:.5em'>
+    <input name='title' required style='width:560px;font-size:1em;padding:.3em' placeholder='タスクのタイトル'>
+  </td>
+</tr>
+<tr>
+  <td style='border:none;padding:.5em;vertical-align:top'><strong>Section</strong></td>
+  <td style='border:none;padding:.5em'>
+    <input name='section' style='width:300px;font-size:.95em;padding:.3em'
+      placeholder='engineering / content / business など'>
+  </td>
+</tr>
+<tr>
+  <td style='border:none;padding:.5em;vertical-align:top'><strong>Tags</strong></td>
+  <td style='border:none;padding:.5em'>
+    <input name='tags' style='width:400px;font-size:.95em;padding:.3em'
+      placeholder='カンマ区切り: keibam, scraping, data-collection'>
+  </td>
+</tr>
+<tr>
+  <td style='border:none;padding:.5em;vertical-align:top'><strong>優先度</strong></td>
+  <td style='border:none;padding:.5em'>
+    <select name='priority' style='font-size:.95em;padding:.3em'>
+      <option value='1'>1（最高）</option>
+      <option value='2'>2</option>
+      <option value='3' selected>3（標準）</option>
+      <option value='4'>4</option>
+      <option value='5'>5（最低）</option>
+    </select>
+  </td>
+</tr>
+<tr>
+  <td style='border:none;padding:.5em;vertical-align:top'><strong>Description</strong></td>
+  <td style='border:none;padding:.5em'>
+    <textarea name='description' rows='16'
+      style='width:720px;max-width:100%;resize:vertical;font-family:monospace;font-size:.93em;padding:.5em'
+      placeholder='Markdown 形式で記述できます。## 見出し、- リスト、```コードブロック など'></textarea>
+  </td>
+</tr>
+<tr>
+  <td style='border:none'></td>
+  <td style='border:none;padding:.5em'>
+    <button type='submit' style='padding:.5em 1.8em;font-size:1.05em;
+      background:#4466cc;color:#fff;border:none;border-radius:.3em;cursor:pointer'>
+      ➕ タスクを作成（inbox）
+    </button>
+    &nbsp;
+    <a href='/tasks' style='color:#888;font-size:.95em'>キャンセル</a>
+  </td>
+</tr>
+</table>
+</form>
+"""
+    return _page("新規タスク作成", body, refresh=False)
+
+
 def render_review_queue(store: "TaskStore | None") -> str:
     """ingester-review タグの needs_human タスクを一覧表示するレビューキューページ。"""
     if store is None:
@@ -914,6 +977,9 @@ class _DashboardHandler(_BaseHandler):
                 return 200, "text/html; charset=utf-8", content
             return 200, "text/html; charset=utf-8", _page("Tasks", "<p>No store configured.</p>")
 
+        if path == "/tasks/new":
+            return 200, "text/html; charset=utf-8", render_create_task()
+
         if path == "/review":
             content = render_review_queue(store)
             return 200, "text/html; charset=utf-8", content
@@ -938,6 +1004,37 @@ class _DashboardHandler(_BaseHandler):
         store = self.__class__.store
         if store is None:
             return 503, "text/html; charset=utf-8", _page("Error", "<p>Store not available.</p>")
+
+        # POST /tasks/new — 手動タスク作成
+        if path == "/tasks/new":
+            title = form.get("title", "").strip()
+            if not title:
+                return 400, "text/html; charset=utf-8", _page("Error", "<p>タイトルは必須です。</p>")
+            section = form.get("section", "").strip() or None
+            description = form.get("description", "").strip() or None
+            tags_raw = form.get("tags", "").strip()
+            tags = [t.strip() for t in tags_raw.split(",") if t.strip()] if tags_raw else []
+            try:
+                priority = int(form.get("priority", "3"))
+            except ValueError:
+                priority = 3
+            try:
+                task = store.create({
+                    "title": title,
+                    "section": section,
+                    "description": description,
+                    "tags": tags,
+                    "priority": priority,
+                    "owner": None,
+                })
+            except Exception as exc:
+                logger.error("create task error: %s", exc)
+                return 500, "text/html; charset=utf-8", _page("Error", f"<p>Task creation failed: {html.escape(str(exc))}</p>")
+            self.send_response(303)
+            self.send_header("Location", f"/tasks/{task['id']}")
+            self.end_headers()
+            return -1, "", ""
+
 
         # POST /tasks/<id>/action
         if path.startswith("/tasks/") and path.endswith("/action"):
