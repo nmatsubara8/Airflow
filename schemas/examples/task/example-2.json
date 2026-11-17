@@ -1,0 +1,56 @@
+{
+  "schema_version": "1.0.0",
+  "id": "task_c9d0e1f2a3b4c5d6",
+  "created_at": "2026-05-22T10:15:00Z",
+  "updated_at": "2026-05-22T10:20:30Z",
+  "title": "認証モジュールのコードレビュー",
+  "description": "src/auth/jwt_handler.py のセキュリティレビューを実施し、脆弱性リスクを列挙する",
+  "status": "in_progress",
+  "owner": {
+    "type": "agent",
+    "id": "agent_code_reviewer"
+  },
+  "priority": 8,
+  "deadline": "2026-05-22T18:00:00Z",
+  "tags": ["security", "review", "python"],
+  "section": "engineering",
+  "features": {
+    "task_type": "review",
+    "language": "code",
+    "input_size_tokens": 3500,
+    "expected_output_size_tokens": 800,
+    "required_accuracy": "high",
+    "latency_sensitivity": "interactive"
+  },
+  "scheduling": {
+    "enqueued_at": "2026-05-22T10:15:10Z",
+    "selected_model_id": "model_qwen25_32b_q3",
+    "effective_priority": 9.2,
+    "starvation_flags": ["deadline_near"]
+  },
+  "source": {
+    "kind": "manual",
+    "ref": "human_nmatsubara8"
+  },
+  "lock": {
+    "version": 3,
+    "etag": "sha256:ddeeff1111111111111111111111111111111111111111111111111111111112"
+  },
+  "handoff_notes": [
+    {
+      "id": "hn_001",
+      "author": { "type": "agent", "id": "agent_dispatcher" },
+      "timestamp": "2026-05-22T10:15:10Z",
+      "body": "コードレビュータスクをagent_code_reviewerにアサイン。優先度8、期限あり。",
+      "kind": "progress",
+      "references": []
+    }
+  ],
+  "chain": [
+    {
+      "agent_id": "agent_dispatcher",
+      "completed_at": "2026-05-22T10:15:10Z",
+      "result_ref": "hn_001"
+    }
+  ]
+}

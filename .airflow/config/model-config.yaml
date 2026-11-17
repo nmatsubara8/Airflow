@@ -1,0 +1,40 @@
+# Model Orchestration Configuration (DDD-06)
+# Phase 2 MVP defaults — extend in Phase 3 when history accumulates
+
+selection:
+  default_mode: recommend        # manual | recommend | auto
+  exploration_rate: 0.1          # ε-greedy: 10% random explore
+  min_samples_for_auto: 20       # history threshold to enable auto mode
+
+knn:
+  k: 5
+  history_window: 200            # last N execution logs for training
+  weights:
+    task_type: 2.0
+    language: 1.5
+    required_accuracy: 1.0
+    latency_sensitivity: 0.5
+    input_size_tokens: 0.3
+    expected_output_size_tokens: 0.3
+
+dual_execution:
+  enabled: false                 # Phase 2 MVP: OFF. Enable in Phase 3 per DDD-06 §7.2
+  conditions:
+    required_accuracy: high
+    mode_not: manual
+    latency_sensitivity_not: interactive
+  evaluator: auto_score_diff
+  threshold: 0.1                 # accept if score diff < threshold
+
+reroute:
+  max_reroute_attempts: 1
+  fallback_chain:
+    model_qwen3_35b_a3b:
+      - model_qwen3_14b           # MoE 失敗時は 14B へ
+    model_qwen3_14b:
+      - model_qwen25_14b_q4       # 最終フォールバック
+    model_gemma4_26b_a4b:
+      - model_qwen3_14b
+    model_qwen25_14b_q4: []
+    model_qwen25_32b_q3: []
+    model_bge_m3: []             # embedding — no reroute

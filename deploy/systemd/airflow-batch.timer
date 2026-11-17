@@ -1,0 +1,11 @@
+[Unit]
+Description=Airflow Batch Scheduler — nightly 03:00 timer
+Documentation=https://github.com/nmatsubara8/airflow
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+AccuracySec=60s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

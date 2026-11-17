@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0.0",
+  "id": "log_e5f6a7b8c9d0e1f2",
+  "timestamp": "2026-05-22T11:05:00Z",
+  "task_id": "task_c9d0e1f2a3b4c5d6",
+  "agent_id": "agent_code_reviewer",
+  "model_id": "model_qwen25_coder_32b_q3",
+  "features_snapshot": {
+    "task_type": "review",
+    "language": "code",
+    "input_size_tokens": 3500,
+    "expected_output_size_tokens": 800,
+    "required_accuracy": "high",
+    "latency_sensitivity": "interactive"
+  },
+  "latency_ms": 45000,
+  "input_tokens": 3520,
+  "output_tokens": 0,
+  "success": false,
+  "retry_count": 2,
+  "schema_valid": false,
+  "auto_score": null,
+  "human_feedback": null,
+  "error": {
+    "class": "escalate",
+    "code": "MODEL_STRUCTURED_OUTPUT_INVALID",
+    "message": "モデル出力が JSON Schema に不適合。3回リトライ後も同症状。エスカレーション。"
+  },
+  "audit_id": "01HX5M7Q4ABCDEFGHIJ0123456",
+  "parent_audit_id": "01HX5K3P2QRSTUVWXYZ0123456",
+  "notes": "Qwen Coder 32B Q3 での structured output 失敗。temperature 0.3 で再試行済み。Phase 3 精度補完機構でフォローアップ要。"
+}

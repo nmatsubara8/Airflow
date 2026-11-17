@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0.0",
+  "id": "model_qwen25_32b_q3",
+  "name": "Qwen2.5 32B Instruct Q3_K_M",
+  "provider": "ollama",
+  "vram_gb": 14.0,
+  "quantization": "Q3_K_M",
+  "context_length": 32768,
+  "strengths": ["japanese", "english", "reasoning", "code_review", "document", "summarize"],
+  "avg_latency_ms_per_100tok": 750,
+  "avg_load_time_ms": 14000,
+  "kv_cache_per_request_gb": 0.9,
+  "cost_per_1k_tokens": 0.0,
+  "endpoint": "http://localhost:11434"
+}

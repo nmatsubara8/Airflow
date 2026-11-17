@@ -1,0 +1,288 @@
+"""ingester/parser.py の単体テスト（DDD-04 §5）。"""
+from __future__ import annotations
+
+from pathlib import Path
+
+
+from airflow_mcp.ingester.parser import frontmatter_to_task_fields, infer_section, normalize_path, parse_markdown
+
+
+# ── parse_markdown ────────────────────────────────────────
+
+def test_parse_markdown_extracts_title_from_frontmatter(tmp_path: Path):
+    md = tmp_path / "test.md"
+    md.write_text("---\ntitle: テストタイトル\ntags: [a, b]\n---\n# 本文")
+    parsed = parse_markdown(md)
+    assert parsed["title"] == "テストタイトル"
+
+
+def test_parse_markdown_extracts_title_from_heading_when_no_frontmatter(tmp_path: Path):
+    md = tmp_path / "heading.md"
+    md.write_text("# 見出しタイトル\n\n本文テキスト")
+    parsed = parse_markdown(md)
+    assert parsed["title"] == "見出しタイトル"
+
+
+def test_parse_markdown_uses_filename_as_fallback_title(tmp_path: Path):
+    md = tmp_path / "my-document.md"
+    md.write_text("frontmatterなし\n本文のみ")
+    parsed = parse_markdown(md)
+    assert parsed["title"] == "my-document"
+
+
+def test_parse_markdown_computes_content_hash(tmp_path: Path):
+    md = tmp_path / "hash.md"
+    md.write_text("# タイトル\n\n本文")
+    parsed = parse_markdown(md)
+    h = parsed["content_hash"]
+    assert h.startswith("sha256:"), f"content_hash は 'sha256:' で始まること: {h}"
+    hex_part = h[len("sha256:"):]
+    assert len(hex_part) == 64, f"sha256 hex は 64 文字であること: got {len(hex_part)}"
+    assert all(c in "0123456789abcdef" for c in hex_part)
+
+
+def test_parse_markdown_content_hash_deterministic(tmp_path: Path):
+    content = "# 同じ内容\n\nbody text"
+    md1 = tmp_path / "file1.md"
+    md2 = tmp_path / "file2.md"
+    md1.write_text(content)
+    md2.write_text(content)
+    assert parse_markdown(md1)["content_hash"] == parse_markdown(md2)["content_hash"]
+
+
+def test_parse_markdown_content_hash_differs_for_different_content(tmp_path: Path):
+    md1 = tmp_path / "a.md"
+    md2 = tmp_path / "b.md"
+    md1.write_text("# タイトルA\n本文A")
+    md2.write_text("# タイトルB\n本文B")
+    assert parse_markdown(md1)["content_hash"] != parse_markdown(md2)["content_hash"]
+
+
+def test_parse_markdown_returns_source_path(tmp_path: Path):
+    md = tmp_path / "doc.md"
+    md.write_text("---\ntitle: パス確認\n---\n本文")
+    # vault_root 指定時は相対パスになること
+    parsed = parse_markdown(md, vault_root=tmp_path)
+    assert parsed["source_path"] == "doc.md"
+
+
+def test_parse_markdown_source_path_no_vault_root_uses_filename(tmp_path: Path):
+    md = tmp_path / "doc.md"
+    md.write_text("本文のみ")
+    parsed = parse_markdown(md)
+    assert parsed["source_path"] == "doc.md"
+
+
+def test_parse_markdown_vault_root_preserves_subdir_path(tmp_path: Path):
+    """vault_root 指定時はサブディレクトリを含む相対パスが返ること。"""
+    sub = tmp_path / "Inbox" / "ProjectA"
+    sub.mkdir(parents=True)
+    md = sub / "task.md"
+    md.write_text("本文")
+    parsed = parse_markdown(md, vault_root=tmp_path)
+    assert parsed["source_path"] == "Inbox/ProjectA/task.md"
+
+
+def test_parse_markdown_vault_root_same_name_different_dirs_get_different_paths(tmp_path: Path):
+    """同名ファイルでも異なるサブディレクトリなら source_path が異なること（note_id 衝突防止）。"""
+    dir_a = tmp_path / "A"
+    dir_b = tmp_path / "B"
+    dir_a.mkdir()
+    dir_b.mkdir()
+    (dir_a / "task.md").write_text("本文A")
+    (dir_b / "task.md").write_text("本文B")
+    path_a = parse_markdown(dir_a / "task.md", vault_root=tmp_path)["source_path"]
+    path_b = parse_markdown(dir_b / "task.md", vault_root=tmp_path)["source_path"]
+    assert path_a != path_b
+    assert path_a == "A/task.md"
+    assert path_b == "B/task.md"
+
+
+def test_parse_markdown_handles_invalid_yaml_frontmatter_gracefully(tmp_path: Path):
+    md = tmp_path / "bad.md"
+    md.write_text("---\ntitle: [unclosed bracket\n---\n本文")
+    parsed = parse_markdown(md)
+    # 不正 YAML でも parse_markdown がクラッシュせず、本文からタイトルを取得すること
+    assert parsed["title"] is not None
+
+
+def test_parse_markdown_handles_empty_file(tmp_path: Path):
+    md = tmp_path / "empty.md"
+    md.write_text("")
+    parsed = parse_markdown(md)
+    assert parsed["title"] is not None  # ファイル名フォールバック
+
+
+# ── frontmatter_to_task_fields ────────────────────────────
+
+def test_frontmatter_to_task_fields_maps_section(tmp_path: Path):
+    md = tmp_path / "t.md"
+    md.write_text("---\ntitle: T\nsection: business\ntags: [x]\n---\n本文")
+    parsed = parse_markdown(md)
+    fields = frontmatter_to_task_fields(parsed)
+    assert fields["section"] == "business"
+
+
+def test_frontmatter_to_task_fields_default_section_is_orchestration(tmp_path: Path):
+    # section 未指定 かつ category 未指定の場合は infer_section がデフォルト "orchestration" を返す（DDD-04 §6.4）
+    md = tmp_path / "t.md"
+    md.write_text("---\ntitle: T\n---\n本文")
+    parsed = parse_markdown(md)
+    fields = frontmatter_to_task_fields(parsed)
+    assert fields["section"] == "orchestration"
+
+
+def test_frontmatter_to_task_fields_maps_tags(tmp_path: Path):
+    md = tmp_path / "t.md"
+    md.write_text("---\ntitle: T\ntags: [api, backend]\n---\n本文")
+    parsed = parse_markdown(md)
+    fields = frontmatter_to_task_fields(parsed)
+    assert "api" in fields["tags"]
+    assert "backend" in fields["tags"]
+
+
+def test_frontmatter_to_task_fields_description_truncated_to_500(tmp_path: Path):
+    long_body = "x" * 1000
+    md = tmp_path / "t.md"
+    md.write_text(f"---\ntitle: T\n---\n{long_body}")
+    parsed = parse_markdown(md)
+    fields = frontmatter_to_task_fields(parsed)
+    assert len(fields["description"]) <= 500
+
+
+def test_frontmatter_to_task_fields_includes_content_hash(tmp_path: Path):
+    md = tmp_path / "t.md"
+    md.write_text("---\ntitle: T\n---\n本文")
+    parsed = parse_markdown(md)
+    fields = frontmatter_to_task_fields(parsed)
+    assert "content_hash" in fields
+    assert fields["content_hash"].startswith("sha256:")
+
+
+def test_frontmatter_to_task_fields_maps_priority(tmp_path: Path):
+    md = tmp_path / "t.md"
+    md.write_text("---\ntitle: T\npriority: 2\n---\n本文")
+    parsed = parse_markdown(md)
+    fields = frontmatter_to_task_fields(parsed)
+    assert fields["priority"] == 2
+
+
+def test_frontmatter_to_task_fields_maps_features(tmp_path: Path):
+    md = tmp_path / "t.md"
+    md.write_text(
+        "---\ntitle: T\nfeatures:\n  required_accuracy: high\n  latency_sensitivity: interactive\n---\n本文"
+    )
+    parsed = parse_markdown(md)
+    fields = frontmatter_to_task_fields(parsed)
+    assert fields["features"]["required_accuracy"] == "high"
+
+
+def test_frontmatter_to_task_fields_tags_as_comma_string(tmp_path: Path):
+    """tags が カンマ区切り文字列のとき list に変換されること（line 74）。"""
+    md = tmp_path / "t.md"
+    md.write_text("---\ntitle: T\ntags: api, backend, docs\n---\n本文")
+    parsed = parse_markdown(md)
+    fields = frontmatter_to_task_fields(parsed)
+    assert fields["tags"] == ["api", "backend", "docs"]
+
+
+def test_frontmatter_to_task_fields_top_level_required_accuracy(tmp_path: Path):
+    """required_accuracy が features: 外のトップレベルに書かれても features に入ること（line 79）。"""
+    md = tmp_path / "t.md"
+    md.write_text("---\ntitle: T\nrequired_accuracy: medium\n---\n本文")
+    parsed = parse_markdown(md)
+    fields = frontmatter_to_task_fields(parsed)
+    assert fields["features"]["required_accuracy"] == "medium"
+
+
+def test_frontmatter_to_task_fields_top_level_latency_sensitivity(tmp_path: Path):
+    """latency_sensitivity がトップレベルに書かれても features に入ること（line 81）。"""
+    md = tmp_path / "t.md"
+    md.write_text("---\ntitle: T\nlatency_sensitivity: batch\n---\n本文")
+    parsed = parse_markdown(md)
+    fields = frontmatter_to_task_fields(parsed)
+    assert fields["features"]["latency_sensitivity"] == "batch"
+
+
+def test_frontmatter_to_task_fields_top_level_task_type(tmp_path: Path):
+    """task_type がトップレベルに書かれても features に入ること（line 83）。"""
+    md = tmp_path / "t.md"
+    md.write_text("---\ntitle: T\ntask_type: summarize\n---\n本文")
+    parsed = parse_markdown(md)
+    fields = frontmatter_to_task_fields(parsed)
+    assert fields["features"]["task_type"] == "summarize"
+
+
+# ── infer_section ─────────────────────────────────────
+
+def test_infer_section_uses_explicit_section():
+    fm = {"section": "engineering", "category": "content"}
+    assert infer_section(fm) == "engineering"
+
+
+def test_infer_section_maps_architecture_to_engineering():
+    assert infer_section({"category": "architecture"}) == "engineering"
+
+
+def test_infer_section_maps_blog_to_content():
+    assert infer_section({"category": "blog"}) == "content"
+
+
+def test_infer_section_maps_marketing_to_business():
+    assert infer_section({"category": "marketing"}) == "business"
+
+
+def test_infer_section_maps_concept_to_orchestration():
+    assert infer_section({"category": "concept"}) == "orchestration"
+
+
+def test_infer_section_defaults_to_orchestration_for_unknown():
+    assert infer_section({"category": "unknown_category"}) == "orchestration"
+
+
+def test_infer_section_defaults_when_no_category():
+    assert infer_section({}) == "orchestration"
+
+
+# ── normalize_path ────────────────────────────────────
+
+def test_normalize_path_converts_windows_backslash():
+    assert normalize_path(r"D:\vaults\notes") == "/mnt/d/vaults/notes"
+
+
+def test_normalize_path_converts_windows_forward_slash():
+    assert normalize_path("D:/vaults/notes") == "/mnt/d/vaults/notes"
+
+
+def test_normalize_path_lowercases_drive_letter():
+    assert normalize_path(r"C:\Users\me") == "/mnt/c/Users/me"
+
+
+def test_normalize_path_leaves_posix_unchanged():
+    assert normalize_path("/home/user/notes") == "/home/user/notes"
+
+
+def test_normalize_path_converts_mixed_slashes_on_posix():
+    assert normalize_path("/home/user\\notes") == "/home/user/notes"
+
+
+# ── frontmatter_to_task_fields uses infer_section ────
+
+def test_frontmatter_to_task_fields_infers_section_from_category(tmp_path):
+    from airflow_mcp.ingester.parser import parse_markdown, frontmatter_to_task_fields
+    md = tmp_path / "note.md"
+    md.write_text("---\ncategory: architecture\n---\n# body")
+    parsed = parse_markdown(md)
+    fields = frontmatter_to_task_fields(parsed)
+    assert fields["section"] == "engineering"
+
+
+def test_parse_markdown_falls_back_to_filename_when_path_outside_vault(tmp_path):
+    """vault_root の外のファイルは ValueError を吸収してファイル名を source_path にすること（lines 91-92）。"""
+    from airflow_mcp.ingester.parser import parse_markdown
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    outside = tmp_path / "outside.md"
+    outside.write_text("# Outside\ncontent")
+    parsed = parse_markdown(outside, vault_root=vault)
+    assert parsed["source_path"] == "outside.md"

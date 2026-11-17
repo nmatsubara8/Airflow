@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0.0",
+  "id": "model_qwen25_14b_q4",
+  "name": "Qwen2.5 14B Instruct Q4_K_M",
+  "provider": "ollama",
+  "vram_gb": 9.0,
+  "quantization": "Q4_K_M",
+  "context_length": 32768,
+  "strengths": ["japanese", "english", "summarize", "classify", "extract", "document"],
+  "avg_latency_ms_per_100tok": 420,
+  "avg_load_time_ms": 8500,
+  "kv_cache_per_request_gb": 0.5,
+  "cost_per_1k_tokens": 0.0,
+  "endpoint": "http://localhost:11434"
+}

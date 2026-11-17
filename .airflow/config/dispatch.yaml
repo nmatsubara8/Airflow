@@ -1,0 +1,46 @@
+# Task Dispatch Configuration (DDD-04 §6.4)
+# Routes inbox tasks to agent categories based on keyword/tag matching
+
+routing:
+  default_category: engineering
+
+  rules:
+    - category: engineering
+      match_any:
+        tags: [architecture, code, tech, review, refactor, bug, test, deploy, api, database, infra]
+        title_keywords: [実装, 設計, コード, レビュー, バグ, テスト, デプロイ, API, DB, インフラ]
+
+    - category: content
+      match_any:
+        tags: [content, script, blog, article, copy, sns, video, podcast, transcript]
+        title_keywords: [コンテンツ, 記事, 台本, ブログ, SNS, 動画, 文章]
+
+    - category: business
+      match_any:
+        tags: [business, marketing, legal, finance, contract, strategy, kpi]
+        title_keywords: [事業, マーケティング, 法務, 財務, 契約, 戦略, KPI]
+
+    - category: orchestration
+      match_any:
+        tags: [workflow, tool, concept, meta, airflow, system]
+        title_keywords: [ワークフロー, システム, ツール, 設定, Airflow]
+
+priority:
+  default: 5                         # 1 (highest) – 10 (lowest)
+  overrides:
+    tags:
+      urgent: 1
+      deadline: 2
+      review: 3
+
+agent_selection:
+  strategy: skills_match             # match task tags to agent skills
+  fallback: round_robin              # if no skills match, round-robin
+
+# section → default agent mapping (overrides _MVP_AGENT_MAP in dispatcher/main.py)
+# Uncomment and set the appropriate agent_id when agents are registered.
+section_agents:
+  engineering:   agent_docs
+  content:       agent_docs          # Replace with agent_content_director when available
+  business:      agent_docs          # Replace with agent_marketing_director when available
+  orchestration: agent_docs

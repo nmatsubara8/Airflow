@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://airflow.local/schemas/task/v1.0.0",
+  "title": "Task",
+  "type": "object",
+  "required": [
+    "schema_version", "id", "created_at", "updated_at",
+    "title", "status", "owner", "priority"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "pattern": "^1\\." },
+    "id": { "type": "string", "pattern": "^task_[a-f0-9]{8,}$" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "description": { "type": "string" },
+    "status": {
+      "type": "string",
+      "enum": ["inbox", "in_progress", "done", "needs_human", "blocked", "cancelled"]
+    },
+    "owner": {
+      "type": "object",
+      "required": ["type", "id"],
+      "properties": {
+        "type": { "type": "string", "enum": ["agent", "human"] },
+        "id": { "type": "string" }
+      }
+    },
+    "priority": { "type": "integer", "minimum": 1, "maximum": 10 },
+    "deadline": { "type": ["string", "null"], "format": "date-time" },
+    "tags": { "type": "array", "items": { "type": "string" } },
+    "section": {
+      "type": "string",
+      "enum": ["orchestration", "engineering", "content", "business"]
+    },
+
+    "features": {
+      "type": "object",
+      "description": "モデル選択用タスク特徴ベクトル",
+      "properties": {
+        "task_type": {
+          "type": "string",
+          "enum": ["code_gen", "review", "summarize", "classify", "extract", "chat", "test", "document"]
+        },
+        "language": { "type": "string", "enum": ["ja", "en", "code", "mixed"] },
+        "input_size_tokens": { "type": "integer", "minimum": 0 },
+        "expected_output_size_tokens": { "type": "integer", "minimum": 0 },
+        "required_accuracy": { "type": "string", "enum": ["low", "medium", "high"] },
+        "latency_sensitivity": { "type": "string", "enum": ["none", "batch", "interactive"] }
+      }
+    },
+
+    "scheduling": {
+      "type": "object",
+      "properties": {
+        "enqueued_at": { "type": "string", "format": "date-time" },
+        "selected_model_id": { "type": ["string", "null"] },
+        "effective_priority": { "type": "number" },
+        "starvation_flags": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["aged", "deadline_near", "force_run"] }
+        }
+      }
+    },
+
+    "handoff_notes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/HandoffNote" }
+    },
+
+    "chain": {
+      "type": "array",
+      "description": "エージェント連携の履歴。4段レビュー等のhandoff_noteベースの連鎖追跡用（DDD-08 §3.1）",
+      "items": {
+        "type": "object",
+        "required": ["agent_id"],
+        "properties": {
+          "agent_id": { "type": "string" },
+          "completed_at": { "type": ["string", "null"], "format": "date-time" },
+          "result_ref": { "type": ["string", "null"], "description": "対応する handoff_note の id" }
+        }
+      }
+    },
+
+    "join": {
+      "type": "object",
+      "description": "親子タスク集約（tasks.join 用、DDD-02 §3.2 / DDD-08 §3.2）",
+      "properties": {
+        "parent_id": { "type": ["string", "null"] },
+        "child_ids": { "type": "array", "items": { "type": "string" } },
+        "policy": { "type": "string", "enum": ["all_done", "any_done", "majority"] }
+      }
+    },
+
+    "source": {
+      "type": "object",
+      "description": "タスク発生源（Inbox markdown など）",
+      "properties": {
+        "kind": { "type": "string", "enum": ["inbox_note", "issue", "manual", "schedule", "agent_emitted"] },
+        "ref": { "type": "string", "description": "note_id / issue URL / cron name など" }
+      }
+    },
+
+    "lock": {
+      "type": "object",
+      "description": "楽観的ロック",
+      "properties": {
+        "version": { "type": "integer", "minimum": 0 },
+        "etag": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    }
+  },
+
+  "$defs": {
+    "HandoffNote": {
+      "type": "object",
+      "required": ["id", "author", "timestamp", "body"],
+      "properties": {
+        "id": { "type": "string" },
+        "author": {
+          "type": "object",
+          "required": ["type", "id"],
+          "properties": {
+            "type": { "type": "string", "enum": ["agent", "human"] },
+            "id": { "type": "string" }
+          }
+        },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "body": { "type": "string" },
+        "kind": {
+          "type": "string",
+          "enum": ["progress", "result", "escalation", "question", "decision"]
+        },
+        "references": {
+          "type": "array",
+          "items": { "type": "string", "description": "note_id / file path / URL" }
+        }
+      }
+    }
+  }
+}

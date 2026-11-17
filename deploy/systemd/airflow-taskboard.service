@@ -1,0 +1,18 @@
+[Unit]
+Description=Airflow MCP — Taskboard Server
+Documentation=https://github.com/nmatsubara8/airflow
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/airflow
+EnvironmentFile=/opt/airflow/.env
+ExecStart=python -m airflow_mcp taskboard
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=airflow-taskboard
+
+[Install]
+WantedBy=multi-user.target

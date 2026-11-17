@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.egg-info/
+
+# ランタイム生成データ（Git 管理不要）
+.airflow/execution_logs/
+.airflow/tasks/
+.airflow/audit_logs/
+.airflow/runtime/
+.airflow/notes/
+.airflow/logs/
+.coverage
+coverage.json
+htmlcov/

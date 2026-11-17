@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.0.0",
+  "id": "note_cc44dd55ee66ff00aa11bb22cc44dd55",
+  "absolute_path": "/mnt/d/vaults/youtube-knowledge/notes/Business/pricing-strategy-2026.md",
+  "relative_path": "Business/pricing-strategy-2026.md",
+  "title": "2026年度価格戦略メモ",
+  "category": "business",
+  "confidence": 0.8,
+  "review_status": "draft",
+  "last_verified": null,
+  "last_indexed": "2026-05-21T22:00:00Z",
+  "content_hash": "sha256:ee66ff00aa11bb22cc33dd44ee55ff00aa11bb22cc33dd44ee55ff00aa11bb22",
+  "confidential": true,
+  "sources": [
+    {
+      "video_id": "xAbCdEfGhI0",
+      "channel": "クウキデザイン",
+      "timestamp": "00:18:45",
+      "url": "https://www.youtube.com/watch?v=xAbCdEfGhI0&t=1125"
+    }
+  ],
+  "sections": [
+    {
+      "heading": "市場分析",
+      "chunk_ids": ["chunk_biz_001", "chunk_biz_002"]
+    },
+    {
+      "heading": "価格設定方針",
+      "chunk_ids": ["chunk_biz_003"]
+    }
+  ],
+  "internal_links": [
+    "Business/competitor-analysis.md"
+  ]
+}

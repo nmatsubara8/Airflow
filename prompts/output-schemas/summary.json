@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["summary", "key_points", "confidence", "suggested_tags"],
+  "properties": {
+    "summary": {
+      "type": "string",
+      "minLength": 20,
+      "maxLength": 500,
+      "description": "タスクの分析結果サマリー（20〜500文字）"
+    },
+    "key_points": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 5 },
+      "minItems": 3,
+      "maxItems": 5,
+      "description": "重要ポイント（必ず3〜5点）"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.1,
+      "maximum": 1.0,
+      "description": "出力への確信度（0.1〜1.0）"
+    },
+    "suggested_tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "maxItems": 4,
+      "description": "推奨タグ（1〜4個）"
+    },
+    "updated_description": {
+      "type": ["string", "null"],
+      "description": "人間の追加指示を反映した新しい description（Markdown形式）。指示がない場合は null"
+    }
+  },
+  "additionalProperties": false
+}

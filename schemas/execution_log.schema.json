@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://airflow.local/schemas/execution_log/v1.0.0",
+  "title": "ExecutionLog",
+  "type": "object",
+  "required": [
+    "schema_version", "id", "timestamp", "task_id", "agent_id",
+    "model_id", "success"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "pattern": "^1\\." },
+    "id": { "type": "string", "pattern": "^log_[a-f0-9]{8,}$" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "task_id": { "type": "string" },
+    "agent_id": { "type": "string" },
+    "model_id": { "type": "string" },
+
+    "features_snapshot": {
+      "description": "実行時のタスク特徴（Task.features と同形式）",
+      "type": "object",
+      "properties": {
+        "task_type": {
+          "type": "string",
+          "enum": ["code_gen", "review", "summarize", "classify", "extract", "chat", "test", "document"]
+        },
+        "language": { "type": "string", "enum": ["ja", "en", "code", "mixed"] },
+        "input_size_tokens": { "type": "integer", "minimum": 0 },
+        "expected_output_size_tokens": { "type": "integer", "minimum": 0 },
+        "required_accuracy": { "type": "string", "enum": ["low", "medium", "high"] },
+        "latency_sensitivity": { "type": "string", "enum": ["none", "batch", "interactive"] }
+      }
+    },
+
+    "latency_ms": { "type": "integer", "minimum": 0 },
+    "input_tokens": { "type": "integer", "minimum": 0 },
+    "output_tokens": { "type": "integer", "minimum": 0 },
+
+    "success": { "type": "boolean" },
+    "retry_count": { "type": "integer", "minimum": 0 },
+    "schema_valid": { "type": "boolean" },
+
+    "auto_score": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "human_feedback": {
+      "type": ["string", "null"],
+      "enum": ["accepted", "modified", "rejected", null]
+    },
+
+    "error": {
+      "type": ["object", "null"],
+      "properties": {
+        "class": { "type": "string", "enum": ["recoverable", "escalate", "fatal"] },
+        "code": { "type": "string" },
+        "message": { "type": "string" }
+      }
+    },
+
+    "audit_id": {
+      "type": "string",
+      "description": "DDD-03 §5 で定義する監査追跡 ID（ULID）"
+    },
+    "parent_audit_id": {
+      "type": ["string", "null"],
+      "description": "親イベントの audit_id。階層伝播（DDD-03 §5.2）"
+    },
+    "notes": {
+      "type": ["string", "null"],
+      "description": "実行に関する自由記述メモ。手動デバッグ・人間レビュー時のコメント用"
+    }
+  }
+}

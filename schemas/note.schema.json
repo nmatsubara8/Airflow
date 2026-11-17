@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://airflow.local/schemas/note/v1.0.0",
+  "title": "Note",
+  "type": "object",
+  "required": ["schema_version", "id", "absolute_path", "content_hash", "last_indexed"],
+  "properties": {
+    "schema_version": { "type": "string", "pattern": "^1\\." },
+    "id": { "type": "string", "pattern": "^note_[a-f0-9]{16,}$" },
+    "absolute_path": { "type": "string" },
+    "relative_path": { "type": "string" },
+    "title": { "type": ["string", "null"] },
+    "category": { "type": ["string", "null"] },
+    "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "review_status": {
+      "type": ["string", "null"],
+      "enum": ["verified", "auto_accepted", "draft", "pending", null]
+    },
+    "last_verified": { "type": ["string", "null"], "format": "date" },
+    "last_indexed": { "type": "string", "format": "date-time" },
+    "content_hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "confidential": { "type": "boolean", "default": false },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "video_id": { "type": "string" },
+          "channel": { "type": "string" },
+          "timestamp": { "type": "string" },
+          "url": { "type": "string", "format": "uri" }
+        }
+      }
+    },
+    "sections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "heading": { "type": "string" },
+          "chunk_ids": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "internal_links": { "type": "array", "items": { "type": "string" } }
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://airflow.local/schemas/gpu_state/v1.0.0",
+  "title": "GpuState",
+  "type": "object",
+  "required": ["schema_version", "snapshot_at", "total_vram_gb", "used_vram_gb"],
+  "properties": {
+    "schema_version": { "type": "string", "pattern": "^1\\." },
+    "snapshot_at": { "type": "string", "format": "date-time" },
+    "total_vram_gb": { "type": "number" },
+    "used_vram_gb": { "type": "number" },
+    "free_vram_gb": { "type": "number" },
+    "loaded_models": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["model_id", "vram_gb", "loaded_at"],
+        "properties": {
+          "model_id": { "type": "string" },
+          "vram_gb": { "type": "number" },
+          "loaded_at": { "type": "string", "format": "date-time" },
+          "last_used_at": { "type": "string", "format": "date-time" },
+          "pending_tasks": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "active_profile": { "type": ["string", "null"] }
+  }
+}

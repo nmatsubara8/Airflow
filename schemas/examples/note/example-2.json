@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0.0",
+  "id": "note_a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+  "absolute_path": "/mnt/d/vaults/youtube-knowledge/notes/Inbox/task-2026-05-22.md",
+  "relative_path": "Inbox/task-2026-05-22.md",
+  "title": "認証モジュール改善タスク",
+  "category": "inbox",
+  "confidence": null,
+  "review_status": null,
+  "last_verified": null,
+  "last_indexed": "2026-05-22T09:00:00Z",
+  "content_hash": "sha256:bb22cc33dd44ee55ff00aa11bb22cc33dd44ee55ff00aa11bb22cc33dd44ee55",
+  "confidential": false,
+  "sources": [],
+  "sections": [
+    {
+      "heading": "タスク内容",
+      "chunk_ids": ["chunk_inbox_001"]
+    }
+  ],
+  "internal_links": []
+}

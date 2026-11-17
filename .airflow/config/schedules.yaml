@@ -1,0 +1,66 @@
+# Scheduled Task Configuration (DDD-08 §7.1)
+# All times are JST (Asia/Tokyo). Executed by airflow-scheduler.service.
+
+timezone: Asia/Tokyo
+
+schedules:
+  # Engineering QA — nightly batch (DDD-08 §7.1)
+  nightly_qa:
+    cron: "0 2 * * *"              # 02:00 every day
+    task_template: nightly_qa_batch
+    category: engineering
+    priority: 3
+    agents:
+      - agent_qa
+    description: "夜間 QA バッチ（テスト実行・カバレッジレポート）"
+
+  # Security scan — nightly (DDD-08 §7.1)
+  security_scan:
+    cron: "30 2 * * *"             # 02:30 every day
+    task_template: security_scan_batch
+    category: engineering
+    priority: 3
+    agents:
+      - agent_security
+    description: "夜間セキュリティスキャン（CVE・OWASP）"
+
+  # Engineering director weekly — Mon (DDD-08 §7.1)
+  eng_director_briefing:
+    cron: "0 9 * * 1"             # 09:00 every Monday
+    description: "エンジニアリングディレクター週次ブリーフィング（月）"
+    actions:
+      - eng_director: { mode: sprint_planning }
+
+  # Content morning brainstorm — daily (DDD-08 §7.1)
+  morning_brainstorm:
+    cron: "0 7 * * *"              # 07:00 every day
+    task_template: morning_brainstorm
+    category: content
+    priority: 4
+    agents:
+      - agent_morning_brainstorm
+    description: "朝のコンテンツブレインストーミング"
+
+  # Business team briefing — Tue/Fri (DDD-08 §7.1)
+  business_briefing:
+    cron: "0 9 * * 2,5"           # 09:00 Tue & Fri
+    task_template: business_briefing
+    category: business
+    priority: 4
+    agents:
+      - agent_business_strategy
+    description: "ビジネス定期ブリーフィング（火・金）"
+
+  # Cleaner — daily (DDD-08 §7.1) — batch_scheduler が直接 cleaner.run_once() を呼ぶ
+  cleaner:
+    cron: "0 3 * * *"             # 03:00 every day
+    description: "日次クリーンアップ（古いタスク・ログのアーカイブ・重複排除）"
+    actions:
+      - cleaner: { mode: scan_and_dedupe }
+
+  # Audit hash — daily (DDD-08 §7.1) — batch_scheduler が直接 audit_integrity を呼ぶ
+  audit_hash:
+    cron: "0 3 * * *"             # 03:00 every day (cleaner と同時)
+    description: "監査ログ整合性ハッシュ計算・検証"
+    actions:
+      - audit: { mode: chain_hash }

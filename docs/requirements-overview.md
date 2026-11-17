@@ -15,8 +15,8 @@
    ▼
 [共有タスクボード]  ← MCP → AI エージェント群
    │                              ├── Engineering (Claude Code)
-   │                              ├── Content (Cowork)
-   │                              └── Business (Cowork)
+   │                              ├── Content (Claude Cowork)
+   │                              └── Business (Claude Cowork)
    ▼
 インフラ運用チーム (Hermes Agent)
 ```
@@ -106,7 +106,7 @@
 
 | # | 要件 |
 |---|------|
-| F-13 | Claude Code・Cowork など異なる AI ツールが同一タスクボードへ MCP 経由でアクセスできる |
+| F-13 | Claude Code・Claude Cowork など異なる AI ツールが同一タスクボードへ MCP 経由でアクセスできる |
 | F-14 | MCP サーバーを複数用意し、ツール種別ごとに接続先を切り替えられる |
 | F-15 | MCP レイヤーでアクセス制御（認証トークン）を実装する |
 
@@ -169,7 +169,8 @@
         ┌────────▼──┐  ┌─────▼─────┐  ┌─▼──────────┐
         │ §01       │  │ §02       │  │ §03        │
         │ Engineering│  │ Content   │  │ Business   │
-        │(Claude Code)│  │ (Cowork)  │  │ (Cowork)   │
+        │(Claude Code)│  │  (Claude  │  │  (Claude   │
+        │           │  │  Cowork)  │  │  Cowork)   │
         │           │  │           │  │            │
         │ tech-lead │  │ director  │  │ marketing  │
         │ qa        │  │ brand-voice│  │ legal      │

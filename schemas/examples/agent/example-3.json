@@ -1,0 +1,45 @@
+{
+  "schema_version": "1.0.0",
+  "id": "agent_dispatcher",
+  "section": "orchestration",
+  "platform": "custom",
+  "role": "タスクディスパッチャー。inbox に入ったタスクを解析し、適切なエージェントセクションへ振り分ける",
+  "responsibilities": [
+    "inbox タスクの自動分類と section 判定",
+    "feature-extractor エージェントへの特徴抽出委譲",
+    "タスクステータスを inbox → in_progress へ遷移",
+    "エージェント負荷状況に基づく割り当て先決定"
+  ],
+  "inputs": [
+    "task.json（inbox ステータス）",
+    "agents-mcp からのエージェント状態一覧"
+  ],
+  "outputs": [
+    "tasks.assign の実行（MCP経由）",
+    "handoff_note（progress）"
+  ],
+  "triggers": [
+    "tasks.list で inbox タスクを検出したとき（30秒ポーリング）",
+    "notes-ingester からのタスク生成イベント"
+  ],
+  "escalation_criteria": [
+    "30分以上 inbox に留まるタスクが5件以上の場合",
+    "全セクションのエージェントがビジーの場合"
+  ],
+  "preferred_models": [
+    { "id": "model_qwen25_14b_q4", "weight": 1.0 }
+  ],
+  "context_isolation": "shared",
+  "required_accuracy": "medium",
+  "language": "ja",
+  "mcp_scopes": ["tasks:read", "tasks:write", "notes:read", "agents:read"],
+  "dependencies": {
+    "upstream": ["agent_cleaner（タスク重複排除後）", "ingester（DDD-04）"],
+    "downstream": [
+      "agent_feature_extractor",
+      "agent_tech_lead",
+      "agent_content_director",
+      "agent_legal_review"
+    ]
+  }
+}

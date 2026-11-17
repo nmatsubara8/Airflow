@@ -1,0 +1,6 @@
+FROM bge-m3:latest
+
+# Embedding model — no SYSTEM prompt or generation parameters needed.
+# Used exclusively for vector embedding via /api/embeddings endpoint.
+# Output: 1024-dimensional float array.
+# Max input: 8192 tokens (multilingual: JA/EN supported).

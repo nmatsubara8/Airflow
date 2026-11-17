@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://airflow.local/schemas/model/v1.0.0",
+  "title": "Model",
+  "type": "object",
+  "required": [
+    "schema_version", "id", "name", "provider", "vram_gb"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "pattern": "^1\\." },
+    "id": { "type": "string", "pattern": "^model_[a-z0-9._-]+$" },
+    "name": { "type": "string" },
+    "provider": {
+      "type": "string",
+      "enum": ["ollama", "vllm", "llama_cpp", "openai", "anthropic", "openrouter"]
+    },
+    "vram_gb": { "type": "number", "minimum": 0 },
+    "quantization": {
+      "type": ["string", "null"],
+      "enum": ["FP16", "Q8_0", "Q6_K", "Q5_K_M", "Q4_K_M", "Q3_K_M", "Q2_K", null]
+    },
+    "context_length": { "type": "integer", "minimum": 512 },
+    "strengths": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "japanese", "english", "reasoning", "code_generation",
+          "code_review", "document", "classify", "extract",
+          "summarize", "light_task", "embedding"
+        ]
+      }
+    },
+    "avg_latency_ms_per_100tok": { "type": "number", "minimum": 0 },
+    "avg_load_time_ms": {
+      "type": "number",
+      "minimum": 0,
+      "description": "コールドロード平均時間。DDD-07 §3.2 swap_cost 計算で利用。実測ベースで更新"
+    },
+    "kv_cache_per_request_gb": {
+      "type": "number",
+      "minimum": 0,
+      "description": "1並列リクエストあたりのKVキャッシュ消費。DDD-07 §10.2 で利用"
+    },
+    "cost_per_1k_tokens": { "type": "number", "minimum": 0 },
+    "endpoint": { "type": ["string", "null"], "format": "uri" }
+  }
+}

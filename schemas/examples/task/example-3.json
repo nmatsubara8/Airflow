@@ -1,0 +1,76 @@
+{
+  "schema_version": "1.0.0",
+  "id": "task_e5f6a7b8c9d0e1f2",
+  "created_at": "2026-05-21T22:00:00Z",
+  "updated_at": "2026-05-22T00:45:00Z",
+  "title": "PR #42 並列レビュー（集約タスク）",
+  "description": "4つの並列レビュータスクの結果を集約し、最終レビューコメントを生成する",
+  "status": "done",
+  "owner": {
+    "type": "agent",
+    "id": "agent_tech_lead"
+  },
+  "priority": 7,
+  "deadline": null,
+  "tags": ["pr_review", "parallel", "join"],
+  "section": "engineering",
+  "features": {
+    "task_type": "review",
+    "language": "mixed",
+    "input_size_tokens": 8000,
+    "expected_output_size_tokens": 1500,
+    "required_accuracy": "high",
+    "latency_sensitivity": "none"
+  },
+  "scheduling": {
+    "enqueued_at": "2026-05-21T22:00:05Z",
+    "selected_model_id": "model_qwen25_32b_q3",
+    "effective_priority": 7.0,
+    "starvation_flags": []
+  },
+  "join": {
+    "parent_id": null,
+    "child_ids": [
+      "task_bb11cc22dd33ee44",
+      "task_ff00aa11bb22cc33",
+      "task_44556677889900aa",
+      "task_bbccddee00112233"
+    ],
+    "policy": "all_done"
+  },
+  "source": {
+    "kind": "agent_emitted",
+    "ref": "task_bb11cc22dd33ee44"
+  },
+  "lock": {
+    "version": 8,
+    "etag": "sha256:998877665544332211009988776655443322110099887766554433221100aabb"
+  },
+  "handoff_notes": [
+    {
+      "id": "hn_join_final",
+      "author": { "type": "agent", "id": "agent_tech_lead" },
+      "timestamp": "2026-05-22T00:44:55Z",
+      "body": "4並列レビュー完了。セキュリティ指摘2件、スタイル軽微3件。LGTM with minor comments.",
+      "kind": "result",
+      "references": [
+        "task_bb11cc22dd33ee44",
+        "task_ff00aa11bb22cc33",
+        "task_44556677889900aa",
+        "task_bbccddee00112233"
+      ]
+    }
+  ],
+  "chain": [
+    {
+      "agent_id": "agent_dispatcher",
+      "completed_at": "2026-05-21T22:00:10Z",
+      "result_ref": null
+    },
+    {
+      "agent_id": "agent_tech_lead",
+      "completed_at": "2026-05-22T00:44:55Z",
+      "result_ref": "hn_join_final"
+    }
+  ]
+}

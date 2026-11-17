@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0.0",
+  "timestamp": "2026-05-22T11:05:00Z",
+  "level": "error",
+  "event": "escalation.triggered",
+  "audit_id": "01HX5M7Q4ABCDEFGHIJ0123456",
+  "parent_audit_id": "01HX5K3P2QRSTUVWXYZ0123456",
+  "component": "taskboard-mcp",
+  "task_id": "task_c9d0e1f2a3b4c5d6",
+  "agent_id": "agent_code_reviewer",
+  "model_id": "model_qwen25_coder_32b_q3",
+  "duration_ms": 45000,
+  "error": {
+    "class": "escalate",
+    "code": "MODEL_STRUCTURED_OUTPUT_INVALID",
+    "message": "モデル出力が JSON Schema に不適合。3回リトライ後も同症状。"
+  },
+  "data": {
+    "retry_count": 2,
+    "escalation_target": "needs_human",
+    "schema_errors": ["properties/output: required field 'summary' is missing"]
+  }
+}

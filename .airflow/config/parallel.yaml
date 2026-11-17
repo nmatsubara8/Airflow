@@ -1,0 +1,72 @@
+# Parallel Scheduler Configuration (DDD-07)
+# Phase 2 MVP: single model execution; expand in Phase 4
+
+scheduler:
+  ollama_num_parallel: 2         # OLLAMA_NUM_PARALLEL env var
+  vram_total_gb: 16
+  vram_reserve_gb: 1             # OS / driver headroom
+  vram_available_gb: 15          # effective = total - reserve
+  ram_total_gb: 64               # system RAM (for MoE offload budget)
+  ram_reserve_gb: 16             # OS / app headroom
+  ram_available_gb: 48           # effective RAM for offload
+
+starvation_prevention:
+  max_consecutive_same_model: 10
+  max_wait_before_boost_s: 600   # aging: boost priority after 10 min
+  deadline_warn_s: 300           # warn if task waits > 5 min
+  force_run_s: 3600              # force-run regardless of VRAM after 1 hr
+
+fair_share:
+  model_qwen3_14b: 0.60           # Qwen3 14B primary
+  model_qwen25_32b_q3: 0.30       # 32B: フォールバック専用
+  model_qwen25_14b_q4: 0.10       # Qwen2.5 14B: レガシーフォールバック
+
+profiles:
+  - name: single-qwen3-14b
+    models:
+      - model_qwen3_14b
+      - model_bge_m3
+    vram_required_gb: 10
+    ram_offload_gb: 0
+    description: "軽量タスク・低レイテンシ: Qwen3 14B + embedding"
+
+  - name: single-32b
+    models:
+      - model_qwen25_32b_q3
+      - model_bge_m3
+    vram_required_gb: 15
+    ram_offload_gb: 0
+    description: "Dense 32B フォールバック + embedding"
+
+  - name: single-14b
+    models:
+      - model_qwen25_14b_q4
+      - model_bge_m3
+    vram_required_gb: 10
+    ram_offload_gb: 0
+    description: "レガシーフォールバック: Qwen2.5 14B + embedding"
+
+  - name: 14b-plus-8b
+    models:
+      - model_qwen25_14b_q4
+      - model_llama31_8b_q4
+      - model_bge_m3
+    vram_required_gb: 14
+    description: "Phase 3+: dual inference + embedding"
+
+  - name: dual-8b-plus-emb
+    models:
+      - model_llama31_8b_q4
+      - model_qwen25_7b_q4
+      - model_bge_m3
+    vram_required_gb: 11
+    description: "Phase 4+: low-latency dual small models"
+
+  - name: coder-plus-emb
+    models:
+      - model_qwen25_coder_32b_q3
+      - model_bge_m3
+    vram_required_gb: 15
+    description: "Phase 3+: code-specialized single model"
+
+mvp_profile: single-qwen3-14b      # active profile — Qwen3 14B

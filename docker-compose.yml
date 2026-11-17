@@ -1,0 +1,143 @@
+services:
+  # ── Ollama LLM backend ───────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_data:/root/.ollama
+      - ${MODELS_DIR:-/mnt/d/models}:/models:ro
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+    # GPU: uncomment if nvidia-container-toolkit is installed
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # ── Ingester (Vault → inbox polling loop) ───────────────────────────────
+  ingester:
+    build: .
+    command: ["python", "-m", "airflow_mcp", "ingester"]
+    user: "1000:1000"
+    volumes:
+      - ./.airflow/tasks:/data/tasks
+      - ./.airflow/config:/app/.airflow/config:ro
+      - ./.airflow/notes:/app/.airflow/notes
+      - ${VAULT_ROOT:-/mnt/d/vaults}:/vault:ro
+    env_file: .env
+    environment:
+      AIRFLOW_TASKBOARD_DIR: /data/tasks
+      VAULT_ROOT: /vault
+    restart: unless-stopped
+
+  # ── Dispatcher (inbox polling loop) ──────────────────────────────────────
+  dispatcher:
+    build: .
+    command: ["python", "-m", "airflow_mcp.dispatcher.main"]
+    user: "1000:1000"
+    volumes:
+      - ./.airflow/tasks:/data/tasks
+      - ./.airflow/config:/app/.airflow/config:ro
+      - ./.airflow/notes:/app/.airflow/notes
+      - ./.airflow/models:/app/.airflow/models:ro
+      - ./prompts:/app/prompts:ro
+    env_file: .env
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      AIRFLOW_TASKBOARD_DIR: /data/tasks
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Runner (agent_docs execution loop) ──────────────────────────────────
+  runner:
+    build: .
+    command: ["python", "-m", "airflow_mcp.runner.main"]
+    user: "1000:1000"
+    volumes:
+      - ./.airflow/tasks:/data/tasks
+      - ./.airflow/config:/app/.airflow/config:ro
+      - ./.airflow/execution_logs:/app/.airflow/execution_logs
+      - ./.airflow/notes:/app/.airflow/notes
+      - ./.airflow/models:/app/.airflow/models:ro
+      - ./prompts:/app/prompts:ro
+    env_file: .env
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      AIRFLOW_TASKBOARD_DIR: /data/tasks
+    depends_on:
+      ollama:
+        condition: service_healthy
+      dispatcher:
+        condition: service_started
+    restart: unless-stopped
+
+  # ── Runner-PM (agent_pm execution loop) ─────────────────────────────────
+  runner-pm:
+    build: .
+    command: ["python", "-m", "airflow_mcp.runner.main"]
+    user: "1000:1000"
+    volumes:
+      - ./.airflow/tasks:/data/tasks
+      - ./.airflow/config:/app/.airflow/config:ro
+      - ./.airflow/execution_logs:/app/.airflow/execution_logs
+      - ./.airflow/notes:/app/.airflow/notes
+      - ./.airflow/models:/app/.airflow/models:ro
+      - ./prompts:/app/prompts:ro
+    env_file: .env
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      AIRFLOW_TASKBOARD_DIR: /data/tasks
+      AIRFLOW_AGENT_ID: agent_pm
+    depends_on:
+      ollama:
+        condition: service_healthy
+      dispatcher:
+        condition: service_started
+    restart: unless-stopped
+
+  # ── Dashboard (status display loop) ──────────────────────────────────────
+  dashboard:
+    build: .
+    command: ["python", "deploy/systemd/airflow-dashboard.sh"]
+    volumes:
+      - ./.airflow/tasks:/data/tasks
+      - ./.airflow/config:/app/.airflow/config:ro
+      - ./deploy/systemd/airflow-dashboard.sh:/app/deploy/systemd/airflow-dashboard.sh:ro
+    env_file: .env
+    environment:
+      AIRFLOW_TASKBOARD_DIR: /data/tasks
+      AIRFLOW_HTTP_AUTH_TOKEN: ""
+    ports:
+      - "7400:7400"
+    depends_on:
+      - dispatcher
+    restart: unless-stopped
+
+  # ── Metrics (Prometheus exporter) ────────────────────────────────────────
+  metrics:
+    build: .
+    command: ["python", "deploy/systemd/airflow-metrics.sh"]
+    volumes:
+      - ./.airflow/tasks:/data/tasks
+      - ./deploy/systemd/airflow-metrics.sh:/app/deploy/systemd/airflow-metrics.sh:ro
+    env_file: .env
+    environment:
+      AIRFLOW_TASKBOARD_DIR: /data/tasks
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  # NOTE: MCP servers (taskboard, notes, models, gpu, agents) are stdio-based
+  # and must be launched by Claude Desktop, not as persistent Docker services.
+  # Configure them in Claude Desktop's MCP settings instead.
+
+volumes:
+  ollama_data:

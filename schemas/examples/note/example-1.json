@@ -1,0 +1,36 @@
+{
+  "schema_version": "1.0.0",
+  "id": "note_f1e2d3c4b5a697800102030405060708",
+  "absolute_path": "/mnt/d/vaults/youtube-knowledge/notes/Airflow/airflow-overview.md",
+  "relative_path": "Airflow/airflow-overview.md",
+  "title": "Airflowシステム概要",
+  "category": "engineering",
+  "confidence": 0.95,
+  "review_status": "verified",
+  "last_verified": "2026-05-20",
+  "last_indexed": "2026-05-22T08:55:00Z",
+  "content_hash": "sha256:a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2",
+  "confidential": false,
+  "sources": [
+    {
+      "video_id": "dQw4w9WgXcQ",
+      "channel": "クウキデザイン",
+      "timestamp": "00:05:32",
+      "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=332"
+    }
+  ],
+  "sections": [
+    {
+      "heading": "概要",
+      "chunk_ids": ["chunk_001", "chunk_002"]
+    },
+    {
+      "heading": "アーキテクチャ",
+      "chunk_ids": ["chunk_003", "chunk_004", "chunk_005"]
+    }
+  ],
+  "internal_links": [
+    "Airflow/mcp-interface.md",
+    "Airflow/agent-team-composition.md"
+  ]
+}

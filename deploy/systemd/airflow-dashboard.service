@@ -1,0 +1,18 @@
+[Unit]
+Description=Airflow Web Dashboard (port 7400)
+Documentation=https://github.com/nmatsubara8/airflow
+After=network.target airflow-taskboard.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/airflow
+EnvironmentFile=/opt/airflow/.env
+ExecStart=python /opt/airflow/deploy/systemd/airflow-dashboard.sh
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=airflow-dashboard
+
+[Install]
+WantedBy=multi-user.target
